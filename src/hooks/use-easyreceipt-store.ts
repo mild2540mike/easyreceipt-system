@@ -28,6 +28,7 @@ export type InventoryRow = InventoryItem & {
   incoming: number
   projected: number
   available: number
+  suggestedPurchaseQuantity: number
   status: StockStatus
   stockPercent: number
 }
@@ -37,6 +38,8 @@ export type RecipeImpact = Recipe & {
   revenue: number
   margin: number
   canProduce: boolean
+  isCooked: boolean
+  isPinned: boolean
   missingNames: string[]
 }
 
@@ -57,6 +60,29 @@ export type NewIngredientFromPurchaseInput = {
   name: string
   unit: string
   unitPrice: number
+}
+
+export type InventoryEditInput = {
+  ingredientId: string
+  name: string
+  category: string
+  unit: string
+  defaultPrice: number
+  supplier: string
+  onHand: number
+  reserved: number
+  reorderPoint: number
+  costPerUnit: number
+}
+
+type PurchaseStockEntry = {
+  ingredientId: string
+  quantity: number
+}
+
+type InventoryAdjustment = {
+  ingredientId: string
+  delta: number
 }
 
 const today = new Date("2026-06-27T08:00:00+07:00")
@@ -150,19 +176,78 @@ function createIngredientId(name: string, ingredients: Ingredient[]) {
   return candidate
 }
 
+function createPurchaseStockLedger(items: PurchaseItem[]) {
+  return items.reduce<Record<string, PurchaseStockEntry>>((ledger, item) => {
+    ledger[item.id] = {
+      ingredientId: item.ingredientId,
+      quantity: Math.max(item.quantity, 0),
+    }
+
+    return ledger
+  }, {})
+}
+
+function applyInventoryAdjustments(
+  items: InventoryItem[],
+  adjustments: InventoryAdjustment[]
+) {
+  const deltaByIngredient = new Map<string, number>()
+
+  for (const adjustment of adjustments) {
+    if (!adjustment.ingredientId || adjustment.delta === 0) {
+      continue
+    }
+
+    deltaByIngredient.set(
+      adjustment.ingredientId,
+      (deltaByIngredient.get(adjustment.ingredientId) ?? 0) + adjustment.delta
+    )
+  }
+
+  if (deltaByIngredient.size === 0) {
+    return items
+  }
+
+  return items.map((item) => {
+    const delta = deltaByIngredient.get(item.ingredientId) ?? 0
+
+    if (delta === 0) {
+      return item
+    }
+
+    return {
+      ...item,
+      onHand: Math.max(item.onHand + delta, 0),
+      lastUpdated: todayIso,
+    }
+  })
+}
+
 export function useEasyReceiptStore() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [members, setMembers] = useState<Member[]>(initialMembers)
-  const [ingredientList, setIngredientList] =
-    useState<Ingredient[]>(initialIngredients)
-  const [inventoryList, setInventoryList] =
-    useState<InventoryItem[]>(initialInventoryItems)
+  const [ingredientList, setIngredientList] = useState<Ingredient[]>(initialIngredients)
+  const [inventoryList, setInventoryList] = useState<InventoryItem[]>(() =>
+    applyInventoryAdjustments(
+      initialInventoryItems,
+      initialPurchaseItems.map((item) => ({
+        ingredientId: item.ingredientId,
+        delta: item.quantity,
+      }))
+    )
+  )
   const [recipeList, setRecipeList] = useState<Recipe[]>(recipes)
+  const [pinnedRecipeIds, setPinnedRecipeIds] = useState<Set<string>>(
+    () => new Set(recipes.map((recipe) => recipe.id))
+  )
+  const [cookedRecipeIds, setCookedRecipeIds] = useState<Set<string>>(() => new Set())
   const [purchaseDate, setPurchaseDate] = useState<Date>(today)
-  const [purchaseItems, setPurchaseItems] =
-    useState<PurchaseItem[]>(initialPurchaseItems)
+  const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>(initialPurchaseItems)
+  const [purchaseStockLedger, setPurchaseStockLedger] = useState(() =>
+    createPurchaseStockLedger(initialPurchaseItems)
+  )
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -227,6 +312,25 @@ export function useEasyReceiptStore() {
     return incoming
   }, [purchaseItems])
 
+  const reservedByIngredient = useMemo(() => {
+    const reserved = new Map<string, number>()
+
+    for (const recipe of recipeList) {
+      if (!pinnedRecipeIds.has(recipe.id) || cookedRecipeIds.has(recipe.id)) {
+        continue
+      }
+
+      for (const item of recipe.ingredients) {
+        reserved.set(
+          item.ingredientId,
+          (reserved.get(item.ingredientId) ?? 0) + item.quantity
+        )
+      }
+    }
+
+    return reserved
+  }, [cookedRecipeIds, pinnedRecipeIds, recipeList])
+
   const inventoryRows = useMemo<InventoryRow[]>(
     () =>
       inventoryList.map((item) => {
@@ -237,27 +341,45 @@ export function useEasyReceiptStore() {
         }
 
         const incoming = incomingByIngredient.get(item.ingredientId) ?? 0
-        const available = Math.max(item.onHand - item.reserved, 0)
+        const reserved = reservedByIngredient.get(item.ingredientId) ?? 0
+        const available = Math.max(item.onHand - reserved, 0)
+        const suggestedPurchaseQuantity = Math.max(
+          reserved - item.onHand,
+          0
+        )
         const stockPercent = Math.min(
-          Math.round((item.onHand / Math.max(item.reorderPoint * 2, 1)) * 100),
+          Math.round((available / Math.max(item.reorderPoint * 2, 1)) * 100),
           100
         )
 
         return {
           ...item,
           ingredient,
+          reserved,
           incoming,
-          projected: item.onHand + incoming,
+          projected: item.onHand,
           available,
-          status: stockStatus(item),
+          suggestedPurchaseQuantity,
+          status: stockStatus({ ...item, onHand: available }),
           stockPercent,
         }
       }),
-    [ingredientById, incomingByIngredient, inventoryList]
+    [ingredientById, incomingByIngredient, inventoryList, reservedByIngredient]
   )
 
   const lowStockItems = useMemo(
-    () => inventoryRows.filter((item) => item.status !== "ok"),
+    () =>
+      inventoryRows
+        .filter((item) => item.suggestedPurchaseQuantity > 0)
+        .sort(
+          (first, second) =>
+            second.suggestedPurchaseQuantity - first.suggestedPurchaseQuantity
+        ),
+    [inventoryRows]
+  )
+
+  const inventoryRowByIngredientId = useMemo(
+    () => new Map(inventoryRows.map((row) => [row.ingredientId, row] as const)),
     [inventoryRows]
   )
 
@@ -304,26 +426,43 @@ export function useEasyReceiptStore() {
   }, [currentPurchaseTotal])
 
   const recipeImpacts = useMemo<RecipeImpact[]>(
-    () =>
-      recipeList.map((recipe) => {
+    () => {
+      return recipeList.map((recipe) => {
+        const isPinned = pinnedRecipeIds.has(recipe.id)
+        const isCooked = cookedRecipeIds.has(recipe.id)
         const cost = recipe.ingredients.reduce((total, item) => {
-          const inventoryItem = inventoryRows.find(
-            (row) => row.ingredientId === item.ingredientId
-          )
+          const inventoryItem = inventoryRowByIngredientId.get(item.ingredientId)
 
           return total + item.quantity * (inventoryItem?.costPerUnit ?? 0)
         }, 0)
 
-        const missingNames = recipe.ingredients
-          .filter((item) => {
-            const inventoryItem = inventoryRows.find(
-              (row) => row.ingredientId === item.ingredientId
-            )
+        const missingNames = isCooked
+          ? []
+          : recipe.ingredients
+              .filter((item) => {
+                const inventoryItem = inventoryRowByIngredientId.get(
+                  item.ingredientId
+                )
 
-            return !inventoryItem || inventoryItem.available < item.quantity
-          })
-          .map((item) => ingredientById.get(item.ingredientId)?.name)
-          .filter((name): name is string => Boolean(name))
+                if (!inventoryItem) {
+                  return true
+                }
+
+                const totalReserved =
+                  reservedByIngredient.get(item.ingredientId) ?? 0
+                const competingReserved = Math.max(
+                  totalReserved - item.quantity,
+                  0
+                )
+                const availableForRecipe = Math.max(
+                  inventoryItem.onHand - competingReserved,
+                  0
+                )
+
+                return availableForRecipe < item.quantity
+              })
+              .map((item) => ingredientById.get(item.ingredientId)?.name)
+              .filter((name): name is string => Boolean(name))
 
         const revenue = recipe.yield * recipe.pricePerServing
 
@@ -332,23 +471,39 @@ export function useEasyReceiptStore() {
           cost,
           revenue,
           margin: revenue - cost,
-          canProduce: missingNames.length === 0,
+          canProduce: !isCooked && missingNames.length === 0,
+          isCooked,
+          isPinned,
           missingNames,
         }
-      }),
-    [ingredientById, inventoryRows, recipeList]
+      })
+    },
+    [
+      cookedRecipeIds,
+      ingredientById,
+      inventoryRowByIngredientId,
+      pinnedRecipeIds,
+      recipeList,
+      reservedByIngredient,
+    ]
+  )
+
+  const pinnedRecipeImpacts = useMemo(
+    () => recipeImpacts.filter((recipe) => recipe.isPinned),
+    [recipeImpacts]
   )
 
   const recipeStats = useMemo(() => {
     return {
-      total: recipeList.length,
-      totalIngredients: recipeList.reduce(
+      total: pinnedRecipeImpacts.length,
+      saved: recipeList.length,
+      totalIngredients: pinnedRecipeImpacts.reduce(
         (total, recipe) => total + recipe.ingredients.length,
         0
       ),
-      ready: recipeImpacts.filter((recipe) => recipe.canProduce).length,
+      ready: pinnedRecipeImpacts.filter((recipe) => recipe.canProduce).length,
     }
-  }, [recipeImpacts, recipeList])
+  }, [pinnedRecipeImpacts, recipeList])
 
   const memberStats = useMemo(() => {
     return {
@@ -402,25 +557,50 @@ export function useEasyReceiptStore() {
     itemId: string,
     patch: Partial<Omit<PurchaseItem, "id">>
   ) {
+    const currentItem = purchaseItems.find((item) => item.id === itemId)
+
+    if (!currentItem) {
+      return
+    }
+
+    const nextItem = { ...currentItem, ...patch }
+
+    if (patch.ingredientId && patch.ingredientId !== currentItem.ingredientId) {
+      const ingredient = ingredientById.get(patch.ingredientId)
+
+      if (ingredient) {
+        nextItem.unit = ingredient.unit
+        nextItem.unitPrice = ingredient.defaultPrice
+      }
+    }
+
+    const previousStock = purchaseStockLedger[itemId] ?? {
+      ingredientId: currentItem.ingredientId,
+      quantity: 0,
+    }
+    const nextStock = {
+      ingredientId: nextItem.ingredientId,
+      quantity: Math.max(nextItem.quantity, 0),
+    }
+
+    setInventoryList((items) =>
+      applyInventoryAdjustments(items, [
+        {
+          ingredientId: previousStock.ingredientId,
+          delta: -previousStock.quantity,
+        },
+        {
+          ingredientId: nextStock.ingredientId,
+          delta: nextStock.quantity,
+        },
+      ])
+    )
+    setPurchaseStockLedger((items) => ({
+      ...items,
+      [itemId]: nextStock,
+    }))
     setPurchaseItems((items) =>
-      items.map((item) => {
-        if (item.id !== itemId) {
-          return item
-        }
-
-        const next = { ...item, ...patch }
-
-        if (patch.ingredientId && patch.ingredientId !== item.ingredientId) {
-          const ingredient = ingredientById.get(patch.ingredientId)
-
-          if (ingredient) {
-            next.unit = ingredient.unit
-            next.unitPrice = ingredient.defaultPrice
-          }
-        }
-
-        return next
-      })
+      items.map((item) => (item.id === itemId ? nextItem : item))
     )
   }
 
@@ -431,22 +611,61 @@ export function useEasyReceiptStore() {
       return
     }
 
-    setPurchaseItems((items) => [
+    const nextItem = {
+      id: `draft-${Date.now()}`,
+      ingredientId: ingredient.id,
+      quantity: 1,
+      unit: ingredient.unit,
+      unitPrice: ingredient.defaultPrice,
+    }
+
+    setInventoryList((items) =>
+      applyInventoryAdjustments(items, [
+        { ingredientId: nextItem.ingredientId, delta: nextItem.quantity },
+      ])
+    )
+    setPurchaseStockLedger((items) => ({
       ...items,
-      {
-        id: `draft-${Date.now()}`,
-        ingredientId: ingredient.id,
-        quantity: 1,
-        unit: ingredient.unit,
-        unitPrice: ingredient.defaultPrice,
+      [nextItem.id]: {
+        ingredientId: nextItem.ingredientId,
+        quantity: nextItem.quantity,
       },
-    ])
+    }))
+    setPurchaseItems((items) => [...items, nextItem])
   }
 
   function removePurchaseItem(itemId: string) {
-    setPurchaseItems((items) =>
-      items.length === 1 ? items : items.filter((item) => item.id !== itemId)
-    )
+    if (purchaseItems.length === 1) {
+      return
+    }
+
+    const currentItem = purchaseItems.find((item) => item.id === itemId)
+    const previousStock =
+      purchaseStockLedger[itemId] ??
+      (currentItem
+        ? {
+            ingredientId: currentItem.ingredientId,
+            quantity: currentItem.quantity,
+          }
+        : null)
+
+    if (previousStock) {
+      setInventoryList((items) =>
+        applyInventoryAdjustments(items, [
+          {
+            ingredientId: previousStock.ingredientId,
+            delta: -previousStock.quantity,
+          },
+        ])
+      )
+    }
+
+    setPurchaseStockLedger((items) => {
+      const next = { ...items }
+      delete next[itemId]
+      return next
+    })
+    setPurchaseItems((items) => items.filter((item) => item.id !== itemId))
   }
 
   function addIngredientFromPurchase(input: NewIngredientFromPurchaseInput) {
@@ -492,7 +711,72 @@ export function useEasyReceiptStore() {
     return ingredient
   }
 
+  function updateInventoryItem(input: InventoryEditInput) {
+    const name = input.name.trim()
+    const unit = input.unit.trim() || "กก."
+
+    if (!name) {
+      return false
+    }
+
+    const duplicateIngredient = ingredientList.find(
+      (ingredient) =>
+        ingredient.id !== input.ingredientId &&
+        normalizeLookup(ingredient.name) === normalizeLookup(name) &&
+        normalizeLookup(ingredient.unit) === normalizeLookup(unit)
+    )
+
+    if (duplicateIngredient) {
+      return false
+    }
+
+    setIngredientList((items) =>
+      items.map((ingredient) =>
+        ingredient.id === input.ingredientId
+          ? {
+              ...ingredient,
+              name,
+              category: input.category.trim() || "วัตถุดิบ",
+              unit,
+              defaultPrice: Math.max(input.defaultPrice, 0),
+              supplier: input.supplier.trim() || "-",
+            }
+          : ingredient
+      )
+    )
+    setInventoryList((items) =>
+      items.map((item) =>
+        item.ingredientId === input.ingredientId
+          ? {
+              ...item,
+              onHand: Math.max(input.onHand, 0),
+              reorderPoint: Math.max(input.reorderPoint, 0),
+              costPerUnit: Math.max(input.costPerUnit, 0),
+              lastUpdated: todayIso,
+            }
+          : item
+      )
+    )
+
+    return true
+  }
+
   function resetPurchaseItems() {
+    const nextLedger = createPurchaseStockLedger(initialPurchaseItems)
+
+    setInventoryList((items) =>
+      applyInventoryAdjustments(items, [
+        ...Object.values(purchaseStockLedger).map((entry) => ({
+          ingredientId: entry.ingredientId,
+          delta: -entry.quantity,
+        })),
+        ...Object.values(nextLedger).map((entry) => ({
+          ingredientId: entry.ingredientId,
+          delta: entry.quantity,
+        })),
+      ])
+    )
+    setPurchaseStockLedger(nextLedger)
     setPurchaseItems(initialPurchaseItems)
   }
 
@@ -503,16 +787,23 @@ export function useEasyReceiptStore() {
       return false
     }
 
+    const recipeId = `recipe-${Date.now()}`
+
     setRecipeList((items) => [
       ...items,
       {
         ...input,
-        id: `recipe-${Date.now()}`,
+        id: recipeId,
         name: input.name.trim(),
         menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
         ingredients,
       },
     ])
+    setPinnedRecipeIds((items) => {
+      const next = new Set(items)
+      next.add(recipeId)
+      return next
+    })
 
     return true
   }
@@ -543,6 +834,104 @@ export function useEasyReceiptStore() {
 
   function deleteRecipe(recipeId: string) {
     setRecipeList((items) => items.filter((recipe) => recipe.id !== recipeId))
+    setPinnedRecipeIds((items) => {
+      if (!items.has(recipeId)) {
+        return items
+      }
+
+      const next = new Set(items)
+      next.delete(recipeId)
+      return next
+    })
+    setCookedRecipeIds((items) => {
+      if (!items.has(recipeId)) {
+        return items
+      }
+
+      const next = new Set(items)
+      next.delete(recipeId)
+      return next
+    })
+  }
+
+  function pinRecipe(recipeId: string) {
+    if (!recipeList.some((recipe) => recipe.id === recipeId)) {
+      return false
+    }
+
+    setPinnedRecipeIds((items) => {
+      const next = new Set(items)
+      next.add(recipeId)
+      return next
+    })
+    setCookedRecipeIds((items) => {
+      if (!items.has(recipeId)) {
+        return items
+      }
+
+      const next = new Set(items)
+      next.delete(recipeId)
+      return next
+    })
+
+    return true
+  }
+
+  function unpinRecipe(recipeId: string) {
+    setPinnedRecipeIds((items) => {
+      if (!items.has(recipeId)) {
+        return items
+      }
+
+      const next = new Set(items)
+      next.delete(recipeId)
+      return next
+    })
+    setCookedRecipeIds((items) => {
+      if (!items.has(recipeId)) {
+        return items
+      }
+
+      const next = new Set(items)
+      next.delete(recipeId)
+      return next
+    })
+
+    return true
+  }
+
+  function cookRecipe(recipeId: string) {
+    const recipe = recipeList.find((item) => item.id === recipeId)
+    const recipeImpact = recipeImpacts.find((item) => item.id === recipeId)
+
+    if (!recipe || !recipeImpact?.isPinned || !recipeImpact.canProduce) {
+      return false
+    }
+
+    setInventoryList((items) =>
+      items.map((item) => {
+        const recipeIngredient = recipe.ingredients.find(
+          (ingredient) => ingredient.ingredientId === item.ingredientId
+        )
+
+        if (!recipeIngredient) {
+          return item
+        }
+
+        return {
+          ...item,
+          onHand: Math.max(item.onHand - recipeIngredient.quantity, 0),
+          lastUpdated: todayIso,
+        }
+      })
+    )
+    setCookedRecipeIds((items) => {
+      const next = new Set(items)
+      next.add(recipeId)
+      return next
+    })
+
+    return true
   }
 
   function addMember(input: MemberFormInput) {
@@ -617,15 +1006,20 @@ export function useEasyReceiptStore() {
     inventoryItems: inventoryList,
     inventoryRows,
     addIngredientFromPurchase,
+    updateInventoryItem,
     lowStockItems,
     currentPurchaseTotal,
     purchaseSeries,
     cashFlowMetrics,
     recipeImpacts,
+    pinnedRecipeImpacts,
     recipeStats,
     addRecipe,
     updateRecipe,
     deleteRecipe,
+    pinRecipe,
+    unpinRecipe,
+    cookRecipe,
     members,
     memberStats,
     canManageMembers,

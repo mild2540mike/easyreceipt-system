@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -22,6 +28,7 @@ import {
   Minus,
   Package,
   Pencil,
+  Pin,
   Plus,
   ReceiptText,
   Save,
@@ -703,7 +710,7 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
         <SheetHeader>
           <SheetTitle>แจ้งเตือนวัตถุดิบ</SheetTitle>
           <SheetDescription>
-            รายการที่ต่ำกว่าหรือใกล้จุดสั่งซื้อสำหรับวันนี้
+            รายการที่คงเหลือไม่พอต่อการจองใช้จากสูตรอาหาร
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-3 px-4 pb-4">
@@ -716,7 +723,12 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
                 <div>
                   <p className="font-semibold">{item.ingredient.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    เหลือ {formatNumber(item.onHand)} {item.ingredient.unit}
+                    ควรซื้อเพิ่ม {formatNumber(item.suggestedPurchaseQuantity)}{" "}
+                    {item.ingredient.unit}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    คงเหลือ {formatNumber(item.onHand)}{" "}
+                    {item.ingredient.unit}
                   </p>
                 </div>
                 <Badge
@@ -761,7 +773,7 @@ function DashboardView({ store }: { store: Store }) {
         <MetricCard
           label="สต็อกต้องดูแล"
           value={`${store.lowStockItems.length} รายการ`}
-          helper="ต่ำหรือใกล้จุดสั่งซื้อ"
+          helper="คงเหลือไม่พอต่อการจองใช้"
           icon={AlertTriangle}
           tone="border-red-200 bg-red-50 text-red-800"
         />
@@ -781,9 +793,15 @@ function DashboardView({ store }: { store: Store }) {
             <h2 className="text-lg font-semibold">รายการที่ควรซื้อเพิ่ม</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            {store.lowStockItems.map((item) => (
-              <StockAlertRow key={item.ingredientId} item={item} />
-            ))}
+            {store.lowStockItems.length > 0 ? (
+              store.lowStockItems.map((item) => (
+                <StockAlertRow key={item.ingredientId} item={item} />
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:col-span-2">
+                วัตถุดิบเพียงพอต่อการจองใช้ปัจจุบัน
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -834,7 +852,8 @@ function StockAlertRow({ item }: { item: InventoryRow }) {
         <div>
           <p className="font-semibold">{item.ingredient.name}</p>
           <p className="text-sm text-muted-foreground">
-            จุดสั่งซื้อ {formatNumber(item.reorderPoint)} {item.ingredient.unit}
+            คงเหลือ {formatNumber(item.onHand)} {item.ingredient.unit} / จองใช้{" "}
+            {formatNumber(item.reserved)} {item.ingredient.unit}
           </p>
         </div>
         <Badge
@@ -845,9 +864,13 @@ function StockAlertRow({ item }: { item: InventoryRow }) {
         </Badge>
       </div>
       <Progress value={item.stockPercent} />
-      <p className="mt-2 text-sm text-muted-foreground">
-        คงเหลือ {formatNumber(item.onHand)} {item.ingredient.unit}
-      </p>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
+        <StockValue
+          label="ซื้อเพิ่ม"
+          value={item.suggestedPurchaseQuantity}
+          unit={item.ingredient.unit}
+        />
+      </div>
     </div>
   )
 }
@@ -960,7 +983,7 @@ function PurchaseView({ store }: { store: Store }) {
               </span>
             </div>
             <p className="mt-1 text-sm text-sky-700">
-              ระบบใช้ยอดนี้ไปคำนวณรายงานและ stock incoming
+              ระบบใช้ยอดนี้ไปคำนวณรายงานและอัปเดตคงเหลือในคลัง
             </p>
           </div>
         </div>
@@ -979,7 +1002,7 @@ function PurchaseView({ store }: { store: Store }) {
                 รับเข้า +{formatNumber(item.incoming)} {item.ingredient.unit}
               </p>
               <p className="mt-2 text-sm">
-                หลังบันทึกจะเป็น {formatNumber(item.projected)}{" "}
+                คงเหลือในคลังตอนนี้ {formatNumber(item.projected)}{" "}
                 {item.ingredient.unit}
               </p>
             </div>
@@ -1290,10 +1313,12 @@ function FieldNumber({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: number
   onChange: (value: number) => void
+  disabled?: boolean
 }) {
   return (
     <div>
@@ -1304,6 +1329,7 @@ function FieldNumber({
         step="0.01"
         value={value}
         onChange={(event) => onChange(toNumber(event.target.value))}
+        disabled={disabled}
         className="h-11"
       />
     </div>
@@ -1311,6 +1337,44 @@ function FieldNumber({
 }
 
 function StockView({ store }: { store: Store }) {
+  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
+    null
+  )
+  const [stockDraft, setStockDraft] = useState(() =>
+    createStockEditDraft(store.inventoryRows[0])
+  )
+  const [stockMessage, setStockMessage] = useState("")
+
+  function startStockEdit(item: InventoryRow) {
+    setEditingIngredientId(item.ingredientId)
+    setStockDraft(createStockEditDraft(item))
+    setStockMessage("")
+  }
+
+  function cancelStockEdit() {
+    setEditingIngredientId(null)
+    setStockMessage("")
+  }
+
+  function saveStockEdit() {
+    if (!editingIngredientId) {
+      return
+    }
+
+    const ok = store.updateInventoryItem({
+      ingredientId: editingIngredientId,
+      ...stockDraft,
+    })
+
+    if (!ok) {
+      setStockMessage("กรุณากรอกชื่อวัตถุดิบ และใช้ชื่อ+หน่วยที่ไม่ซ้ำกับรายการอื่น")
+      return
+    }
+
+    setEditingIngredientId(null)
+    setStockMessage("")
+  }
+
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-3">
@@ -1324,7 +1388,7 @@ function StockView({ store }: { store: Store }) {
         <MetricCard
           label="ต้องสั่งซื้อ"
           value={`${store.lowStockItems.length} รายการ`}
-          helper="ต่ำหรือใกล้จุดสั่งซื้อ"
+          helper="คงเหลือหลังหักจองต่ำกว่าจุดสั่งซื้อ"
           icon={AlertTriangle}
           tone="border-red-200 bg-red-50 text-red-800"
         />
@@ -1358,35 +1422,189 @@ function StockView({ store }: { store: Store }) {
           </TableHeader>
           <TableBody>
             {store.inventoryRows.map((item) => (
-              <TableRow key={item.ingredientId}>
-                <TableCell className="font-semibold">
-                  {item.ingredient.name}
-                </TableCell>
-                <TableCell>{item.ingredient.category}</TableCell>
-                <TableCell className="text-right">
-                  {formatNumber(item.onHand)} {item.ingredient.unit}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatNumber(item.reserved)} {item.ingredient.unit}
-                </TableCell>
-                <TableCell className="text-right text-emerald-700">
-                  +{formatNumber(item.incoming)} {item.ingredient.unit}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant="outline"
-                    className={cn("h-6", statusClassName(item.status))}
-                  >
-                    {statusLabel(item.status)}
-                  </Badge>
-                </TableCell>
-                <TableCell>{item.lastUpdated}</TableCell>
-              </TableRow>
+              <Fragment key={item.ingredientId}>
+                <TableRow
+                  className={cn(
+                    "cursor-pointer",
+                    editingIngredientId === item.ingredientId && "bg-muted/60"
+                  )}
+                  onDoubleClick={() => startStockEdit(item)}
+                >
+                  <TableCell className="font-semibold">
+                    {item.ingredient.name}
+                  </TableCell>
+                  <TableCell>{item.ingredient.category}</TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(item.onHand)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(item.reserved)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right text-emerald-700">
+                    +{formatNumber(item.incoming)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={cn("h-6", statusClassName(item.status))}
+                    >
+                      {statusLabel(item.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{item.lastUpdated}</TableCell>
+                </TableRow>
+                {editingIngredientId === item.ingredientId && (
+                  <StockEditRow
+                    draft={stockDraft}
+                    message={stockMessage}
+                    onChange={setStockDraft}
+                    onCancel={cancelStockEdit}
+                    onSave={saveStockEdit}
+                  />
+                )}
+              </Fragment>
             ))}
           </TableBody>
         </Table>
       </section>
     </div>
+  )
+}
+
+type StockEditDraft = {
+  name: string
+  category: string
+  unit: string
+  defaultPrice: number
+  supplier: string
+  onHand: number
+  reserved: number
+  reorderPoint: number
+  costPerUnit: number
+}
+
+function createStockEditDraft(item?: InventoryRow): StockEditDraft {
+  return {
+    name: item?.ingredient.name ?? "",
+    category: item?.ingredient.category ?? "",
+    unit: item?.ingredient.unit ?? "กก.",
+    defaultPrice: item?.ingredient.defaultPrice ?? 0,
+    supplier: item?.ingredient.supplier ?? "",
+    onHand: item?.onHand ?? 0,
+    reserved: item?.reserved ?? 0,
+    reorderPoint: item?.reorderPoint ?? 0,
+    costPerUnit: item?.costPerUnit ?? 0,
+  }
+}
+
+function StockEditRow({
+  draft,
+  message,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  draft: StockEditDraft
+  message: string
+  onChange: (draft: StockEditDraft) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  function patchDraft(patch: Partial<StockEditDraft>) {
+    onChange({ ...draft, ...patch })
+  }
+
+  return (
+    <TableRow className="bg-muted/30">
+      <TableCell colSpan={7} className="p-4">
+        <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+          <div className="grid gap-3 lg:grid-cols-4">
+            <div>
+              <Label className="mb-2 block">ชื่อวัตถุดิบ</Label>
+              <Input
+                className="h-11"
+                value={draft.name}
+                onChange={(event) => patchDraft({ name: event.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">หมวดหมู่</Label>
+              <Input
+                className="h-11"
+                value={draft.category}
+                onChange={(event) =>
+                  patchDraft({ category: event.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">หน่วย</Label>
+              <Input
+                className="h-11"
+                value={draft.unit}
+                onChange={(event) => patchDraft({ unit: event.target.value })}
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">ซัพพลายเออร์</Label>
+              <Input
+                className="h-11"
+                value={draft.supplier}
+                onChange={(event) =>
+                  patchDraft({ supplier: event.target.value })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-5">
+            <FieldNumber
+              label="คงเหลือ"
+              value={draft.onHand}
+              onChange={(value) => patchDraft({ onHand: value })}
+            />
+            <FieldNumber
+              label="จองใช้จากสูตร"
+              value={draft.reserved}
+              disabled
+              onChange={(value) => patchDraft({ reserved: value })}
+            />
+            <FieldNumber
+              label="จุดสั่งซื้อ"
+              value={draft.reorderPoint}
+              onChange={(value) => patchDraft({ reorderPoint: value })}
+            />
+            <FieldNumber
+              label="ต้นทุน/หน่วย"
+              value={draft.costPerUnit}
+              onChange={(value) => patchDraft({ costPerUnit: value })}
+            />
+            <FieldNumber
+              label="ราคาซื้อเริ่มต้น"
+              value={draft.defaultPrice}
+              onChange={(value) => patchDraft({ defaultPrice: value })}
+            />
+          </div>
+
+          {message && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {message}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" className="h-11" onClick={onCancel}>
+              <Minus className="size-4" />
+              ยกเลิก
+            </Button>
+            <Button className="h-11" onClick={onSave}>
+              <Save className="size-4" />
+              บันทึก
+            </Button>
+          </div>
+        </div>
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -1473,22 +1691,35 @@ function normalizeRecipeDraft(draft: RecipeFormInput): RecipeFormInput {
 }
 
 function RecipesView({ store }: { store: Store }) {
-  function handleDeleteRecipe(recipeId: string) {
-    store.deleteRecipe(recipeId)
+  const [cookMessage, setCookMessage] = useState("")
+
+  function handleUnpinRecipe(recipeId: string) {
+    store.unpinRecipe(recipeId)
+    setCookMessage("ถอนปักหมุดเมนูออกจากหน้าสูตรอาหารแล้ว")
+  }
+
+  function handleCookRecipe(recipeId: string) {
+    const ok = store.cookRecipe(recipeId)
+
+    setCookMessage(
+      ok
+        ? "ปรุงรายการอาหารแล้ว ระบบตัดสต็อกและปลดจองวัตถุดิบเรียบร้อย"
+        : "ยังปรุงไม่ได้ กรุณาตรวจสอบวัตถุดิบคงเหลือก่อน"
+    )
   }
 
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-3">
         <MetricCard
-          label="เมนูทั้งหมด"
+          label="เมนูที่ปักหมุด"
           value={`${store.recipeStats.total} สูตร`}
-          helper="เพิ่ม ลบ แก้ไขได้"
-          icon={ChefHat}
+          helper={`เลือกจากคลังสูตร ${store.recipeStats.saved} สูตร`}
+          icon={Pin}
           tone="border-rose-200 bg-rose-50 text-rose-800"
         />
         <MetricCard
-          label="พร้อมผลิต"
+          label="พร้อมปรุง"
           value={`${store.recipeStats.ready} สูตร`}
           helper="วัตถุดิบคงเหลือเพียงพอ"
           icon={CircleCheck}
@@ -1517,19 +1748,25 @@ function RecipesView({ store }: { store: Store }) {
             </p>
           </div>
           <Badge variant="outline" className="h-7 w-fit">
-            {store.recipeImpacts.length} สูตรพร้อมตรวจ
+            {store.pinnedRecipeImpacts.length} สูตรที่ปักหมุด
           </Badge>
         </div>
+        {cookMessage && (
+          <div className="mt-4 rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+            {cookMessage}
+          </div>
+        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        {store.recipeImpacts.map((recipe) => (
+        {store.pinnedRecipeImpacts.map((recipe) => (
           <RecipeCard
             key={recipe.id}
             recipe={recipe}
             store={store}
             editHref={`/portal/recipes/${recipe.id}/edit`}
-            onDelete={handleDeleteRecipe}
+            onUnpin={handleUnpinRecipe}
+            onCook={handleCookRecipe}
           />
         ))}
         <RecipeAddCard />
@@ -1542,13 +1779,121 @@ function RecipeAddCard() {
   return (
     <Link
       href="/portal/recipes/new"
-      className="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-rose-300 bg-background text-rose-600 transition-colors hover:border-rose-400 hover:bg-rose-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50/40 text-sky-700 transition-colors hover:border-sky-500 hover:bg-sky-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
     >
-      <span className="flex size-20 items-center justify-center rounded-full border border-rose-200 bg-rose-50">
+      <span className="flex size-20 items-center justify-center rounded-full border border-sky-200 bg-background shadow-sm">
         <Plus className="size-10" />
       </span>
-      <span className="sr-only">เพิ่มเมนูสูตรอาหาร</span>
+      <span className="sr-only">ปักหมุดเมนูสูตรอาหาร</span>
     </Link>
+  )
+}
+
+function RecipePinSelection({
+  recipes,
+  store,
+  onPin,
+}: {
+  recipes: RecipeImpact[]
+  store: Store
+  onPin: (recipeId: string) => void
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <Pin className="size-5 text-rose-600" />
+            <h2 className="text-lg font-semibold">
+              ปักหมุดสูตรอาหารที่เคยสร้างไว้
+            </h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            เลือกสูตรจากคลังสูตรเพื่อเพิ่มเป็นเมนูที่ใช้งานในหน้าสูตรอาหาร
+          </p>
+        </div>
+        <Badge variant="outline" className="h-7 w-fit">
+          {recipes.length} สูตรในคลัง
+        </Badge>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {recipes.map((recipe) => {
+          const pinned = recipe.isPinned
+
+          return (
+            <div
+              key={recipe.id}
+              className="rounded-lg border border-border p-4"
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {recipe.menuCategory}
+                  </p>
+                  <h3 className="font-semibold">{recipe.name}</h3>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "h-6 shrink-0",
+                    pinned
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-sky-200 bg-sky-50 text-sky-700"
+                  )}
+                >
+                  {pinned ? "ปักหมุดแล้ว" : "ยังไม่ปักหมุด"}
+                </Badge>
+              </div>
+
+              <div className="mb-4 grid grid-cols-3 gap-2 text-sm">
+                <SummaryPill label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
+                <SummaryPill label="ต้นทุน" value={formatCurrency(recipe.cost)} />
+                <SummaryPill label="กำไร" value={formatCurrency(recipe.margin)} />
+              </div>
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                {recipe.ingredients.slice(0, 4).map((item) => {
+                  const ingredient = store.ingredientById.get(item.ingredientId)
+
+                  return (
+                    <Badge
+                      key={item.ingredientId}
+                      variant="secondary"
+                      className="h-7"
+                    >
+                      {ingredient?.name} {formatNumber(item.quantity)}
+                      {ingredient?.unit}
+                    </Badge>
+                  )
+                })}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  className="h-11 flex-1"
+                  onClick={() => onPin(recipe.id)}
+                  disabled={pinned}
+                >
+                  <Pin className="size-4" />
+                  {pinned ? "ปักหมุดแล้ว" : "ปักหมุดเมนูนี้"}
+                </Button>
+                <Link
+                  href={`/portal/recipes/${recipe.id}/edit`}
+                  className={buttonVariants({
+                    variant: "outline",
+                    className: "h-11 flex-1",
+                  })}
+                >
+                  <Pencil className="size-4" />
+                  แก้ไขสูตร
+                </Link>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -1633,6 +1978,17 @@ function RecipeFormView({
     }))
   }
 
+  function handlePinExistingRecipe(recipeId: string) {
+    const ok = store.pinRecipe(recipeId)
+
+    if (!ok) {
+      setMessage("ไม่พบสูตรอาหารที่ต้องการปักหมุด")
+      return
+    }
+
+    router.push("/portal/recipes")
+  }
+
   function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedDraft = normalizeRecipeDraft(recipeDraft)
@@ -1694,6 +2050,14 @@ function RecipeFormView({
         กลับหน้าสูตรอาหาร
       </Link>
 
+      {mode === "new" && (
+        <RecipePinSelection
+          recipes={store.recipeImpacts}
+          store={store}
+          onPin={handlePinExistingRecipe}
+        />
+      )}
+
       <Card className="rounded-lg">
         <CardHeader>
           <CardAction>
@@ -1706,7 +2070,9 @@ function RecipeFormView({
             </span>
           </CardAction>
           <CardTitle>
-            {mode === "edit" ? "แก้ไขเมนูสูตรอาหาร" : "เพิ่มเมนูสูตรอาหาร"}
+            {mode === "edit"
+              ? "แก้ไขเมนูสูตรอาหาร"
+              : "สร้างสูตรใหม่และปักหมุด"}
           </CardTitle>
           <CardDescription>
             จัดการชื่อเมนู ราคา จำนวนเสิร์ฟ และวัตถุดิบในสูตร
@@ -1845,7 +2211,7 @@ function RecipeFormView({
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" className="h-11 flex-1">
                 <Save className="size-4" />
-                {mode === "edit" ? "บันทึกเมนู" : "เพิ่มเมนู"}
+                {mode === "edit" ? "บันทึกเมนู" : "สร้างและปักหมุด"}
               </Button>
               <Link
                 href="/portal/recipes"
@@ -1869,13 +2235,26 @@ function RecipeCard({
   recipe,
   store,
   editHref,
-  onDelete,
+  onUnpin,
+  onCook,
 }: {
   recipe: RecipeImpact
   store: Store
   editHref: string
-  onDelete: (recipeId: string) => void
+  onUnpin: (recipeId: string) => void
+  onCook: (recipeId: string) => void
 }) {
+  const recipeStatusLabel = recipe.isCooked
+    ? "ปรุงแล้ว"
+    : recipe.canProduce
+      ? "พร้อมปรุง"
+      : "วัตถุดิบไม่พอ"
+  const recipeStatusClassName = recipe.isCooked
+    ? "border-sky-200 bg-sky-50 text-sky-700"
+    : recipe.canProduce
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-red-200 bg-red-50 text-red-700"
+
   return (
     <Card className="rounded-lg">
       <CardHeader>
@@ -1883,14 +2262,9 @@ function RecipeCard({
           <div className="flex items-center gap-2">
             <Badge
               variant="outline"
-              className={cn(
-                "h-6",
-                recipe.canProduce
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-red-200 bg-red-50 text-red-700"
-              )}
+              className={cn("h-6", recipeStatusClassName)}
             >
-              {recipe.canProduce ? "พร้อมผลิต" : "วัตถุดิบไม่พอ"}
+              {recipeStatusLabel}
             </Badge>
             <Link
               href={editHref}
@@ -1907,10 +2281,10 @@ function RecipeCard({
               variant="ghost"
               size="icon-lg"
               className="h-10 w-10 text-red-600"
-              onClick={() => onDelete(recipe.id)}
+              onClick={() => onUnpin(recipe.id)}
             >
-              <Trash2 className="size-4" />
-              <span className="sr-only">ลบเมนู</span>
+              <Pin className="size-4" />
+              <span className="sr-only">ถอนปักหมุดเมนู</span>
             </Button>
           </div>
         </CardAction>
@@ -1940,11 +2314,22 @@ function RecipeCard({
           </div>
         </div>
 
-        {!recipe.canProduce && (
+        {!recipe.canProduce && !recipe.isCooked && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             ขาด: {recipe.missingNames.join(", ")}
           </div>
         )}
+
+        {recipe.isCooked ? (
+          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+            ปรุงแล้วและตัดสต็อกวัตถุดิบเรียบร้อย
+          </div>
+        ) : recipe.canProduce ? (
+          <Button className="h-11 w-full" onClick={() => onCook(recipe.id)}>
+            <ChefHat className="size-4" />
+            ปรุงรายการอาหาร
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   )
