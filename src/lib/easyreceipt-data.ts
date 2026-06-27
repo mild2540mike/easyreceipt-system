@@ -184,6 +184,30 @@ export const ingredients: Ingredient[] = [
     defaultPrice: 64,
     supplier: "สวนผักแม่คำ",
   },
+  {
+    id: "coriander",
+    name: "ผักชี",
+    category: "ผักสด",
+    unit: "กก.",
+    defaultPrice: 78,
+    supplier: "สวนผักแม่คำ",
+  },
+  {
+    id: "lemongrass",
+    name: "ตะไคร้",
+    category: "ผักสด",
+    unit: "กก.",
+    defaultPrice: 52,
+    supplier: "สวนผักแม่คำ",
+  },
+  {
+    id: "lime",
+    name: "มะนาว",
+    category: "ผักสด",
+    unit: "ลูก",
+    defaultPrice: 6,
+    supplier: "ตลาดสดรุ่งเรือง",
+  }
 ]
 
 export const inventoryItems: InventoryItem[] = [

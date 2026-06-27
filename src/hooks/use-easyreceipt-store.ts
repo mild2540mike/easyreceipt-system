@@ -5,9 +5,9 @@ import { useEffect, useMemo, useState } from "react"
 import {
   baseCashFlowMetrics,
   historicalPurchases,
-  ingredients,
+  ingredients as initialIngredients,
   initialPurchaseItems,
-  inventoryItems,
+  inventoryItems as initialInventoryItems,
   members as initialMembers,
   recipes,
   type CashFlowMetric,
@@ -53,7 +53,14 @@ export type MemberFormInput = {
 
 export type RecipeFormInput = Omit<Recipe, "id">
 
+export type NewIngredientFromPurchaseInput = {
+  name: string
+  unit: string
+  unitPrice: number
+}
+
 const today = new Date("2026-06-27T08:00:00+07:00")
+const todayIso = "2026-06-27"
 const sessionMemberKey = "easyreceipt.memberId"
 const activeMemberLabel = "กำลังใช้งาน"
 
@@ -120,11 +127,38 @@ function dayLabel(date: string) {
   }).format(new Date(`${date}T08:00:00+07:00`))
 }
 
+function normalizeLookup(value: string) {
+  return value.trim().toLocaleLowerCase("th-TH")
+}
+
+function createIngredientId(name: string, ingredients: Ingredient[]) {
+  const normalizedName = normalizeLookup(name)
+  const base =
+    normalizedName
+      .normalize("NFKD")
+      .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+      .replace(/^-+|-+$/g, "") || "ingredient"
+  const existingIds = new Set(ingredients.map((ingredient) => ingredient.id))
+  let candidate = base
+  let index = 2
+
+  while (existingIds.has(candidate)) {
+    candidate = `${base}-${index}`
+    index += 1
+  }
+
+  return candidate
+}
+
 export function useEasyReceiptStore() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [members, setMembers] = useState<Member[]>(initialMembers)
+  const [ingredientList, setIngredientList] =
+    useState<Ingredient[]>(initialIngredients)
+  const [inventoryList, setInventoryList] =
+    useState<InventoryItem[]>(initialInventoryItems)
   const [recipeList, setRecipeList] = useState<Recipe[]>(recipes)
   const [purchaseDate, setPurchaseDate] = useState<Date>(today)
   const [purchaseItems, setPurchaseItems] =
@@ -168,8 +202,11 @@ export function useEasyReceiptStore() {
   }, [])
 
   const ingredientById = useMemo(
-    () => new Map(ingredients.map((ingredient) => [ingredient.id, ingredient])),
-    []
+    () =>
+      new Map(
+        ingredientList.map((ingredient) => [ingredient.id, ingredient] as const)
+      ),
+    [ingredientList]
   )
 
   const currentPurchaseTotal = useMemo(
@@ -192,7 +229,7 @@ export function useEasyReceiptStore() {
 
   const inventoryRows = useMemo<InventoryRow[]>(
     () =>
-      inventoryItems.map((item) => {
+      inventoryList.map((item) => {
         const ingredient = ingredientById.get(item.ingredientId)
 
         if (!ingredient) {
@@ -216,7 +253,7 @@ export function useEasyReceiptStore() {
           stockPercent,
         }
       }),
-    [ingredientById, incomingByIngredient]
+    [ingredientById, incomingByIngredient, inventoryList]
   )
 
   const lowStockItems = useMemo(
@@ -388,7 +425,11 @@ export function useEasyReceiptStore() {
   }
 
   function addPurchaseItem() {
-    const ingredient = ingredients[0]
+    const ingredient = ingredientList[0]
+
+    if (!ingredient) {
+      return
+    }
 
     setPurchaseItems((items) => [
       ...items,
@@ -406,6 +447,49 @@ export function useEasyReceiptStore() {
     setPurchaseItems((items) =>
       items.length === 1 ? items : items.filter((item) => item.id !== itemId)
     )
+  }
+
+  function addIngredientFromPurchase(input: NewIngredientFromPurchaseInput) {
+    const name = input.name.trim()
+    const unit = input.unit.trim() || "กก."
+    const unitPrice = Math.max(input.unitPrice, 0)
+
+    if (!name) {
+      return null
+    }
+
+    const existingIngredient = ingredientList.find(
+      (ingredient) =>
+        normalizeLookup(ingredient.name) === normalizeLookup(name) &&
+        normalizeLookup(ingredient.unit) === normalizeLookup(unit)
+    )
+
+    if (existingIngredient) {
+      return existingIngredient
+    }
+
+    const ingredient: Ingredient = {
+      id: createIngredientId(name, ingredientList),
+      name,
+      category: "วัตถุดิบใหม่",
+      unit,
+      defaultPrice: unitPrice,
+      supplier: "เพิ่มจากใบซื้อ",
+    }
+
+    const inventoryItem: InventoryItem = {
+      ingredientId: ingredient.id,
+      onHand: 0,
+      reserved: 0,
+      reorderPoint: 0,
+      costPerUnit: unitPrice,
+      lastUpdated: todayIso,
+    }
+
+    setIngredientList((items) => [...items, ingredient])
+    setInventoryList((items) => [...items, inventoryItem])
+
+    return ingredient
   }
 
   function resetPurchaseItems() {
@@ -528,9 +612,11 @@ export function useEasyReceiptStore() {
     addPurchaseItem,
     removePurchaseItem,
     resetPurchaseItems,
-    ingredients,
+    ingredients: ingredientList,
     ingredientById,
+    inventoryItems: inventoryList,
     inventoryRows,
+    addIngredientFromPurchase,
     lowStockItems,
     currentPurchaseTotal,
     purchaseSeries,

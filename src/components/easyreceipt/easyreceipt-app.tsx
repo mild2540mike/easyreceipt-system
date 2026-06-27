@@ -276,6 +276,10 @@ function toNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function normalizeSearch(value: string) {
+  return value.trim().toLocaleLowerCase("th-TH")
+}
+
 export function EasyReceiptLogin() {
   const store = useEasyReceipt()
   const router = useRouter()
@@ -906,7 +910,7 @@ function PurchaseView({ store }: { store: Store }) {
           ))}
         </div>
 
-        <div className="hidden overflow-hidden rounded-lg border border-border lg:block">
+        <div className="hidden rounded-lg border border-border lg:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1013,7 +1017,11 @@ function PurchaseMobileRow({
       </div>
 
       <div className="grid gap-3">
-        <IngredientSelect item={item} store={store} />
+        <IngredientSelect
+          key={`${item.id}-${item.ingredientId}`}
+          item={item}
+          store={store}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <FieldNumber
@@ -1025,7 +1033,13 @@ function PurchaseMobileRow({
           />
           <div>
             <Label className="mb-2 block">หน่วย</Label>
-            <Input className="h-11" value={item.unit} readOnly />
+            <Input
+              className="h-11"
+              value={item.unit}
+              onChange={(event) =>
+                store.updatePurchaseItem(item.id, { unit: event.target.value })
+              }
+            />
           </div>
         </div>
 
@@ -1062,7 +1076,11 @@ function PurchaseTableRow({
     <TableRow>
       <TableCell className="text-center">{index + 1}</TableCell>
       <TableCell>
-        <IngredientSelect item={item} store={store} />
+        <IngredientSelect
+          key={`${item.id}-${item.ingredientId}`}
+          item={item}
+          store={store}
+        />
       </TableCell>
       <TableCell>
         <Input
@@ -1079,7 +1097,13 @@ function PurchaseTableRow({
         />
       </TableCell>
       <TableCell>
-        <Input className="h-11" value={item.unit} readOnly />
+        <Input
+          className="h-11"
+          value={item.unit}
+          onChange={(event) =>
+            store.updatePurchaseItem(item.id, { unit: event.target.value })
+          }
+        />
       </TableCell>
       <TableCell>
         <Input
@@ -1121,43 +1145,143 @@ function IngredientSelect({
   item: PurchaseItem
   store: Store
 }) {
+  const selectedIngredient = store.ingredientById.get(item.ingredientId)
+  const [query, setQuery] = useState(selectedIngredient?.name ?? "")
+  const [isOpen, setIsOpen] = useState(false)
+  const searchTerm = normalizeSearch(query)
+  const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
+  const exactIngredient = store.ingredients.find(
+    (ingredient) =>
+      normalizeSearch(ingredient.name) === searchTerm &&
+      normalizeSearch(ingredient.unit) === unitTerm
+  )
+  const suggestionRows = store.inventoryRows
+    .filter((row) => {
+      if (!searchTerm) {
+        return true
+      }
+
+      return [row.ingredient.name, row.ingredient.category, row.ingredient.supplier]
+        .map(normalizeSearch)
+        .some((value) => value.includes(searchTerm))
+    })
+    .sort((left, right) => {
+      const leftName = normalizeSearch(left.ingredient.name)
+      const rightName = normalizeSearch(right.ingredient.name)
+      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+
+      if (leftStarts !== rightStarts) {
+        return leftStarts - rightStarts
+      }
+
+      return left.ingredient.name.localeCompare(right.ingredient.name, "th")
+    })
+    .slice(0, 7)
+  const canAddIngredient = Boolean(query.trim()) && !exactIngredient
+
+  function handleSelectIngredient(ingredientId: string) {
+    const ingredient = store.ingredientById.get(ingredientId)
+
+    if (!ingredient) {
+      return
+    }
+
+    store.updatePurchaseItem(item.id, { ingredientId })
+    setQuery(ingredient.name)
+    setIsOpen(false)
+  }
+
+  function handleAddIngredient() {
+    const ingredient = store.addIngredientFromPurchase({
+      name: query,
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+    })
+
+    if (!ingredient) {
+      return
+    }
+
+    store.updatePurchaseItem(item.id, { ingredientId: ingredient.id })
+    setQuery(ingredient.name)
+    setIsOpen(false)
+  }
+
   return (
-    <div>
+    <div className="relative">
       <Label className="mb-2 block lg:hidden">ชื่อวัตถุดิบ</Label>
-      <Select
-        value={item.ingredientId}
-        onValueChange={(value) => {
-          if (value) {
-            store.updatePurchaseItem(item.id, {
-              ingredientId: String(value),
-            })
-          }
-        }}
-      >
-        <SelectTrigger className="h-11 w-full">
-          <SelectValue placeholder="เลือกวัตถุดิบ">
-            {(value) =>
-              store.ingredientById.get(String(value))?.name ?? "เลือกวัตถุดิบ"
-            }
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent align="start">
-          {store.ingredients.map((ingredient) => (
-            <SelectItem
-              key={ingredient.id}
-              value={ingredient.id}
-              label={ingredient.name}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="h-11 pl-9"
+          value={query}
+          placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
+          onFocus={() => setIsOpen(true)}
+          onBlur={() => {
+            window.setTimeout(() => setIsOpen(false), 120)
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setIsOpen(true)
+          }}
+        />
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-50 max-h-80 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
+          {suggestionRows.map((row) => (
+            <button
+              key={row.ingredientId}
+              type="button"
+              className={cn(
+                "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted",
+                row.ingredientId === item.ingredientId && "bg-muted"
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleSelectIngredient(row.ingredientId)}
             >
-              <span className="flex flex-col">
-                <span>{ingredient.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {ingredient.category} · {ingredient.supplier}
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {row.ingredient.name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {row.ingredient.category} · {row.ingredient.supplier}
                 </span>
               </span>
-            </SelectItem>
+              <Badge variant="secondary" className="h-6 shrink-0">
+                {row.ingredient.unit}
+              </Badge>
+            </button>
           ))}
-        </SelectContent>
-      </Select>
+
+          {canAddIngredient && (
+            <button
+              type="button"
+              className="mt-1 flex min-h-12 w-full items-center gap-2 rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-left text-amber-900 hover:bg-amber-100"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleAddIngredient}
+            >
+              <Plus className="size-4 shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-medium">
+                  เพิ่ม “{query.trim()}”
+                </span>
+                <span className="block text-xs">
+                  หน่วย {item.unit.trim() || "กก."} · ราคา{" "}
+                  {formatCurrency(item.unitPrice)}
+                </span>
+              </span>
+            </button>
+          )}
+
+          {suggestionRows.length === 0 && !canAddIngredient && (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              พิมพ์ชื่อวัตถุดิบเพื่อค้นหาหรือเพิ่มรายการใหม่
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
