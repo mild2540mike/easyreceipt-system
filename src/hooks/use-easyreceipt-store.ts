@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import {
   baseCashFlowMetrics,
@@ -54,6 +54,44 @@ export type MemberFormInput = {
 export type RecipeFormInput = Omit<Recipe, "id">
 
 const today = new Date("2026-06-27T08:00:00+07:00")
+const sessionMemberKey = "easyreceipt.memberId"
+const activeMemberLabel = "กำลังใช้งาน"
+
+function readMemberSession() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  try {
+    return window.sessionStorage.getItem(sessionMemberKey)
+  } catch {
+    return null
+  }
+}
+
+function saveMemberSession(memberId: string) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.sessionStorage.setItem(sessionMemberKey, memberId)
+  } catch {
+    // Session persistence is best-effort for this local prototype.
+  }
+}
+
+function clearMemberSession() {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.sessionStorage.removeItem(sessionMemberKey)
+  } catch {
+    // Session persistence is best-effort for this local prototype.
+  }
+}
 
 function purchaseItemTotal(item: PurchaseItem) {
   return item.quantity * item.unitPrice
@@ -85,11 +123,49 @@ function dayLabel(date: string) {
 export function useEasyReceiptStore() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
+  const [isAuthReady, setIsAuthReady] = useState(false)
   const [members, setMembers] = useState<Member[]>(initialMembers)
   const [recipeList, setRecipeList] = useState<Recipe[]>(recipes)
   const [purchaseDate, setPurchaseDate] = useState<Date>(today)
   const [purchaseItems, setPurchaseItems] =
     useState<PurchaseItem[]>(initialPurchaseItems)
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const memberId = readMemberSession()
+
+      if (!memberId) {
+        setIsAuthReady(true)
+        return
+      }
+
+      const member = initialMembers.find(
+        (item) => item.id === memberId && item.status === "active"
+      )
+
+      if (!member) {
+        clearMemberSession()
+        setIsAuthReady(true)
+        return
+      }
+
+      setCurrentMember({
+        ...member,
+        lastActive: activeMemberLabel,
+      })
+      setMembers((items) =>
+        items.map((item) =>
+          item.id === member.id
+            ? { ...item, lastActive: activeMemberLabel }
+            : item
+        )
+      )
+      setActiveView("dashboard")
+      setIsAuthReady(true)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [])
 
   const ingredientById = useMemo(
     () => new Map(ingredients.map((ingredient) => [ingredient.id, ingredient])),
@@ -266,19 +342,21 @@ export function useEasyReceiptStore() {
 
     setCurrentMember({
       ...member,
-      lastActive: "กำลังใช้งาน",
+      lastActive: activeMemberLabel,
     })
     setMembers((items) =>
       items.map((item) =>
-        item.id === member.id ? { ...item, lastActive: "กำลังใช้งาน" } : item
+        item.id === member.id ? { ...item, lastActive: activeMemberLabel } : item
       )
     )
+    saveMemberSession(member.id)
     setActiveView("dashboard")
 
     return true
   }
 
   function logout() {
+    clearMemberSession()
     setCurrentMember(null)
     setActiveView("dashboard")
   }
@@ -431,12 +509,16 @@ export function useEasyReceiptStore() {
     setCurrentMember((member) =>
       member?.id === memberId && status !== "active" ? null : member
     )
+    if (currentMember?.id === memberId && status !== "active") {
+      clearMemberSession()
+    }
   }
 
   return {
     activeView,
     setActiveView,
     currentMember,
+    isAuthReady,
     login,
     logout,
     purchaseDate,
@@ -466,3 +548,5 @@ export function useEasyReceiptStore() {
     updateMemberStatus,
   }
 }
+
+export type EasyReceiptStore = ReturnType<typeof useEasyReceiptStore>

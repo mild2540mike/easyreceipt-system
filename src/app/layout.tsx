@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Noto_Sans_Thai } from "next/font/google";
+import { EasyReceiptProvider } from "@/components/easyreceipt/easyreceipt-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -30,7 +31,9 @@ export default function RootLayout({
       className={`${notoThai.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
+        <EasyReceiptProvider>
+          <TooltipProvider>{children}</TooltipProvider>
+        </EasyReceiptProvider>
       </body>
     </html>
   );

@@ -1,8 +1,11 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
+  ArrowLeft,
   BarChart3,
   CalendarIcon,
   ChefHat,
@@ -11,6 +14,7 @@ import {
   Database,
   KeyRound,
   LayoutDashboard,
+  LoaderCircle,
   LockKeyhole,
   LogIn,
   LogOut,
@@ -37,7 +41,7 @@ import type { LucideIcon } from "lucide-react"
 import { th } from "date-fns/locale"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Card,
   CardAction,
@@ -82,12 +86,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
-  useEasyReceiptStore,
+  type EasyReceiptStore,
   type InventoryRow,
   type RecipeFormInput,
   type RecipeImpact,
   type StockStatus,
 } from "@/hooks/use-easyreceipt-store"
+import { useEasyReceipt } from "@/components/easyreceipt/easyreceipt-provider"
 import type {
   MemberRole,
   MemberStatus,
@@ -102,6 +107,7 @@ type NavItem = {
   label: string
   shortLabel: string
   description: string
+  href: string
   icon: LucideIcon
   color: string
 }
@@ -112,6 +118,7 @@ const navItems: NavItem[] = [
     label: "แดชบอร์ด",
     shortLabel: "สรุป",
     description: "ภาพรวมต้นทุนและสต็อก",
+    href: "/portal",
     icon: LayoutDashboard,
     color: "text-sky-700 bg-sky-50 border-sky-200",
   },
@@ -120,6 +127,7 @@ const navItems: NavItem[] = [
     label: "บันทึกการซื้อ",
     shortLabel: "ซื้อ",
     description: "ใบสรุปการซื้อและยอดรวม",
+    href: "/portal/purchase",
     icon: ShoppingCart,
     color: "text-amber-700 bg-amber-50 border-amber-200",
   },
@@ -128,6 +136,7 @@ const navItems: NavItem[] = [
     label: "คลังวัตถุดิบ",
     shortLabel: "คลัง",
     description: "คงเหลือ แจ้งเตือน และจุดสั่งซื้อ",
+    href: "/portal/stock",
     icon: Package,
     color: "text-emerald-700 bg-emerald-50 border-emerald-200",
   },
@@ -136,6 +145,7 @@ const navItems: NavItem[] = [
     label: "สูตรอาหาร",
     shortLabel: "สูตร",
     description: "ตัดสต็อกตามสูตรการใช้งาน",
+    href: "/portal/recipes",
     icon: ChefHat,
     color: "text-rose-700 bg-rose-50 border-rose-200",
   },
@@ -144,6 +154,7 @@ const navItems: NavItem[] = [
     label: "รายงาน",
     shortLabel: "รายงาน",
     description: "ต้นทุน กระแสเงินสด และยอดใช้",
+    href: "/portal/reports",
     icon: BarChart3,
     color: "text-violet-700 bg-violet-50 border-violet-200",
   },
@@ -152,6 +163,7 @@ const navItems: NavItem[] = [
     label: "สมาชิก",
     shortLabel: "สมาชิก",
     description: "สิทธิ์ผู้ใช้งานและสถานะบัญชี",
+    href: "/portal/members",
     icon: Users,
     color: "text-cyan-700 bg-cyan-50 border-cyan-200",
   },
@@ -264,25 +276,70 @@ function toNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-export function EasyReceiptApp() {
-  const store = useEasyReceiptStore()
+export function EasyReceiptLogin() {
+  const store = useEasyReceipt()
+  const router = useRouter()
 
-  if (!store.currentMember) {
-    return <LoginView store={store} />
+  useEffect(() => {
+    if (store.isAuthReady && store.currentMember) {
+      router.replace("/portal")
+    }
+  }, [router, store.currentMember, store.isAuthReady])
+
+  if (!store.isAuthReady || store.currentMember) {
+    return <AuthLoadingScreen />
+  }
+
+  return (
+    <LoginView
+      store={store}
+      onLoginSuccess={() => {
+        router.replace("/portal")
+      }}
+    />
+  )
+}
+
+export function EasyReceiptApp() {
+  return <EasyReceiptPortalPage activeView="dashboard" />
+}
+
+export function EasyReceiptPortalPage({
+  activeView,
+  children,
+}: {
+  activeView: ViewId
+  children?: ReactNode
+}) {
+  const store = useEasyReceipt()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (store.isAuthReady && !store.currentMember) {
+      router.replace("/")
+    }
+  }, [router, store.currentMember, store.isAuthReady])
+
+  if (!store.isAuthReady || !store.currentMember) {
+    return <AuthLoadingScreen />
+  }
+
+  function handleLogout() {
+    store.logout()
+    router.replace("/")
   }
 
   const activeItem =
-    navItems.find((item) => item.id === store.activeView) ?? navItems[0]
+    navItems.find((item) => item.id === activeView) ?? navItems[0]
   const ActiveIcon = activeItem.icon
 
   return (
     <div className="min-h-screen bg-[var(--app-bg)] text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-[1440px]">
         <DesktopSidebar
-          activeView={store.activeView}
-          onViewChange={store.setActiveView}
+          activeView={activeView}
           currentMember={store.currentMember}
-          onLogout={store.logout}
+          onLogout={handleLogout}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -328,7 +385,7 @@ export function EasyReceiptApp() {
                       variant="outline"
                       size="icon-lg"
                       className="h-11 w-11"
-                      onClick={store.logout}
+                      onClick={handleLogout}
                     />
                   }
                 >
@@ -357,27 +414,43 @@ export function EasyReceiptApp() {
           </header>
 
           <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
-            {store.activeView === "dashboard" && <DashboardView store={store} />}
-            {store.activeView === "purchase" && <PurchaseView store={store} />}
-            {store.activeView === "stock" && <StockView store={store} />}
-            {store.activeView === "recipes" && <RecipesView store={store} />}
-            {store.activeView === "reports" && <ReportsView store={store} />}
-            {store.activeView === "members" && <MembersView store={store} />}
+            {children ?? (
+              <>
+                {activeView === "dashboard" && <DashboardView store={store} />}
+                {activeView === "purchase" && <PurchaseView store={store} />}
+                {activeView === "stock" && <StockView store={store} />}
+                {activeView === "recipes" && <RecipesView store={store} />}
+                {activeView === "reports" && <ReportsView store={store} />}
+                {activeView === "members" && <MembersView store={store} />}
+              </>
+            )}
           </main>
         </div>
       </div>
 
-      <MobileBottomNav
-        activeView={store.activeView}
-        onViewChange={store.setActiveView}
-      />
+      <MobileBottomNav activeView={activeView} />
     </div>
   )
 }
 
-type Store = ReturnType<typeof useEasyReceiptStore>
+function AuthLoadingScreen() {
+  return (
+    <main className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-background/80 px-4 text-foreground backdrop-blur-md">
+      <LoaderCircle className="size-10 animate-spin text-primary" />
+      <span className="sr-only">กำลังตรวจสอบสิทธิ์</span>
+    </main>
+  )
+}
 
-function LoginView({ store }: { store: Store }) {
+type Store = EasyReceiptStore
+
+function LoginView({
+  store,
+  onLoginSuccess,
+}: {
+  store: Store
+  onLoginSuccess: () => void
+}) {
   const [email, setEmail] = useState("owner@easyreceipt.local")
   const [password, setPassword] = useState("123456")
   const [error, setError] = useState("")
@@ -392,6 +465,7 @@ function LoginView({ store }: { store: Store }) {
     }
 
     setError("")
+    onLoginSuccess()
   }
 
   return (
@@ -467,12 +541,10 @@ function LoginView({ store }: { store: Store }) {
 
 function DesktopSidebar({
   activeView,
-  onViewChange,
   currentMember,
   onLogout,
 }: {
   activeView: ViewId
-  onViewChange: (view: ViewId) => void
   currentMember: Store["currentMember"]
   onLogout: () => void
 }) {
@@ -494,14 +566,17 @@ function DesktopSidebar({
           const isActive = activeView === item.id
 
           return (
-            <Button
+            <Link
               key={item.id}
-              variant={isActive ? "secondary" : "ghost"}
               className={cn(
-                "h-auto min-h-14 w-full justify-start gap-3 px-3 py-3 text-left",
+                buttonVariants({
+                  variant: isActive ? "secondary" : "ghost",
+                  className:
+                    "h-auto min-h-14 w-full justify-start gap-3 px-3 py-3 text-left",
+                }),
                 isActive && "bg-muted"
               )}
-              onClick={() => onViewChange(item.id)}
+              href={item.href}
             >
               <span
                 className={cn(
@@ -517,7 +592,7 @@ function DesktopSidebar({
                   {item.description}
                 </span>
               </span>
-            </Button>
+            </Link>
           )
         })}
       </nav>
@@ -567,10 +642,8 @@ function DesktopSidebar({
 
 function MobileBottomNav({
   activeView,
-  onViewChange,
 }: {
   activeView: ViewId
-  onViewChange: (view: ViewId) => void
 }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
@@ -580,18 +653,20 @@ function MobileBottomNav({
           const isActive = activeView === item.id
 
           return (
-            <Button
+            <Link
               key={item.id}
-              variant={isActive ? "secondary" : "ghost"}
               className={cn(
-                "h-14 min-w-0 flex-col gap-1 px-1 text-[0.72rem]",
+                buttonVariants({
+                  variant: isActive ? "secondary" : "ghost",
+                  className: "h-14 min-w-0 flex-col gap-1 px-1 text-[0.72rem]",
+                }),
                 isActive && "bg-muted text-foreground"
               )}
-              onClick={() => onViewChange(item.id)}
+              href={item.href}
             >
               <Icon className="size-5" />
               <span className="truncate">{item.shortLabel}</span>
-            </Button>
+            </Link>
           )
         })}
       </div>
@@ -1274,24 +1349,119 @@ function normalizeRecipeDraft(draft: RecipeFormInput): RecipeFormInput {
 }
 
 function RecipesView({ store }: { store: Store }) {
+  function handleDeleteRecipe(recipeId: string) {
+    store.deleteRecipe(recipeId)
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="grid gap-3 sm:grid-cols-3">
+        <MetricCard
+          label="เมนูทั้งหมด"
+          value={`${store.recipeStats.total} สูตร`}
+          helper="เพิ่ม ลบ แก้ไขได้"
+          icon={ChefHat}
+          tone="border-rose-200 bg-rose-50 text-rose-800"
+        />
+        <MetricCard
+          label="พร้อมผลิต"
+          value={`${store.recipeStats.ready} สูตร`}
+          helper="วัตถุดิบคงเหลือเพียงพอ"
+          icon={CircleCheck}
+          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
+        />
+        <MetricCard
+          label="วัตถุดิบในสูตร"
+          value={`${store.recipeStats.totalIngredients} รายการ`}
+          helper="รวมทุกเมนู"
+          icon={Package}
+          tone="border-sky-200 bg-sky-50 text-sky-800"
+        />
+      </section>
+
+      <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <ChefHat className="size-5 text-rose-600" />
+              <h2 className="text-lg font-semibold">
+                สูตรอาหารและผลกระทบสต็อก
+              </h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              ตรวจความพร้อมของวัตถุดิบก่อนตัดสต็อกตามสูตร
+            </p>
+          </div>
+          <Badge variant="outline" className="h-7 w-fit">
+            {store.recipeImpacts.length} สูตรพร้อมตรวจ
+          </Badge>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        {store.recipeImpacts.map((recipe) => (
+          <RecipeCard
+            key={recipe.id}
+            recipe={recipe}
+            store={store}
+            editHref={`/portal/recipes/${recipe.id}/edit`}
+            onDelete={handleDeleteRecipe}
+          />
+        ))}
+        <RecipeAddCard />
+      </section>
+    </div>
+  )
+}
+
+function RecipeAddCard() {
+  return (
+    <Link
+      href="/portal/recipes/new"
+      className="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-rose-300 bg-background text-rose-600 transition-colors hover:border-rose-400 hover:bg-rose-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <span className="flex size-20 items-center justify-center rounded-full border border-rose-200 bg-rose-50">
+        <Plus className="size-10" />
+      </span>
+      <span className="sr-only">เพิ่มเมนูสูตรอาหาร</span>
+    </Link>
+  )
+}
+
+export function EasyReceiptRecipeFormPage({
+  mode,
+  recipeId,
+}: {
+  mode: "new" | "edit"
+  recipeId?: string
+}) {
+  return (
+    <EasyReceiptPortalPage activeView="recipes">
+      <RecipeFormView mode={mode} recipeId={recipeId} />
+    </EasyReceiptPortalPage>
+  )
+}
+
+function RecipeFormView({
+  mode,
+  recipeId,
+}: {
+  mode: "new" | "edit"
+  recipeId?: string
+}) {
+  const store = useEasyReceipt()
+  const router = useRouter()
   const defaultIngredientId = store.ingredients[0]?.id ?? ""
-  const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null)
+  const editingRecipe =
+    mode === "edit"
+      ? store.recipeImpacts.find((recipe) => recipe.id === recipeId)
+      : undefined
   const [recipeDraft, setRecipeDraft] = useState<RecipeFormInput>(() =>
-    createRecipeDraft(defaultIngredientId)
+    editingRecipe
+      ? draftFromRecipe(editingRecipe)
+      : createRecipeDraft(defaultIngredientId)
   )
   const [message, setMessage] = useState("")
-
-  function resetRecipeForm() {
-    setEditingRecipeId(null)
-    setRecipeDraft(createRecipeDraft(defaultIngredientId))
-    setMessage("")
-  }
-
-  function handleEditRecipe(recipe: RecipeImpact) {
-    setEditingRecipeId(recipe.id)
-    setRecipeDraft(draftFromRecipe(recipe))
-    setMessage("กำลังแก้ไขเมนูนี้")
-  }
 
   function handleRecipeIngredientChange(
     index: number,
@@ -1342,258 +1512,231 @@ function RecipesView({ store }: { store: Store }) {
   function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedDraft = normalizeRecipeDraft(recipeDraft)
-
-    const ok = editingRecipeId
-      ? store.updateRecipe(editingRecipeId, normalizedDraft)
-      : store.addRecipe(normalizedDraft)
+    const ok =
+      mode === "edit" && recipeId
+        ? store.updateRecipe(recipeId, normalizedDraft)
+        : store.addRecipe(normalizedDraft)
 
     if (!ok) {
       setMessage("กรุณากรอกชื่อเมนู และเพิ่มวัตถุดิบอย่างน้อย 1 รายการ")
       return
     }
 
-    setMessage(editingRecipeId ? "บันทึกการแก้ไขเมนูแล้ว" : "เพิ่มเมนูใหม่แล้ว")
-    setEditingRecipeId(null)
-    setRecipeDraft(createRecipeDraft(defaultIngredientId))
+    router.push("/portal/recipes")
   }
 
-  function handleDeleteRecipe(recipeId: string) {
-    store.deleteRecipe(recipeId)
-
-    if (editingRecipeId === recipeId) {
-      resetRecipeForm()
-    }
-  }
-
-  return (
-    <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-3">
-        <MetricCard
-          label="เมนูทั้งหมด"
-          value={`${store.recipeStats.total} สูตร`}
-          helper="เพิ่ม ลบ แก้ไขได้"
-          icon={ChefHat}
-          tone="border-rose-200 bg-rose-50 text-rose-800"
-        />
-        <MetricCard
-          label="พร้อมผลิต"
-          value={`${store.recipeStats.ready} สูตร`}
-          helper="วัตถุดิบคงเหลือเพียงพอ"
-          icon={CircleCheck}
-          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
-        />
-        <MetricCard
-          label="วัตถุดิบในสูตร"
-          value={`${store.recipeStats.totalIngredients} รายการ`}
-          helper="รวมทุกเมนู"
-          icon={Package}
-          tone="border-sky-200 bg-sky-50 text-sky-800"
-        />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[0.86fr_1.14fr]">
+  if (mode === "edit" && !editingRecipe) {
+    return (
+      <div className="mx-auto max-w-3xl">
         <Card className="rounded-lg">
           <CardHeader>
             <CardAction>
               <span className="flex size-10 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
-                {editingRecipeId ? (
-                  <Pencil className="size-5" />
-                ) : (
-                  <Plus className="size-5" />
-                )}
+                <ChefHat className="size-5" />
               </span>
             </CardAction>
-            <CardTitle>
-              {editingRecipeId ? "แก้ไขเมนูสูตรอาหาร" : "เพิ่มเมนูสูตรอาหาร"}
-            </CardTitle>
+            <CardTitle>ไม่พบเมนูสูตรอาหาร</CardTitle>
             <CardDescription>
-              จัดการชื่อเมนู ราคา จำนวนเสิร์ฟ และวัตถุดิบในสูตร
+              เมนูนี้อาจถูกลบแล้ว หรือข้อมูล mock ถูกรีเซ็ตหลัง refresh
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmitRecipe}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label className="mb-2 block">ชื่อเมนู</Label>
-                  <Input
-                    className="h-11"
-                    value={recipeDraft.name}
-                    onChange={(event) =>
-                      setRecipeDraft((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    placeholder="เช่น ข้าวกะเพราไก่"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-2 block">หมวดหมู่</Label>
-                  <Input
-                    className="h-11"
-                    value={recipeDraft.menuCategory}
-                    onChange={(event) =>
-                      setRecipeDraft((current) => ({
-                        ...current,
-                        menuCategory: event.target.value,
-                      }))
-                    }
-                    placeholder="เช่น อาหารจานเดียว"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FieldNumber
-                  label="จำนวนเสิร์ฟ"
-                  value={recipeDraft.yield}
-                  onChange={(value) =>
-                    setRecipeDraft((current) => ({
-                      ...current,
-                      yield: value,
-                    }))
-                  }
-                />
-                <FieldNumber
-                  label="ราคาต่อเสิร์ฟ"
-                  value={recipeDraft.pricePerServing}
-                  onChange={(value) =>
-                    setRecipeDraft((current) => ({
-                      ...current,
-                      pricePerServing: value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <Label>วัตถุดิบในสูตร</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10"
-                    onClick={addRecipeIngredientLine}
-                  >
-                    <Plus className="size-4" />
-                    เพิ่มวัตถุดิบ
-                  </Button>
-                </div>
-
-                {recipeDraft.ingredients.map((item, index) => {
-                  const ingredient = store.ingredientById.get(item.ingredientId)
-
-                  return (
-                    <div
-                      key={`${item.ingredientId}-${index}`}
-                      className="grid gap-3 rounded-lg border border-border p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end"
-                    >
-                      <div>
-                        <Label className="mb-2 block">วัตถุดิบ</Label>
-                        <RecipeIngredientSelect
-                          value={item.ingredientId}
-                          store={store}
-                          onChange={(ingredientId) =>
-                            handleRecipeIngredientChange(index, {
-                              ingredientId,
-                            })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="mb-2 block">
-                          ปริมาณ
-                          {ingredient ? ` (${ingredient.unit})` : ""}
-                        </Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-11"
-                          value={item.quantity}
-                          onChange={(event) =>
-                            handleRecipeIngredientChange(index, {
-                              quantity: toNumber(event.target.value),
-                            })
-                          }
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-lg"
-                        className="h-11 w-11 text-muted-foreground"
-                        onClick={() => removeRecipeIngredientLine(index)}
-                        disabled={recipeDraft.ingredients.length === 1}
-                      >
-                        <Trash2 className="size-4" />
-                        <span className="sr-only">ลบวัตถุดิบ</span>
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {message && (
-                <div className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
-                  {message}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="submit" className="h-11 flex-1">
-                  <Save className="size-4" />
-                  {editingRecipeId ? "บันทึกเมนู" : "เพิ่มเมนู"}
-                </Button>
-                {editingRecipeId && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 flex-1"
-                    onClick={resetRecipeForm}
-                  >
-                    <Minus className="size-4" />
-                    ยกเลิกแก้ไข
-                  </Button>
-                )}
-              </div>
-            </form>
+            <Link
+              href="/portal/recipes"
+              className={buttonVariants({
+                variant: "outline",
+                className: "h-11",
+              })}
+            >
+              <ArrowLeft className="size-4" />
+              กลับหน้าสูตรอาหาร
+            </Link>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
 
-        <div className="space-y-4">
-          <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+  return (
+    <div className="w-full max-w-4xl space-y-4">
+      <Link
+        href="/portal/recipes"
+        className={buttonVariants({
+          variant: "ghost",
+          className: "h-11 w-fit px-3",
+        })}
+      >
+        <ArrowLeft className="size-4" />
+        กลับหน้าสูตรอาหาร
+      </Link>
+
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardAction>
+            <span className="flex size-10 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
+              {mode === "edit" ? (
+                <Pencil className="size-5" />
+              ) : (
+                <Plus className="size-5" />
+              )}
+            </span>
+          </CardAction>
+          <CardTitle>
+            {mode === "edit" ? "แก้ไขเมนูสูตรอาหาร" : "เพิ่มเมนูสูตรอาหาร"}
+          </CardTitle>
+          <CardDescription>
+            จัดการชื่อเมนู ราคา จำนวนเสิร์ฟ และวัตถุดิบในสูตร
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmitRecipe}>
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <ChefHat className="size-5 text-rose-600" />
-                  <h2 className="text-lg font-semibold">
-                    สูตรอาหารและผลกระทบสต็อก
-                  </h2>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  ตรวจความพร้อมของวัตถุดิบก่อนตัดสต็อกตามสูตร
-                </p>
+                <Label className="mb-2 block">ชื่อเมนู</Label>
+                <Input
+                  className="h-11"
+                  value={recipeDraft.name}
+                  onChange={(event) =>
+                    setRecipeDraft((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="เช่น ข้าวกะเพราไก่"
+                />
               </div>
-              <Badge variant="outline" className="h-7 w-fit">
-                {store.recipeImpacts.length} สูตรพร้อมตรวจ
-              </Badge>
+              <div>
+                <Label className="mb-2 block">หมวดหมู่</Label>
+                <Input
+                  className="h-11"
+                  value={recipeDraft.menuCategory}
+                  onChange={(event) =>
+                    setRecipeDraft((current) => ({
+                      ...current,
+                      menuCategory: event.target.value,
+                    }))
+                  }
+                  placeholder="เช่น อาหารจานเดียว"
+                />
+              </div>
             </div>
-          </section>
 
-          <section className="grid gap-4 lg:grid-cols-2">
-            {store.recipeImpacts.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                store={store}
-                onEdit={handleEditRecipe}
-                onDelete={handleDeleteRecipe}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FieldNumber
+                label="จำนวนเสิร์ฟ"
+                value={recipeDraft.yield}
+                onChange={(value) =>
+                  setRecipeDraft((current) => ({
+                    ...current,
+                    yield: value,
+                  }))
+                }
               />
-            ))}
-          </section>
-        </div>
-      </section>
+              <FieldNumber
+                label="ราคาต่อเสิร์ฟ"
+                value={recipeDraft.pricePerServing}
+                onChange={(value) =>
+                  setRecipeDraft((current) => ({
+                    ...current,
+                    pricePerServing: value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label>วัตถุดิบในสูตร</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10"
+                  onClick={addRecipeIngredientLine}
+                >
+                  <Plus className="size-4" />
+                  เพิ่มวัตถุดิบ
+                </Button>
+              </div>
+
+              {recipeDraft.ingredients.map((item, index) => {
+                const ingredient = store.ingredientById.get(item.ingredientId)
+
+                return (
+                  <div
+                    key={`${item.ingredientId}-${index}`}
+                    className="grid gap-3 rounded-lg border border-border p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end"
+                  >
+                    <div>
+                      <Label className="mb-2 block">วัตถุดิบ</Label>
+                      <RecipeIngredientSelect
+                        value={item.ingredientId}
+                        store={store}
+                        onChange={(ingredientId) =>
+                          handleRecipeIngredientChange(index, {
+                            ingredientId,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">
+                        ปริมาณ
+                        {ingredient ? ` (${ingredient.unit})` : ""}
+                      </Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="h-11"
+                        value={item.quantity}
+                        onChange={(event) =>
+                          handleRecipeIngredientChange(index, {
+                            quantity: toNumber(event.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-lg"
+                      className="h-11 w-11 text-muted-foreground"
+                      onClick={() => removeRecipeIngredientLine(index)}
+                      disabled={recipeDraft.ingredients.length === 1}
+                    >
+                      <Trash2 className="size-4" />
+                      <span className="sr-only">ลบวัตถุดิบ</span>
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+
+            {message && (
+              <div className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+                {message}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button type="submit" className="h-11 flex-1">
+                <Save className="size-4" />
+                {mode === "edit" ? "บันทึกเมนู" : "เพิ่มเมนู"}
+              </Button>
+              <Link
+                href="/portal/recipes"
+                className={buttonVariants({
+                  variant: "outline",
+                  className: "h-11 flex-1",
+                })}
+              >
+                <Minus className="size-4" />
+                ยกเลิก
+              </Link>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -1601,12 +1744,12 @@ function RecipesView({ store }: { store: Store }) {
 function RecipeCard({
   recipe,
   store,
-  onEdit,
+  editHref,
   onDelete,
 }: {
   recipe: RecipeImpact
   store: Store
-  onEdit: (recipe: RecipeImpact) => void
+  editHref: string
   onDelete: (recipeId: string) => void
 }) {
   return (
@@ -1625,15 +1768,17 @@ function RecipeCard({
             >
               {recipe.canProduce ? "พร้อมผลิต" : "วัตถุดิบไม่พอ"}
             </Badge>
-            <Button
-              variant="outline"
-              size="icon-lg"
-              className="h-10 w-10"
-              onClick={() => onEdit(recipe)}
+            <Link
+              href={editHref}
+              className={buttonVariants({
+                variant: "outline",
+                size: "icon-lg",
+                className: "h-10 w-10",
+              })}
             >
               <Pencil className="size-4" />
               <span className="sr-only">แก้ไขเมนู</span>
-            </Button>
+            </Link>
             <Button
               variant="ghost"
               size="icon-lg"
