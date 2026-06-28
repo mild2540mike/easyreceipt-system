@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   branches as initialBranches,
@@ -21,6 +22,11 @@ import {
   type Recipe,
   type ViewId,
 } from "@/lib/easyreceipt-data"
+import {
+  apiGetCurrentMember,
+  apiLogin,
+  apiLogout,
+} from "@/lib/easyreceipt-api"
 
 export type StockStatus = "ok" | "watch" | "low"
 
@@ -109,6 +115,7 @@ const today = new Date("2026-06-27T08:00:00+07:00")
 const todayIso = "2026-06-27"
 const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
+const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
 const activeMemberLabel = "กำลังใช้งาน"
 
 function readSessionValue(key: string) {
@@ -145,10 +152,6 @@ function clearSessionValue(key: string) {
   } catch {
     // Session persistence is best-effort for this local prototype.
   }
-}
-
-function readMemberSession() {
-  return readSessionValue(sessionMemberKey)
 }
 
 function saveMemberSession(memberId: string) {
@@ -506,6 +509,7 @@ function createPurchaseSeriesForWorkspaces(
 }
 
 export function useEasyReceiptStore() {
+  const queryClient = useQueryClient()
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -522,47 +526,89 @@ export function useEasyReceiptStore() {
     Object.values(branchWorkspaces)[0] ??
     createInitialBranchWorkspace(initialBranches[0], 0)
 
+  const syncAuthenticatedMember = useCallback((member: Member) => {
+    const nextMember = {
+      ...member,
+      lastActive: activeMemberLabel,
+    }
+    const nextBranchId = preferredBranchId(member, readBranchSession())
+
+    setCurrentMember(nextMember)
+    setMembers((items) => {
+      const existingMember = items.some((item) => item.id === member.id)
+
+      return existingMember
+        ? items.map((item) => (item.id === member.id ? nextMember : item))
+        : [...items, nextMember]
+    })
+    setActiveBranchId(nextBranchId)
+    saveMemberSession(member.id)
+    saveBranchSession(nextBranchId)
+    setActiveView("dashboard")
+  }, [])
+
+  const clearAuthenticatedMember = useCallback(() => {
+    clearMemberSession()
+    clearBranchSession()
+    setCurrentMember(null)
+    setActiveBranchId(initialBranches[0]?.id ?? "")
+    setActiveView("dashboard")
+  }, [])
+
+  const authSessionQuery = useQuery({
+    queryKey: authSessionQueryKey,
+    queryFn: apiGetCurrentMember,
+    staleTime: 60_000,
+  })
+
+  const loginMutation = useMutation({
+    mutationFn: apiLogin,
+    onSuccess: (member) => {
+      queryClient.setQueryData(authSessionQueryKey, member)
+      syncAuthenticatedMember(member)
+      setIsAuthReady(true)
+    },
+  })
+
+  const logoutMutation = useMutation({
+    mutationFn: apiLogout,
+    onSettled: () => {
+      queryClient.setQueryData(authSessionQueryKey, null)
+      clearAuthenticatedMember()
+      setIsAuthReady(true)
+    },
+  })
+
   useEffect(() => {
+    if (authSessionQuery.isPending) {
+      return
+    }
+
     const timeoutId = window.setTimeout(() => {
-      const memberId = readMemberSession()
-
-      if (!memberId) {
+      if (authSessionQuery.isError || !authSessionQuery.data) {
+        clearAuthenticatedMember()
         setIsAuthReady(true)
         return
       }
 
-      const member = initialMembers.find(
-        (item) => item.id === memberId && item.status === "active"
-      )
-
-      if (!member) {
-        clearMemberSession()
-        clearBranchSession()
+      if (authSessionQuery.data.status !== "active") {
+        clearAuthenticatedMember()
         setIsAuthReady(true)
         return
       }
 
-      const nextBranchId = preferredBranchId(member, readBranchSession())
-
-      setCurrentMember({
-        ...member,
-        lastActive: activeMemberLabel,
-      })
-      setMembers((items) =>
-        items.map((item) =>
-          item.id === member.id
-            ? { ...item, lastActive: activeMemberLabel }
-            : item
-        )
-      )
-      setActiveBranchId(nextBranchId)
-      saveBranchSession(nextBranchId)
-      setActiveView("dashboard")
+      syncAuthenticatedMember(authSessionQuery.data)
       setIsAuthReady(true)
     }, 0)
 
     return () => window.clearTimeout(timeoutId)
-  }, [])
+  }, [
+    authSessionQuery.data,
+    authSessionQuery.isError,
+    authSessionQuery.isPending,
+    clearAuthenticatedMember,
+    syncAuthenticatedMember,
+  ])
 
   const accessibleBranchIds = useMemo(
     () => getMemberBranchIds(currentMember),
@@ -864,44 +910,25 @@ export function useEasyReceiptStore() {
     }))
   }
 
-  function login(email: string, password: string) {
-    const normalizedEmail = email.trim().toLowerCase()
-    const member = members.find(
-      (item) =>
-        item.email.toLowerCase() === normalizedEmail &&
-        item.password === password &&
-        item.status === "active"
-    )
+  async function login(email: string, password: string) {
+    const member = await loginMutation
+      .mutateAsync({
+        email: email.trim().toLowerCase(),
+        password,
+      })
+      .catch(() => null)
 
-    if (!member) {
+    if (!member || member.status !== "active") {
       return false
     }
-
-    const nextBranchId = preferredBranchId(member, readBranchSession())
-
-    setCurrentMember({
-      ...member,
-      lastActive: activeMemberLabel,
-    })
-    setMembers((items) =>
-      items.map((item) =>
-        item.id === member.id ? { ...item, lastActive: activeMemberLabel } : item
-      )
-    )
-    setActiveBranchId(nextBranchId)
-    saveMemberSession(member.id)
-    saveBranchSession(nextBranchId)
-    setActiveView("dashboard")
 
     return true
   }
 
   function logout() {
-    clearMemberSession()
-    clearBranchSession()
-    setCurrentMember(null)
-    setActiveBranchId(initialBranches[0]?.id ?? "")
-    setActiveView("dashboard")
+    queryClient.setQueryData(authSessionQueryKey, null)
+    clearAuthenticatedMember()
+    logoutMutation.mutate()
   }
 
   function updatePurchaseItem(
@@ -1133,35 +1160,6 @@ export function useEasyReceiptStore() {
     }))
 
     return true
-  }
-
-  function resetPurchaseItems() {
-    const branchIndex = Math.max(
-      initialBranches.findIndex((branch) => branch.id === activeBranchId),
-      0
-    )
-    const branch = activeBranch ?? initialBranches[branchIndex]
-    const nextPurchaseItems = createInitialBranchPurchaseItems(
-      branch,
-      branchIndex
-    )
-    const nextLedger = createPurchaseStockLedger(nextPurchaseItems)
-
-    updateActiveWorkspace((workspace) => ({
-      ...workspace,
-      inventoryItems: applyInventoryAdjustments(workspace.inventoryItems, [
-        ...Object.values(workspace.purchaseStockLedger).map((entry) => ({
-          ingredientId: entry.ingredientId,
-          delta: -entry.quantity,
-        })),
-        ...Object.values(nextLedger).map((entry) => ({
-          ingredientId: entry.ingredientId,
-          delta: entry.quantity,
-        })),
-      ]),
-      purchaseStockLedger: nextLedger,
-      purchaseItems: nextPurchaseItems,
-    }))
   }
 
   function addRecipe(input: RecipeFormInput) {
@@ -1412,6 +1410,7 @@ export function useEasyReceiptStore() {
     setActiveView,
     currentMember,
     isAuthReady,
+    isLoginPending: loginMutation.isPending,
     login,
     logout,
     branches: initialBranches,
@@ -1425,7 +1424,6 @@ export function useEasyReceiptStore() {
     updatePurchaseItem,
     addPurchaseItem,
     removePurchaseItem,
-    resetPurchaseItems,
     ingredients: ingredientList,
     ingredientById,
     inventoryItems: inventoryList,

@@ -454,9 +454,10 @@ function LoginView({
   const [password, setPassword] = useState("123456")
   const [error, setError] = useState("")
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const ok = store.login(email, password)
+    setError("")
+    const ok = await store.login(email, password)
 
     if (!ok) {
       setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีไม่ได้เปิดใช้งาน")
@@ -518,8 +519,16 @@ function LoginView({
               </div>
             )}
 
-            <Button type="submit" className="h-12 w-full">
-              <LogIn className="size-4" />
+            <Button
+              type="submit"
+              className="h-12 w-full"
+              disabled={store.isLoginPending}
+            >
+              {store.isLoginPending ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <LogIn className="size-4" />
+              )}
               เข้าสู่ระบบ
             </Button>
           </form>
@@ -1020,14 +1029,6 @@ function PurchaseView({ store }: { store: Store }) {
             <Button className="h-11" onClick={store.addPurchaseItem}>
               <Plus className="size-4" />
               เพิ่มรายการ
-            </Button>
-            <Button
-              variant="outline"
-              className="h-11"
-              onClick={store.resetPurchaseItems}
-            >
-              <Minus className="size-4" />
-              รีเซ็ต
             </Button>
           </div>
 
@@ -2214,15 +2215,6 @@ function RecipeFormView({
 
       <Card className="rounded-lg">
         <CardHeader>
-          <CardAction>
-            <span className="flex size-10 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
-              {mode === "edit" ? (
-                <Pencil className="size-5" />
-              ) : (
-                <Plus className="size-5" />
-              )}
-            </span>
-          </CardAction>
           <CardTitle>
             {mode === "edit"
               ? "แก้ไขเมนูสูตรอาหาร"
