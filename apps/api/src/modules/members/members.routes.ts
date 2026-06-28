@@ -1,0 +1,228 @@
+import { Router } from "express"
+import { z } from "zod"
+
+import { prisma } from "../../db/prisma"
+import { getAuthMember } from "../../middleware/auth"
+import { asyncHandler } from "../../utils/async-handler"
+import { badRequest, notFound } from "../../utils/http-error"
+import { routeParam } from "../../utils/route-param"
+import {
+  assertManageMembers,
+  getAccessibleBranchIds,
+  type MemberWithBranchAccess,
+  type MemberWithBranches,
+  serializeMember,
+} from "../common/permissions"
+
+const roleSchema = z.enum(["owner", "manager", "staff", "viewer"])
+const statusSchema = z.enum(["active", "invited", "suspended"])
+
+const addMemberSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  role: roleSchema,
+  branchIds: z.array(z.string().min(1)).min(1),
+})
+
+const updateMemberSchema = z.object({
+  role: roleSchema.optional(),
+  status: statusSchema.optional(),
+  branchIds: z.array(z.string().min(1)).optional(),
+})
+
+export const membersRouter = Router()
+
+function sanitizeBranchIds(
+  requestedBranchIds: string[],
+  allowedBranchIds: string[],
+  role: string
+) {
+  const allowed = new Set(allowedBranchIds)
+  const branchIds = requestedBranchIds.filter((branchId) => allowed.has(branchId))
+  const roleScoped =
+    role === "staff" || role === "viewer" ? branchIds.slice(0, 1) : branchIds
+
+  return roleScoped
+}
+
+membersRouter.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const actor = getAuthMember(req)
+    const accessibleBranchIds = await getAccessibleBranchIds(prisma, actor.id)
+    const members = await prisma.member.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchAccess: {
+          some: {
+            branchId: {
+              in: accessibleBranchIds,
+            },
+          },
+        },
+      },
+      include: {
+        branchAccess: {
+          include: {
+            branch: true,
+          },
+        },
+      },
+      orderBy: {
+        joinedAt: "asc",
+      },
+    })
+
+    res.json({
+      members: (members as MemberWithBranches[]).map((member) => ({
+        ...serializeMember(member),
+        branches: member.branchAccess.map((access) => access.branch),
+      })),
+    })
+  })
+)
+
+membersRouter.post(
+  "/",
+  asyncHandler(async (req, res) => {
+    const actor = getAuthMember(req)
+    const input = addMemberSchema.parse(req.body)
+
+    const member = await prisma.$transaction(async (tx) => {
+      const manager = (await assertManageMembers(tx, actor)) as MemberWithBranchAccess
+      const allowedBranchIds =
+        manager.role === "owner"
+          ? (
+              await tx.branch.findMany({
+                where: {
+                  organizationId: manager.organizationId,
+                  isActive: true,
+                },
+                select: { id: true },
+              })
+            ).map((branch) => branch.id)
+          : manager.branchAccess.map((access) => access.branchId)
+      const branchIds = sanitizeBranchIds(
+        input.branchIds,
+        allowedBranchIds,
+        input.role
+      )
+
+      if (branchIds.length === 0) {
+        throw badRequest("Member requires at least one accessible branch.")
+      }
+
+      const duplicate = await tx.member.findFirst({
+        where: {
+          organizationId: manager.organizationId,
+          email: input.email.trim().toLowerCase(),
+        },
+      })
+
+      if (duplicate) {
+        throw badRequest("Member email already exists.")
+      }
+
+      const createdMember = await tx.member.create({
+        data: {
+          organizationId: manager.organizationId,
+          primaryBranchId: branchIds[0],
+          name: input.name.trim(),
+          email: input.email.trim().toLowerCase(),
+          role: input.role,
+          status: "invited",
+          passwordHash: "prototype:123456",
+        },
+      })
+
+      for (const branchId of branchIds) {
+        await tx.memberBranchAccess.create({
+          data: {
+            memberId: createdMember.id,
+            branchId,
+          },
+        })
+      }
+
+      return createdMember
+    })
+
+    res.status(201).json({ member: serializeMember(member) })
+  })
+)
+
+membersRouter.patch(
+  "/:memberId",
+  asyncHandler(async (req, res) => {
+    const actor = getAuthMember(req)
+    const input = updateMemberSchema.parse(req.body)
+    const memberId = routeParam(req.params.memberId, "memberId")
+
+    const member = await prisma.$transaction(async (tx) => {
+      const manager = (await assertManageMembers(tx, actor)) as MemberWithBranchAccess
+      const target = (await tx.member.findFirst({
+        where: {
+          id: memberId,
+          organizationId: manager.organizationId,
+        },
+        include: {
+          branchAccess: true,
+        },
+      })) as MemberWithBranchAccess | null
+
+      if (!target) {
+        throw notFound("Member not found.")
+      }
+
+      const nextRole = input.role ?? target.role
+      const allowedBranchIds =
+        manager.role === "owner"
+          ? (
+              await tx.branch.findMany({
+                where: {
+                  organizationId: manager.organizationId,
+                  isActive: true,
+                },
+                select: { id: true },
+              })
+            ).map((branch) => branch.id)
+          : manager.branchAccess.map((access) => access.branchId)
+      const requestedBranchIds =
+        input.branchIds ??
+        target.branchAccess.map((access) => access.branchId)
+      const nextBranchIds = sanitizeBranchIds(
+        requestedBranchIds,
+        allowedBranchIds,
+        nextRole
+      )
+
+      if (nextBranchIds.length === 0) {
+        throw badRequest("Member requires at least one accessible branch.")
+      }
+
+      await tx.memberBranchAccess.deleteMany({
+        where: { memberId },
+      })
+
+      for (const branchId of nextBranchIds) {
+        await tx.memberBranchAccess.create({
+          data: {
+            memberId,
+            branchId,
+          },
+        })
+      }
+
+      return tx.member.update({
+        where: { id: memberId },
+        data: {
+          role: nextRole,
+          status: input.status ?? target.status,
+          primaryBranchId: nextBranchIds[0],
+        },
+      })
+    })
+
+    res.json({ member: serializeMember(member) })
+  })
+)

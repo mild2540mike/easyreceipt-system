@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+model Organization {
+  id        String   @id @default(cuid()) @db.NVarChar(64)
+  code      String   @unique @db.NVarChar(32)
+  name      String   @db.NVarChar(160)
+  createdAt DateTime @default(now()) @db.DateTime2
+  updatedAt DateTime @updatedAt @db.DateTime2
+
+  branches    Branch[]
+  members     Member[]
+  ingredients Ingredient[]
+  auditLogs   AuditLog[]
+
+  @@map("organizations")
+}
+
+model Branch {
+  id             String   @id @default(cuid()) @db.NVarChar(64)
+  organizationId String   @db.NVarChar(64)
+  code           String   @db.NVarChar(20)
+  name           String   @db.NVarChar(160)
+  location       String   @db.NVarChar(180)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.DateTime2
+  updatedAt      DateTime @updatedAt @db.DateTime2
+
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  primaryMembers   Member[]             @relation("MemberPrimaryBranch")
+  memberAccess     MemberBranchAccess[]
+  inventoryItems   BranchInventory[]
+  purchases        Purchase[]
+  recipes          Recipe[]
+  recipePlans      RecipePlan[]
+  reservations     StockReservation[]
+  cookingRuns      CookingRun[]
+  stockMovements   StockMovement[]
+  auditLogs        AuditLog[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("branches")
+}
+
+model Member {
+  id              String    @id @default(cuid()) @db.NVarChar(64)
+  organizationId  String    @db.NVarChar(64)
+  primaryBranchId String?   @db.NVarChar(64)
+  name            String    @db.NVarChar(160)
+  email           String    @db.NVarChar(180)
+  passwordHash    String    @db.NVarChar(255)
+  role            String    @db.NVarChar(24)
+  status          String    @db.NVarChar(24)
+  lastActiveAt    DateTime? @db.DateTime2
+  joinedAt        DateTime  @default(now()) @db.DateTime2
+  createdAt       DateTime  @default(now()) @db.DateTime2
+  updatedAt       DateTime  @updatedAt @db.DateTime2
+
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  primaryBranch  Branch?              @relation("MemberPrimaryBranch", fields: [primaryBranchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branchAccess   MemberBranchAccess[]
+  purchases      Purchase[]           @relation("PurchaseCreatedBy")
+  recipePlans    RecipePlan[]         @relation("RecipePlanPlannedBy")
+  cookingRuns    CookingRun[]         @relation("CookingRunCookedBy")
+  stockMovements StockMovement[]      @relation("StockMovementCreatedBy")
+  auditLogs      AuditLog[]           @relation("AuditLogActor")
+
+  @@unique([organizationId, email])
+  @@index([organizationId, role, status])
+  @@index([primaryBranchId])
+  @@map("members")
+}
+
+model MemberBranchAccess {
+  memberId  String   @db.NVarChar(64)
+  branchId  String   @db.NVarChar(64)
+  createdAt DateTime @default(now()) @db.DateTime2
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([memberId, branchId])
+  @@index([branchId])
+  @@map("member_branch_access")
+}
+
+model Ingredient {
+  id             String   @id @default(cuid()) @db.NVarChar(64)
+  organizationId String   @db.NVarChar(64)
+  name           String   @db.NVarChar(160)
+  category       String   @db.NVarChar(100)
+  unit           String   @db.NVarChar(32)
+  defaultPrice   Decimal  @default(0) @db.Decimal(18, 2)
+  supplier       String   @default("-") @db.NVarChar(180)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.DateTime2
+  updatedAt      DateTime @updatedAt @db.DateTime2
+
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventoryItems BranchInventory[]
+  purchaseItems  PurchaseItem[]
+  recipeItems    RecipeItem[]
+  reservations   StockReservation[]
+  stockMovements StockMovement[]
+
+  @@unique([organizationId, name, unit])
+  @@index([organizationId, category])
+  @@map("ingredients")
+}
+
+model BranchInventory {
+  id               String   @id @default(cuid()) @db.NVarChar(64)
+  branchId         String   @db.NVarChar(64)
+  ingredientId     String   @db.NVarChar(64)
+  onHand           Decimal  @default(0) @db.Decimal(18, 3)
+  reservedQuantity Decimal  @default(0) @db.Decimal(18, 3)
+  reorderPoint     Decimal  @default(0) @db.Decimal(18, 3)
+  costPerUnit      Decimal  @default(0) @db.Decimal(18, 2)
+  lastUpdatedAt    DateTime @default(now()) @db.DateTime2
+  createdAt        DateTime @default(now()) @db.DateTime2
+  updatedAt        DateTime @updatedAt @db.DateTime2
+
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([branchId, ingredientId])
+  @@index([ingredientId])
+  @@map("branch_inventory")
+}
+
+model Purchase {
+  id                String   @id @default(cuid()) @db.NVarChar(64)
+  branchId          String   @db.NVarChar(64)
+  createdByMemberId String?  @db.NVarChar(64)
+  purchaseDate      DateTime @db.DateTime2
+  vendor            String   @default("-") @db.NVarChar(180)
+  status            String   @default("posted") @db.NVarChar(24)
+  totalAmount       Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt         DateTime @default(now()) @db.DateTime2
+  updatedAt         DateTime @updatedAt @db.DateTime2
+
+  branch    Branch         @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy Member?        @relation("PurchaseCreatedBy", fields: [createdByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items     PurchaseItem[]
+
+  @@index([branchId, purchaseDate])
+  @@index([createdByMemberId])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id           String   @id @default(cuid()) @db.NVarChar(64)
+  purchaseId   String   @db.NVarChar(64)
+  ingredientId String   @db.NVarChar(64)
+  quantity     Decimal  @db.Decimal(18, 3)
+  unit         String   @db.NVarChar(32)
+  unitPrice    Decimal  @db.Decimal(18, 2)
+  lineTotal    Decimal  @db.Decimal(18, 2)
+  createdAt    DateTime @default(now()) @db.DateTime2
+
+  purchase       Purchase        @relation(fields: [purchaseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient     Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stockMovements StockMovement[]
+
+  @@index([purchaseId])
+  @@index([ingredientId])
+  @@map("purchase_items")
+}
+
+model Recipe {
+  id              String   @id @default(cuid()) @db.NVarChar(64)
+  branchId        String   @db.NVarChar(64)
+  name            String   @db.NVarChar(180)
+  menuCategory    String   @db.NVarChar(100)
+  servingYield    Int      @map("yield")
+  pricePerServing Decimal  @db.Decimal(18, 2)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.DateTime2
+  updatedAt       DateTime @updatedAt @db.DateTime2
+
+  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items       RecipeItem[]
+  plans       RecipePlan[]
+  cookingRuns CookingRun[]
+
+  @@unique([branchId, name])
+  @@index([branchId, menuCategory])
+  @@map("recipes")
+}
+
+model RecipeItem {
+  id           String   @id @default(cuid()) @db.NVarChar(64)
+  recipeId     String   @db.NVarChar(64)
+  ingredientId String   @db.NVarChar(64)
+  quantity     Decimal  @db.Decimal(18, 3)
+  createdAt    DateTime @default(now()) @db.DateTime2
+
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([recipeId, ingredientId])
+  @@index([ingredientId])
+  @@map("recipe_items")
+}
+
+model RecipePlan {
+  id                String    @id @default(cuid()) @db.NVarChar(64)
+  branchId          String    @db.NVarChar(64)
+  recipeId          String    @db.NVarChar(64)
+  plannedByMemberId String?   @db.NVarChar(64)
+  status            String    @default("pinned") @db.NVarChar(24)
+  batchCount        Int       @default(1)
+  plannedAt         DateTime  @default(now()) @db.DateTime2
+  cookedAt          DateTime? @db.DateTime2
+  createdAt         DateTime  @default(now()) @db.DateTime2
+  updatedAt         DateTime  @updatedAt @db.DateTime2
+
+  branch       Branch             @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recipe       Recipe             @relation(fields: [recipeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  plannedBy    Member?            @relation("RecipePlanPlannedBy", fields: [plannedByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reservations StockReservation[]
+  cookingRuns  CookingRun[]
+
+  @@index([branchId, status])
+  @@index([recipeId])
+  @@index([plannedByMemberId])
+  @@map("recipe_plans")
+}
+
+model StockReservation {
+  id           String    @id @default(cuid()) @db.NVarChar(64)
+  branchId     String    @db.NVarChar(64)
+  recipePlanId String    @db.NVarChar(64)
+  ingredientId String    @db.NVarChar(64)
+  quantity     Decimal   @db.Decimal(18, 3)
+  status       String    @default("active") @db.NVarChar(24)
+  createdAt    DateTime  @default(now()) @db.DateTime2
+  releasedAt   DateTime? @db.DateTime2
+
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recipePlan RecipePlan @relation(fields: [recipePlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId, status])
+  @@index([recipePlanId])
+  @@index([ingredientId])
+  @@map("stock_reservations")
+}
+
+model CookingRun {
+  id               String   @id @default(cuid()) @db.NVarChar(64)
+  branchId         String   @db.NVarChar(64)
+  recipeId         String   @db.NVarChar(64)
+  recipePlanId     String?  @db.NVarChar(64)
+  cookedByMemberId String?  @db.NVarChar(64)
+  servingsProduced Int
+  status           String   @default("completed") @db.NVarChar(24)
+  cookedAt         DateTime @default(now()) @db.DateTime2
+  createdAt        DateTime @default(now()) @db.DateTime2
+
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recipe         Recipe          @relation(fields: [recipeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recipePlan     RecipePlan?     @relation(fields: [recipePlanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cookedBy       Member?         @relation("CookingRunCookedBy", fields: [cookedByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stockMovements StockMovement[]
+
+  @@index([branchId, cookedAt])
+  @@index([recipeId])
+  @@index([recipePlanId])
+  @@index([cookedByMemberId])
+  @@map("cooking_runs")
+}
+
+model StockMovement {
+  id                String   @id @default(cuid()) @db.NVarChar(64)
+  branchId          String   @db.NVarChar(64)
+  ingredientId      String   @db.NVarChar(64)
+  purchaseItemId    String?  @db.NVarChar(64)
+  cookingRunId      String?  @db.NVarChar(64)
+  createdByMemberId String?  @db.NVarChar(64)
+  movementType      String   @db.NVarChar(32)
+  quantity          Decimal  @db.Decimal(18, 3)
+  unit              String   @db.NVarChar(32)
+  unitCost          Decimal  @default(0) @db.Decimal(18, 2)
+  beforeQuantity    Decimal  @default(0) @db.Decimal(18, 3)
+  afterQuantity     Decimal  @default(0) @db.Decimal(18, 3)
+  referenceType     String?  @db.NVarChar(48)
+  referenceId       String?  @db.NVarChar(64)
+  occurredAt        DateTime @default(now()) @db.DateTime2
+
+  branch       Branch        @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient   Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseItem PurchaseItem? @relation(fields: [purchaseItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cookingRun   CookingRun?   @relation(fields: [cookingRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    Member?       @relation("StockMovementCreatedBy", fields: [createdByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId, ingredientId, occurredAt])
+  @@index([purchaseItemId])
+  @@index([cookingRunId])
+  @@index([createdByMemberId])
+  @@map("stock_movements")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid()) @db.NVarChar(64)
+  organizationId String   @db.NVarChar(64)
+  branchId       String?  @db.NVarChar(64)
+  memberId       String?  @db.NVarChar(64)
+  action         String   @db.NVarChar(80)
+  entityType     String   @db.NVarChar(80)
+  entityId       String   @db.NVarChar(64)
+  metadataJson   String?  @db.NVarChar(4000)
+  createdAt      DateTime @default(now()) @db.DateTime2
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member       Member?      @relation("AuditLogActor", fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organizationId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([memberId])
+  @@map("audit_logs")
+}
