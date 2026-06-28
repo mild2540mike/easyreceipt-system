@@ -5,6 +5,11 @@ import helmet from "helmet"
 import pinoHttp from "pino-http"
 
 import { env } from "./config/env"
+import {
+  openApiJsonHandler,
+  swaggerUiHandler,
+  swaggerUiServe,
+} from "./docs/swagger"
 import { requireAuth } from "./middleware/auth"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler"
 import { authRouter } from "./modules/auth/auth.routes"
@@ -18,6 +23,9 @@ import { reportsRouter } from "./modules/reports/reports.routes"
 
 export function createApp() {
   const app = express()
+
+  app.get("/api/v1/openapi.json", openApiJsonHandler)
+  app.use("/api/v1/docs", swaggerUiServe, swaggerUiHandler)
 
   app.use(helmet())
   app.use(

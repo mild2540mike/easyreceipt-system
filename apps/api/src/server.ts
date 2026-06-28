@@ -5,6 +5,7 @@ import { prisma } from "./db/prisma"
 const app = createApp()
 const server = app.listen(env.PORT, () => {
   console.log(`EasyReceipt API listening on http://localhost:${env.PORT}`)
+  console.log(`Swagger docs available at http://localhost:${env.PORT}/api/v1/docs`)
 })
 
 async function shutdown(signal: string) {
