@@ -10,6 +10,13 @@ export type MemberRole = "owner" | "manager" | "staff" | "viewer"
 
 export type MemberStatus = "active" | "invited" | "suspended"
 
+export type Branch = {
+  id: string
+  code: string
+  name: string
+  location: string
+}
+
 export type Member = {
   id: string
   name: string
@@ -19,6 +26,8 @@ export type Member = {
   lastActive: string
   joinedAt: string
   password: string
+  branchIds: string[]
+  primaryBranchId: string
 }
 
 export type Ingredient = {
@@ -76,6 +85,39 @@ export type CashFlowMetric = {
   kind: "income" | "expense" | "cash" | "margin"
 }
 
+export const branches: Branch[] = [
+  {
+    id: "branch-hq",
+    code: "HQ",
+    name: "สำนักงานใหญ่",
+    location: "กรุงเทพฯ",
+  },
+  {
+    id: "branch-bangna",
+    code: "BN",
+    name: "สาขาบางนา",
+    location: "กรุงเทพฯ ฝั่งตะวันออก",
+  },
+  {
+    id: "branch-rangsit",
+    code: "RS",
+    name: "สาขารังสิต",
+    location: "ปทุมธานี",
+  },
+  {
+    id: "branch-rama2",
+    code: "R2",
+    name: "สาขาพระราม 2",
+    location: "กรุงเทพฯ ฝั่งใต้",
+  },
+  {
+    id: "branch-chiangmai",
+    code: "CM",
+    name: "สาขาเชียงใหม่",
+    location: "เชียงใหม่",
+  },
+]
+
 export const members: Member[] = [
   {
     id: "member-owner",
@@ -86,6 +128,8 @@ export const members: Member[] = [
     lastActive: "วันนี้ 15:40",
     joinedAt: "2026-06-01",
     password: "123456",
+    branchIds: branches.map((branch) => branch.id),
+    primaryBranchId: "branch-hq",
   },
   {
     id: "member-manager",
@@ -96,6 +140,8 @@ export const members: Member[] = [
     lastActive: "วันนี้ 14:10",
     joinedAt: "2026-06-05",
     password: "123456",
+    branchIds: ["branch-hq", "branch-bangna", "branch-rangsit"],
+    primaryBranchId: "branch-bangna",
   },
   {
     id: "member-staff",
@@ -106,6 +152,8 @@ export const members: Member[] = [
     lastActive: "เมื่อวาน 18:22",
     joinedAt: "2026-06-12",
     password: "123456",
+    branchIds: ["branch-bangna"],
+    primaryBranchId: "branch-bangna",
   },
   {
     id: "member-viewer",
@@ -116,6 +164,8 @@ export const members: Member[] = [
     lastActive: "-",
     joinedAt: "2026-06-25",
     password: "123456",
+    branchIds: ["branch-hq"],
+    primaryBranchId: "branch-hq",
   },
 ]
 

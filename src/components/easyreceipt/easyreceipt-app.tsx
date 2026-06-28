@@ -1,18 +1,13 @@
 "use client"
 
-import {
-  Fragment,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  Building2,
   CalendarIcon,
   ChefHat,
   CircleCheck,
@@ -58,6 +53,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Calendar } from "@/components/ui/calendar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -211,9 +213,9 @@ function statusLabel(status: StockStatus) {
     return "ต่ำกว่าจุดสั่งซื้อ"
   }
 
-  if (status === "watch") {
-    return "เฝ้าระวัง"
-  }
+  // if (status === "watch") {
+  //   return "เฝ้าระวัง"
+  // }
 
   return "พร้อมใช้"
 }
@@ -223,9 +225,9 @@ function statusClassName(status: StockStatus) {
     return "border-red-200 bg-red-50 text-red-700"
   }
 
-  if (status === "watch") {
-    return "border-amber-200 bg-amber-50 text-amber-700"
-  }
+  // if (status === "watch") {
+  //   return "border-amber-200 bg-amber-50 text-amber-700"
+  // }
 
   return "border-emerald-200 bg-emerald-50 text-emerald-700"
 }
@@ -406,21 +408,7 @@ export function EasyReceiptPortalPage({
                 <TooltipContent>ออกจากระบบ</TooltipContent>
               </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-lg"
-                      className="hidden h-11 w-11 sm:inline-flex"
-                    />
-                  }
-                >
-                  <Search className="size-5" />
-                  <span className="sr-only">ตรวจวัตถุดิบ</span>
-                </TooltipTrigger>
-                <TooltipContent>ตรวจวัตถุดิบ</TooltipContent>
-              </Tooltip>
+              <BranchSwitcher store={store} />
             </div>
           </header>
 
@@ -543,6 +531,7 @@ function LoginView({
             </div>
             <p>owner@easyreceipt.local / 123456</p>
             <p>manager@easyreceipt.local / 123456</p>
+            <p>staff@easyreceipt.local / 123456</p>
           </div>
         </section>
       </div>
@@ -744,6 +733,73 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function BranchSwitcher({ store }: { store: Store }) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="outline"
+            className="h-11 w-11 px-0 sm:w-auto sm:px-3"
+          />
+        }
+      >
+        <Building2 className="size-5 text-sky-700" />
+        <span className="hidden max-w-32 truncate text-sm sm:inline">
+          {store.activeBranch?.code}
+        </span>
+        <span className="sr-only">เลือกโรงเรียนหรือสาขา</span>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-2">
+        <div className="border-b border-border px-2 pb-2">
+          <p className="font-semibold">เลือกโรงเรียน/สาขา</p>
+          <p className="text-xs text-muted-foreground">
+            แสดงเฉพาะสาขาที่บัญชีนี้มีสิทธิ์
+          </p>
+        </div>
+        <div className="mt-2 space-y-1">
+          {store.accessibleBranches.map((branch) => {
+            const isActive = branch.id === store.activeBranchId
+
+            return (
+              <button
+                key={branch.id}
+                type="button"
+                className={cn(
+                  "flex min-h-12 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-muted",
+                  isActive && "bg-sky-50 text-sky-950"
+                )}
+                onClick={() => store.setActiveBranch(branch.id)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">
+                    {branch.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {branch.code} · {branch.location}
+                  </span>
+                </span>
+                {isActive ? (
+                  <Badge
+                    variant="outline"
+                    className="h-7 shrink-0 border-sky-200 bg-sky-50 text-sky-700"
+                  >
+                    ใช้งาน
+                  </Badge>
+                ) : (
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-xs text-muted-foreground">
+                    {branch.code}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -1344,6 +1400,9 @@ function StockView({ store }: { store: Store }) {
     createStockEditDraft(store.inventoryRows[0])
   )
   const [stockMessage, setStockMessage] = useState("")
+  const editingItem = store.inventoryRows.find(
+    (item) => item.ingredientId === editingIngredientId
+  )
 
   function startStockEdit(item: InventoryRow) {
     setEditingIngredientId(item.ingredientId)
@@ -1403,7 +1462,11 @@ function StockView({ store }: { store: Store }) {
 
       <section className="grid gap-3 md:grid-cols-2 xl:hidden">
         {store.inventoryRows.map((item) => (
-          <StockMobileCard key={item.ingredientId} item={item} />
+          <StockMobileCard
+            key={item.ingredientId}
+            item={item}
+            onEdit={startStockEdit}
+          />
         ))}
       </section>
 
@@ -1418,55 +1481,67 @@ function StockView({ store }: { store: Store }) {
               <TableHead className="text-right">รับเข้า</TableHead>
               <TableHead>สถานะ</TableHead>
               <TableHead>อัปเดตล่าสุด</TableHead>
+              <TableHead className="w-20 text-right">แก้ไข</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {store.inventoryRows.map((item) => (
-              <Fragment key={item.ingredientId}>
-                <TableRow
-                  className={cn(
-                    "cursor-pointer",
-                    editingIngredientId === item.ingredientId && "bg-muted/60"
-                  )}
-                  onDoubleClick={() => startStockEdit(item)}
-                >
-                  <TableCell className="font-semibold">
-                    {item.ingredient.name}
-                  </TableCell>
-                  <TableCell>{item.ingredient.category}</TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(item.onHand)} {item.ingredient.unit}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(item.reserved)} {item.ingredient.unit}
-                  </TableCell>
-                  <TableCell className="text-right text-emerald-700">
-                    +{formatNumber(item.incoming)} {item.ingredient.unit}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn("h-6", statusClassName(item.status))}
-                    >
-                      {statusLabel(item.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{item.lastUpdated}</TableCell>
-                </TableRow>
-                {editingIngredientId === item.ingredientId && (
-                  <StockEditRow
-                    draft={stockDraft}
-                    message={stockMessage}
-                    onChange={setStockDraft}
-                    onCancel={cancelStockEdit}
-                    onSave={saveStockEdit}
-                  />
+              <TableRow
+                key={item.ingredientId}
+                className={cn(
+                  editingIngredientId === item.ingredientId && "bg-muted/60"
                 )}
-              </Fragment>
+              >
+                <TableCell className="font-semibold">
+                  {item.ingredient.name}
+                </TableCell>
+                <TableCell>{item.ingredient.category}</TableCell>
+                <TableCell className="text-right">
+                  {formatNumber(item.onHand)} {item.ingredient.unit}
+                </TableCell>
+                <TableCell className="text-right">
+                  {formatNumber(item.reserved)} {item.ingredient.unit}
+                </TableCell>
+                <TableCell className="text-right text-emerald-700">
+                  +{formatNumber(item.incoming)} {item.ingredient.unit}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={cn("h-6", statusClassName(item.status))}
+                  >
+                    {statusLabel(item.status)}
+                  </Badge>
+                </TableCell>
+                <TableCell>{item.lastUpdated}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="outline"
+                    size="icon-lg"
+                    className="size-11"
+                    onClick={() => startStockEdit(item)}
+                  >
+                    <Pencil className="size-4" />
+                    <span className="sr-only">
+                      แก้ไข {item.ingredient.name}
+                    </span>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
           </TableBody>
         </Table>
       </section>
+
+      <StockEditDialog
+        open={Boolean(editingIngredientId)}
+        item={editingItem}
+        draft={stockDraft}
+        message={stockMessage}
+        onChange={setStockDraft}
+        onCancel={cancelStockEdit}
+        onSave={saveStockEdit}
+      />
     </div>
   )
 }
@@ -1497,7 +1572,54 @@ function createStockEditDraft(item?: InventoryRow): StockEditDraft {
   }
 }
 
-function StockEditRow({
+function StockEditDialog({
+  open,
+  item,
+  draft,
+  message,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  open: boolean
+  item?: InventoryRow
+  draft: StockEditDraft
+  message: string
+  onChange: (draft: StockEditDraft) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onCancel()
+        }
+      }}
+    >
+      <DialogContent className="max-w-xl">
+        <DialogHeader className="border-b">
+          <DialogTitle>แก้ไขวัตถุดิบ</DialogTitle>
+          <DialogDescription>
+            {item
+              ? `อัปเดตข้อมูลฐานวัตถุดิบหลักของ ${item.ingredient.name}`
+              : "อัปเดตข้อมูลฐานวัตถุดิบหลัก"}
+          </DialogDescription>
+        </DialogHeader>
+        <StockEditForm
+          draft={draft}
+          message={message}
+          onChange={onChange}
+          onCancel={onCancel}
+          onSave={onSave}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function StockEditForm({
   draft,
   message,
   onChange,
@@ -1515,110 +1637,130 @@ function StockEditRow({
   }
 
   return (
-    <TableRow className="bg-muted/30">
-      <TableCell colSpan={7} className="p-4">
-        <div className="space-y-4 rounded-lg border border-border bg-background p-4">
-          <div className="grid gap-3 lg:grid-cols-4">
-            <div>
-              <Label className="mb-2 block">ชื่อวัตถุดิบ</Label>
-              <Input
-                className="h-11"
-                value={draft.name}
-                onChange={(event) => patchDraft({ name: event.target.value })}
-              />
-            </div>
-            <div>
-              <Label className="mb-2 block">หมวดหมู่</Label>
-              <Input
-                className="h-11"
-                value={draft.category}
-                onChange={(event) =>
-                  patchDraft({ category: event.target.value })
-                }
-              />
-            </div>
-            <div>
-              <Label className="mb-2 block">หน่วย</Label>
-              <Input
-                className="h-11"
-                value={draft.unit}
-                onChange={(event) => patchDraft({ unit: event.target.value })}
-              />
-            </div>
-            <div>
-              <Label className="mb-2 block">ซัพพลายเออร์</Label>
-              <Input
-                className="h-11"
-                value={draft.supplier}
-                onChange={(event) =>
-                  patchDraft({ supplier: event.target.value })
-                }
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-5">
-            <FieldNumber
-              label="คงเหลือ"
-              value={draft.onHand}
-              onChange={(value) => patchDraft({ onHand: value })}
-            />
-            <FieldNumber
-              label="จองใช้จากสูตร"
-              value={draft.reserved}
-              disabled
-              onChange={(value) => patchDraft({ reserved: value })}
-            />
-            <FieldNumber
-              label="จุดสั่งซื้อ"
-              value={draft.reorderPoint}
-              onChange={(value) => patchDraft({ reorderPoint: value })}
-            />
-            <FieldNumber
-              label="ต้นทุน/หน่วย"
-              value={draft.costPerUnit}
-              onChange={(value) => patchDraft({ costPerUnit: value })}
-            />
-            <FieldNumber
-              label="ราคาซื้อเริ่มต้น"
-              value={draft.defaultPrice}
-              onChange={(value) => patchDraft({ defaultPrice: value })}
-            />
-          </div>
-
-          {message && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {message}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" className="h-11" onClick={onCancel}>
-              <Minus className="size-4" />
-              ยกเลิก
-            </Button>
-            <Button className="h-11" onClick={onSave}>
-              <Save className="size-4" />
-              บันทึก
-            </Button>
-          </div>
+    <form
+      className="space-y-4 px-4 pb-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSave()
+      }}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label className="mb-2 block">ชื่อวัตถุดิบ</Label>
+          <Input
+            className="h-11"
+            value={draft.name}
+            onChange={(event) => patchDraft({ name: event.target.value })}
+          />
         </div>
-      </TableCell>
-    </TableRow>
+        <div>
+          <Label className="mb-2 block">หมวดหมู่</Label>
+          <Input
+            className="h-11"
+            value={draft.category}
+            onChange={(event) => patchDraft({ category: event.target.value })}
+          />
+        </div>
+        <div>
+          <Label className="mb-2 block">หน่วย</Label>
+          <Input
+            className="h-11"
+            value={draft.unit}
+            onChange={(event) => patchDraft({ unit: event.target.value })}
+          />
+        </div>
+        <div>
+          <Label className="mb-2 block">ซัพพลายเออร์</Label>
+          <Input
+            className="h-11"
+            value={draft.supplier}
+            onChange={(event) => patchDraft({ supplier: event.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <FieldNumber
+          label="คงเหลือ"
+          value={draft.onHand}
+          onChange={(value) => patchDraft({ onHand: value })}
+        />
+        <FieldNumber
+          label="จองใช้จากสูตร"
+          value={draft.reserved}
+          disabled
+          onChange={(value) => patchDraft({ reserved: value })}
+        />
+        <FieldNumber
+          label="จุดสั่งซื้อ"
+          value={draft.reorderPoint}
+          onChange={(value) => patchDraft({ reorderPoint: value })}
+        />
+        <FieldNumber
+          label="ต้นทุน/หน่วย"
+          value={draft.costPerUnit}
+          onChange={(value) => patchDraft({ costPerUnit: value })}
+        />
+        <FieldNumber
+          label="ราคาซื้อเริ่มต้น"
+          value={draft.defaultPrice}
+          onChange={(value) => patchDraft({ defaultPrice: value })}
+        />
+      </div>
+
+      {message && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {message}
+        </div>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="submit" className="h-11">
+          <Save className="size-4" />
+          บันทึก
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11"
+          onClick={onCancel}
+        >
+          <Minus className="size-4" />
+          ยกเลิก
+        </Button>
+      </div>
+    </form>
   )
 }
 
-function StockMobileCard({ item }: { item: InventoryRow }) {
+function StockMobileCard({
+  item,
+  onEdit,
+}: {
+  item: InventoryRow
+  onEdit: (item: InventoryRow) => void
+}) {
   return (
     <Card className="rounded-lg">
       <CardHeader>
         <CardAction>
-          <Badge
-            variant="outline"
-            className={cn("h-6", statusClassName(item.status))}
-          >
-            {statusLabel(item.status)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={cn("h-6", statusClassName(item.status))}
+            >
+              {statusLabel(item.status)}
+            </Badge>
+            <Button
+              variant="outline"
+              size="icon-lg"
+              className="size-11"
+              onClick={() => onEdit(item)}
+            >
+              <Pencil className="size-4" />
+              <span className="sr-only">แก้ไข {item.ingredient.name}</span>
+            </Button>
+          </div>
         </CardAction>
         <CardDescription>{item.ingredient.category}</CardDescription>
         <CardTitle>{item.ingredient.name}</CardTitle>
@@ -1626,9 +1768,21 @@ function StockMobileCard({ item }: { item: InventoryRow }) {
       <CardContent className="space-y-3">
         <Progress value={item.stockPercent} />
         <div className="grid grid-cols-3 gap-2 text-sm">
-          <StockValue label="คงเหลือ" value={item.onHand} unit={item.ingredient.unit} />
-          <StockValue label="จองใช้" value={item.reserved} unit={item.ingredient.unit} />
-          <StockValue label="รับเข้า" value={item.incoming} unit={item.ingredient.unit} />
+          <StockValue
+            label="คงเหลือ"
+            value={item.onHand}
+            unit={item.ingredient.unit}
+          />
+          <StockValue
+            label="จองใช้"
+            value={item.reserved}
+            unit={item.ingredient.unit}
+          />
+          <StockValue
+            label="รับเข้า"
+            value={item.incoming}
+            unit={item.ingredient.unit}
+          />
         </div>
       </CardContent>
     </Card>
@@ -2389,32 +2543,149 @@ function SummaryPill({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MembersView({ store }: { store: Store }) {
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [role, setRole] = useState<MemberRole>("staff")
-  const [message, setMessage] = useState("")
+function BranchBadgeList({
+  branchIds,
+  store,
+  forceAll = false,
+}: {
+  branchIds: string[]
+  store: Store
+  forceAll?: boolean
+}) {
+  const branches = forceAll
+    ? store.branches
+    : branchIds
+        .map((branchId) =>
+          store.branches.find((branch) => branch.id === branchId)
+        )
+        .filter((branch): branch is Store["branches"][number] =>
+          Boolean(branch)
+        )
 
-  function handleAddMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!store.canManageMembers) {
-      setMessage("บัญชีนี้ไม่มีสิทธิ์จัดการสมาชิก")
-      return
-    }
-
-    const ok = store.addMember({ name, email, role })
-
-    if (!ok) {
-      setMessage("กรุณากรอกชื่อ อีเมล และใช้อีเมลที่ยังไม่ซ้ำ")
-      return
-    }
-
-    setName("")
-    setEmail("")
-    setRole("staff")
-    setMessage("เพิ่มสมาชิกใหม่แล้ว สถานะเริ่มต้นคือเชิญแล้ว")
+  if (branches.length === 0) {
+    return (
+      <Badge variant="outline" className="h-7 border-amber-200 text-amber-700">
+        ยังไม่กำหนดสาขา
+      </Badge>
+    )
   }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {branches.map((branch) => (
+        <Badge key={branch.id} variant="secondary" className="h-7">
+          {branch.name}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+function BranchAccessPicker({
+  value,
+  store,
+  onChange,
+  disabled = false,
+  forceAll = false,
+  selectionMode = "multiple",
+}: {
+  value: string[]
+  store: Store
+  onChange: (value: string[]) => void
+  disabled?: boolean
+  forceAll?: boolean
+  selectionMode?: "single" | "multiple"
+}) {
+  const branchOptions = forceAll ? store.branches : store.accessibleBranches
+  const selectedIds = new Set(forceAll ? store.branches.map((branch) => branch.id) : value)
+
+  function toggleBranch(branchId: string) {
+    if (disabled || forceAll) {
+      return
+    }
+
+    if (selectedIds.has(branchId)) {
+      if (selectionMode === "single") {
+        return
+      }
+
+      if (value.length === 1) {
+        return
+      }
+
+      onChange(value.filter((item) => item !== branchId))
+      return
+    }
+
+    if (selectionMode === "single") {
+      onChange([branchId])
+      return
+    }
+
+    onChange([...value, branchId])
+  }
+
+  return (
+    <div className="grid gap-2">
+      {branchOptions.map((branch) => {
+        const selected = selectedIds.has(branch.id)
+
+        return (
+          <button
+            key={branch.id}
+            type="button"
+            className={cn(
+              "flex min-h-11 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition",
+              selected && "border-sky-200 bg-sky-50 text-sky-950",
+              !disabled && !forceAll && "hover:bg-muted",
+              (disabled || forceAll) && "cursor-default opacity-90"
+            )}
+            onClick={() => toggleBranch(branch.id)}
+          >
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{branch.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {branch.code} · {branch.location}
+              </span>
+            </span>
+            {selected && <CircleCheck className="size-4 shrink-0 text-sky-700" />}
+          </button>
+        )
+      })}
+      {forceAll && (
+        <p className="text-xs text-muted-foreground">
+          เจ้าของระบบเห็นทุกสาขาโดยอัตโนมัติ
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function EasyReceiptMemberFormPage() {
+  return (
+    <EasyReceiptPortalPage activeView="members">
+      <MemberFormView />
+    </EasyReceiptPortalPage>
+  )
+}
+
+function MembersView({ store }: { store: Store }) {
+  const addMemberButton = store.canManageMembers ? (
+    <Link
+      href="/portal/members/new"
+      className={buttonVariants({
+        className: "h-11 w-full sm:w-fit",
+      })}
+    >
+      <UserPlus className="size-4" />
+      เพิ่มสมาชิก
+    </Link>
+  ) : (
+    <Button className="h-11 w-full sm:w-fit" disabled>
+      <UserPlus className="size-4" />
+      เพิ่มสมาชิก
+    </Button>
+  )
 
   return (
     <div className="space-y-5">
@@ -2449,21 +2720,212 @@ function MembersView({ store }: { store: Store }) {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardAction>
-              <span className="flex size-10 items-center justify-center rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700">
-                <UserPlus className="size-5" />
-              </span>
-            </CardAction>
-            <CardTitle>เพิ่มสมาชิก</CardTitle>
-            <CardDescription>
-              เชิญสมาชิกใหม่เข้าระบบด้วย role เริ่มต้น
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-3" onSubmit={handleAddMember}>
+      <section className="space-y-3">
+        <div className="rounded-lg border border-border bg-background p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">การจัดการสมาชิก</h2>
+              <p className="text-sm text-muted-foreground">
+                ปรับสิทธิ์และสถานะการเข้าใช้งานระบบ
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "h-7 w-fit",
+                  store.canManageMembers
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                )}
+              >
+                {store.canManageMembers ? "แก้ไขได้" : "อ่านได้อย่างเดียว"}
+              </Badge>
+              {addMemberButton}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:hidden">
+          {store.members.map((member) => (
+            <MemberMobileCard key={member.id} member={member} store={store} />
+          ))}
+        </div>
+
+        <div className="hidden overflow-hidden rounded-lg border border-border bg-background lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>สมาชิก</TableHead>
+                <TableHead>สิทธิ์</TableHead>
+                <TableHead>สถานะ</TableHead>
+                <TableHead>สาขา</TableHead>
+                <TableHead>ใช้งานล่าสุด</TableHead>
+                <TableHead>วันที่เพิ่ม</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {store.members.map((member) => (
+                <TableRow key={member.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-9 items-center justify-center rounded-lg bg-muted">
+                        <UserRound className="size-4 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="font-semibold">{member.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {member.email}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {store.canManageMembers ? (
+                      <RoleSelect
+                        value={member.role}
+                        onChange={(nextRole) =>
+                          store.updateMemberRole(member.id, nextRole)
+                        }
+                      />
+                    ) : (
+                      <Badge variant="secondary" className="h-7">
+                        {memberRoleLabel(member.role)}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {store.canManageMembers ? (
+                      <StatusSelect
+                        value={member.status}
+                        onChange={(nextStatus) =>
+                          store.updateMemberStatus(member.id, nextStatus)
+                        }
+                      />
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "h-7",
+                          memberStatusClassName(member.status)
+                        )}
+                      >
+                        {memberStatusLabel(member.status)}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="min-w-56">
+                    {store.canManageMembers && member.role !== "owner" ? (
+                      <BranchAccessPicker
+                        value={
+                          member.role === "manager"
+                            ? member.branchIds
+                            : member.branchIds.slice(0, 1)
+                        }
+                        store={store}
+                        onChange={(nextBranchIds) =>
+                          store.updateMemberBranches(member.id, nextBranchIds)
+                        }
+                        selectionMode={
+                          member.role === "manager" ? "multiple" : "single"
+                        }
+                      />
+                    ) : (
+                      <BranchBadgeList
+                        branchIds={
+                          member.role === "manager"
+                            ? member.branchIds
+                            : member.branchIds.slice(0, 1)
+                        }
+                        store={store}
+                        forceAll={member.role === "owner"}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell>{member.lastActive}</TableCell>
+                  <TableCell>{member.joinedAt}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function MemberFormView() {
+  const store = useEasyReceipt()
+  const router = useRouter()
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [role, setRole] = useState<MemberRole>("staff")
+  const [branchIds, setBranchIds] = useState<string[]>(() =>
+    store.activeBranchId
+      ? [store.activeBranchId]
+      : store.accessibleBranches.slice(0, 1).map((branch) => branch.id)
+  )
+  const [message, setMessage] = useState("")
+
+  function handleAddMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!store.canManageMembers) {
+      setMessage("บัญชีนี้ไม่มีสิทธิ์จัดการสมาชิก")
+      return
+    }
+
+    const nextBranchIds =
+      role === "owner"
+        ? store.branches.map((branch) => branch.id)
+        : branchIds
+    const ok = store.addMember({ name, email, role, branchIds: nextBranchIds })
+
+    if (!ok) {
+      setMessage("กรุณากรอกชื่อ อีเมล เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ")
+      return
+    }
+
+    setName("")
+    setEmail("")
+    setRole("staff")
+    setBranchIds(
+      store.activeBranchId
+        ? [store.activeBranchId]
+        : store.accessibleBranches.slice(0, 1).map((branch) => branch.id)
+    )
+    setMessage("")
+    router.push("/portal/members")
+  }
+
+  return (
+    <div className="space-y-4">
+      <Link
+        href="/portal/members"
+        className={buttonVariants({
+          variant: "ghost",
+          className: "h-11 w-fit px-2",
+        })}
+      >
+        <ArrowLeft className="size-4" />
+        กลับหน้าสมาชิก
+      </Link>
+
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardAction>
+            <span className="flex size-10 items-center justify-center rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700">
+              <UserPlus className="size-5" />
+            </span>
+          </CardAction>
+          <CardTitle>เพิ่มสมาชิก</CardTitle>
+          <CardDescription>
+            เชิญสมาชิกใหม่เข้าระบบด้วย role เริ่มต้นและกำหนดสาขาที่เข้าถึง
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleAddMember}>
+            <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <Label className="mb-2 block">ชื่อสมาชิก</Label>
                 <Input
@@ -2485,129 +2947,73 @@ function MembersView({ store }: { store: Store }) {
               </div>
               <div>
                 <Label className="mb-2 block">สิทธิ์ใช้งาน</Label>
-                <RoleSelect value={role} onChange={setRole} />
+                <RoleSelect
+                  value={role}
+                  onChange={(nextRole) => {
+                    setRole(nextRole)
+                    if (nextRole === "owner") {
+                      setBranchIds(store.branches.map((branch) => branch.id))
+                      return
+                    }
+
+                    if (role === "owner") {
+                      setBranchIds(
+                        store.activeBranchId
+                          ? [store.activeBranchId]
+                          : store.accessibleBranches
+                              .slice(0, 1)
+                              .map((branch) => branch.id)
+                      )
+                    }
+                  }}
+                />
               </div>
+            </div>
 
-              {message && (
-                <div className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
-                  {message}
-                </div>
-              )}
+            <div>
+              <Label className="mb-2 block">สาขาที่เข้าถึง</Label>
+              <BranchAccessPicker
+                value={branchIds}
+                store={store}
+                onChange={setBranchIds}
+                disabled={!store.canManageMembers}
+                forceAll={role === "owner"}
+                selectionMode={role === "manager" ? "multiple" : "single"}
+              />
+            </div>
 
+            {message && (
+              <div className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+                {message}
+              </div>
+            )}
+
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 type="submit"
-                className="h-11 w-full"
+                className="h-11"
                 disabled={!store.canManageMembers}
               >
                 <UserPlus className="size-4" />
                 เพิ่มสมาชิก
               </Button>
-              <p className="text-xs text-muted-foreground">
-                บัญชี mock ที่เพิ่มใหม่ใช้รหัสผ่านเริ่มต้น 123456
-              </p>
-            </form>
-          </CardContent>
-        </Card>
-
-        <section className="space-y-3">
-          <div className="rounded-lg border border-border bg-background p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">การจัดการสมาชิก</h2>
-                <p className="text-sm text-muted-foreground">
-                  ปรับสิทธิ์และสถานะการเข้าใช้งานระบบ
-                </p>
-              </div>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "h-7 w-fit",
-                  store.canManageMembers
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700"
-                )}
+              <Link
+                href="/portal/members"
+                className={buttonVariants({
+                  variant: "outline",
+                  className: "h-11",
+                })}
               >
-                {store.canManageMembers ? "แก้ไขได้" : "อ่านได้อย่างเดียว"}
-              </Badge>
+                <Minus className="size-4" />
+                ยกเลิก
+              </Link>
             </div>
-          </div>
-
-          <div className="grid gap-3 lg:hidden">
-            {store.members.map((member) => (
-              <MemberMobileCard key={member.id} member={member} store={store} />
-            ))}
-          </div>
-
-          <div className="hidden overflow-hidden rounded-lg border border-border bg-background lg:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>สมาชิก</TableHead>
-                  <TableHead>สิทธิ์</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead>ใช้งานล่าสุด</TableHead>
-                  <TableHead>วันที่เพิ่ม</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {store.members.map((member) => (
-                  <TableRow key={member.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="flex size-9 items-center justify-center rounded-lg bg-muted">
-                          <UserRound className="size-4 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">{member.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {member.email}
-                          </p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {store.canManageMembers ? (
-                        <RoleSelect
-                          value={member.role}
-                          onChange={(nextRole) =>
-                            store.updateMemberRole(member.id, nextRole)
-                          }
-                        />
-                      ) : (
-                        <Badge variant="secondary" className="h-7">
-                          {memberRoleLabel(member.role)}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {store.canManageMembers ? (
-                        <StatusSelect
-                          value={member.status}
-                          onChange={(nextStatus) =>
-                            store.updateMemberStatus(member.id, nextStatus)
-                          }
-                        />
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "h-7",
-                            memberStatusClassName(member.status)
-                          )}
-                        >
-                          {memberStatusLabel(member.status)}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>{member.lastActive}</TableCell>
-                    <TableCell>{member.joinedAt}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      </section>
+            <p className="text-xs text-muted-foreground">
+              บัญชี mock ที่เพิ่มใหม่ใช้รหัสผ่านเริ่มต้น 123456
+            </p>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -2665,6 +3071,35 @@ function MemberMobileCard({
               </div>
             )}
           </div>
+        </div>
+        <div>
+          <Label className="mb-2 block">สาขาที่เข้าถึง</Label>
+          {store.canManageMembers && member.role !== "owner" ? (
+            <BranchAccessPicker
+              value={
+                member.role === "manager"
+                  ? member.branchIds
+                  : member.branchIds.slice(0, 1)
+              }
+              store={store}
+              onChange={(nextBranchIds) =>
+                store.updateMemberBranches(member.id, nextBranchIds)
+              }
+              selectionMode={
+                member.role === "manager" ? "multiple" : "single"
+              }
+            />
+          ) : (
+            <BranchBadgeList
+              branchIds={
+                member.role === "manager"
+                  ? member.branchIds
+                  : member.branchIds.slice(0, 1)
+              }
+              store={store}
+              forceAll={member.role === "owner"}
+            />
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <SummaryPill label="ใช้งานล่าสุด" value={member.lastActive} />
@@ -2737,7 +3172,7 @@ function ReportsView({ store }: { store: Store }) {
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {store.cashFlowMetrics.map((metric) => (
+        {store.reportCashFlowMetrics.map((metric) => (
           <MetricCard
             key={metric.id}
             label={metric.label}
@@ -2761,7 +3196,7 @@ function ReportsView({ store }: { store: Store }) {
             <div>
               <h2 className="text-lg font-semibold">รายงาน / การใช้งาน</h2>
               <p className="text-sm text-muted-foreground">
-                กราฟ mock สำหรับตรวจภาพรวมต้นทุนและกระแสเงินสด
+                {store.reportBranchSummary.helper}
               </p>
             </div>
             <TabsList className="h-11 w-full sm:w-fit" variant="default">
@@ -2776,13 +3211,13 @@ function ReportsView({ store }: { store: Store }) {
 
           <TabsContent value="purchase">
             <BarSeries
-              data={store.purchaseSeries}
+              data={store.reportPurchaseSeries}
               label="ยอดซื้อรายวัน"
               tone="bg-amber-500"
             />
           </TabsContent>
           <TabsContent value="cashflow">
-            <CashFlowList store={store} />
+            <CashFlowList metrics={store.reportCashFlowMetrics} />
           </TabsContent>
         </Tabs>
       </section>
@@ -2827,10 +3262,14 @@ function BarSeries({
   )
 }
 
-function CashFlowList({ store }: { store: Store }) {
+function CashFlowList({
+  metrics,
+}: {
+  metrics: Store["reportCashFlowMetrics"]
+}) {
   return (
     <div className="mt-5 grid gap-3 md:grid-cols-2">
-      {store.cashFlowMetrics.map((metric) => (
+      {metrics.map((metric) => (
         <div
           key={metric.id}
           className="rounded-lg border border-border p-4"
