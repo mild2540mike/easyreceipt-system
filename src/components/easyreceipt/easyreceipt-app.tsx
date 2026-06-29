@@ -213,9 +213,9 @@ function statusLabel(status: StockStatus) {
     return "ต่ำกว่าจุดสั่งซื้อ"
   }
 
-  // if (status === "watch") {
-  //   return "เฝ้าระวัง"
-  // }
+  if (status === "watch") {
+    return "เฝ้าระวัง"
+  }
 
   return "พร้อมใช้"
 }
@@ -225,9 +225,9 @@ function statusClassName(status: StockStatus) {
     return "border-red-200 bg-red-50 text-red-700"
   }
 
-  // if (status === "watch") {
-  //   return "border-amber-200 bg-amber-50 text-amber-700"
-  // }
+  if (status === "watch") {
+    return "border-amber-200 bg-amber-50 text-amber-700"
+  }
 
   return "border-emerald-200 bg-emerald-50 text-emerald-700"
 }
@@ -1416,18 +1416,18 @@ function StockView({ store }: { store: Store }) {
     setStockMessage("")
   }
 
-  function saveStockEdit() {
-    if (!editingIngredientId) {
+  async function saveStockEdit() {
+    if (!editingIngredientId || store.isInventorySaving) {
       return
     }
 
-    const ok = store.updateInventoryItem({
+    const result = await store.updateInventoryItem({
       ingredientId: editingIngredientId,
       ...stockDraft,
     })
 
-    if (!ok) {
-      setStockMessage("กรุณากรอกชื่อวัตถุดิบ และใช้ชื่อ+หน่วยที่ไม่ซ้ำกับรายการอื่น")
+    if (!result.ok) {
+      setStockMessage(result.error ?? "ไม่สามารถบันทึกข้อมูลคลังวัตถุดิบได้")
       return
     }
 
@@ -1460,6 +1460,19 @@ function StockView({ store }: { store: Store }) {
           tone="border-emerald-200 bg-emerald-50 text-emerald-800"
         />
       </section>
+
+      {store.isInventoryLoading && (
+        <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+          <LoaderCircle className="size-4 animate-spin" />
+          กำลังโหลดข้อมูลคลังวัตถุดิบจาก API
+        </div>
+      )}
+
+      {store.inventoryError && !editingIngredientId && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {store.inventoryError}
+        </div>
+      )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:hidden">
         {store.inventoryRows.map((item) => (
@@ -1539,6 +1552,7 @@ function StockView({ store }: { store: Store }) {
         item={editingItem}
         draft={stockDraft}
         message={stockMessage}
+        isSaving={store.isInventorySaving}
         onChange={setStockDraft}
         onCancel={cancelStockEdit}
         onSave={saveStockEdit}
@@ -1578,6 +1592,7 @@ function StockEditDialog({
   item,
   draft,
   message,
+  isSaving,
   onChange,
   onCancel,
   onSave,
@@ -1586,6 +1601,7 @@ function StockEditDialog({
   item?: InventoryRow
   draft: StockEditDraft
   message: string
+  isSaving: boolean
   onChange: (draft: StockEditDraft) => void
   onCancel: () => void
   onSave: () => void
@@ -1594,7 +1610,7 @@ function StockEditDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
+        if (!nextOpen && !isSaving) {
           onCancel()
         }
       }}
@@ -1611,6 +1627,7 @@ function StockEditDialog({
         <StockEditForm
           draft={draft}
           message={message}
+          isSaving={isSaving}
           onChange={onChange}
           onCancel={onCancel}
           onSave={onSave}
@@ -1623,12 +1640,14 @@ function StockEditDialog({
 function StockEditForm({
   draft,
   message,
+  isSaving,
   onChange,
   onCancel,
   onSave,
 }: {
   draft: StockEditDraft
   message: string
+  isSaving: boolean
   onChange: (draft: StockEditDraft) => void
   onCancel: () => void
   onSave: () => void
@@ -1716,8 +1735,12 @@ function StockEditForm({
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <Button type="submit" className="h-11">
-          <Save className="size-4" />
+        <Button type="submit" className="h-11" disabled={isSaving}>
+          {isSaving ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <Save className="size-4" />
+          )}
           บันทึก
         </Button>
         <Button
@@ -1725,6 +1748,7 @@ function StockEditForm({
           variant="outline"
           className="h-11"
           onClick={onCancel}
+          disabled={isSaving}
         >
           <Minus className="size-4" />
           ยกเลิก

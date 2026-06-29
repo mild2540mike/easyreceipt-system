@@ -23,9 +23,13 @@ import {
   type ViewId,
 } from "@/lib/easyreceipt-data"
 import {
+  apiGetBranchInventory,
   apiGetCurrentMember,
   apiLogin,
   apiLogout,
+  apiUpdateBranchInventory,
+  type NormalizedInventoryRow,
+  type NormalizedInventorySnapshot,
 } from "@/lib/easyreceipt-api"
 
 export type StockStatus = "ok" | "watch" | "low"
@@ -116,6 +120,8 @@ const todayIso = "2026-06-27"
 const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
+const inventoryQueryKey = (branchId: string) =>
+  ["easyreceipt", "inventory", branchId] as const
 const activeMemberLabel = "กำลังใช้งาน"
 
 function readSessionValue(key: string) {
@@ -355,6 +361,66 @@ function createInitialBranchWorkspaces() {
   )
 }
 
+function mergeInventorySnapshot(
+  workspace: BranchWorkspace,
+  snapshot: NormalizedInventorySnapshot
+) {
+  const apiIngredientIds = new Set(
+    snapshot.ingredients.map((ingredient) => ingredient.id)
+  )
+  const apiInventoryIds = new Set(
+    snapshot.inventoryItems.map((item) => item.ingredientId)
+  )
+
+  return {
+    ...workspace,
+    ingredients: [
+      ...snapshot.ingredients,
+      ...workspace.ingredients.filter(
+        (ingredient) => !apiIngredientIds.has(ingredient.id)
+      ),
+    ],
+    inventoryItems: [
+      ...snapshot.inventoryItems,
+      ...workspace.inventoryItems.filter(
+        (item) => !apiInventoryIds.has(item.ingredientId)
+      ),
+    ],
+  }
+}
+
+function mergeInventoryRow(
+  workspace: BranchWorkspace,
+  row: NormalizedInventoryRow
+) {
+  const hasIngredient = workspace.ingredients.some(
+    (ingredient) => ingredient.id === row.ingredient.id
+  )
+  const hasInventoryItem = workspace.inventoryItems.some(
+    (item) => item.ingredientId === row.inventoryItem.ingredientId
+  )
+
+  return {
+    ...workspace,
+    ingredients: hasIngredient
+      ? workspace.ingredients.map((ingredient) =>
+          ingredient.id === row.ingredient.id ? row.ingredient : ingredient
+        )
+      : [...workspace.ingredients, row.ingredient],
+    inventoryItems: hasInventoryItem
+      ? workspace.inventoryItems.map((item) =>
+          item.ingredientId === row.inventoryItem.ingredientId
+            ? row.inventoryItem
+            : item
+        )
+      : [...workspace.inventoryItems, row.inventoryItem],
+  }
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 function getMemberBranchIds(member: Member | null) {
   if (!member) {
     return []
@@ -398,10 +464,7 @@ function preferredBranchId(member: Member, requestedBranchId?: string | null) {
   return accessibleBranchIds[0] ?? initialBranches[0]?.id ?? ""
 }
 
-function createCashFlowMetricsForWorkspaces(
-  workspaces: BranchWorkspace[],
-  branchCount: number
-) {
+function createCashFlowMetricsForWorkspaces(workspaces: BranchWorkspace[]) {
   const currentPurchaseTotal = workspaces.reduce(
     (total, workspace) => total + purchaseTotal(workspace.purchaseItems),
     0
@@ -505,11 +568,48 @@ export function useEasyReceiptStore() {
   const [branchWorkspaces, setBranchWorkspaces] = useState(() =>
     createInitialBranchWorkspaces()
   )
+  const [inventoryMutationError, setInventoryMutationError] = useState("")
 
   const activeWorkspace =
     branchWorkspaces[activeBranchId] ??
     Object.values(branchWorkspaces)[0] ??
     createInitialBranchWorkspace(initialBranches[0], 0)
+
+  const syncBranchInventorySnapshot = useCallback(
+    (branchId: string, snapshot: NormalizedInventorySnapshot) => {
+      setBranchWorkspaces((workspaces) => {
+        const workspace = workspaces[branchId]
+
+        if (!workspace) {
+          return workspaces
+        }
+
+        return {
+          ...workspaces,
+          [branchId]: mergeInventorySnapshot(workspace, snapshot),
+        }
+      })
+    },
+    []
+  )
+
+  const syncBranchInventoryRow = useCallback(
+    (branchId: string, row: NormalizedInventoryRow) => {
+      setBranchWorkspaces((workspaces) => {
+        const workspace = workspaces[branchId]
+
+        if (!workspace) {
+          return workspaces
+        }
+
+        return {
+          ...workspaces,
+          [branchId]: mergeInventoryRow(workspace, row),
+        }
+      })
+    },
+    []
+  )
 
   const syncAuthenticatedMember = useCallback((member: Member) => {
     const nextMember = {
@@ -564,6 +664,39 @@ export function useEasyReceiptStore() {
     },
   })
 
+  const inventoryQuery = useQuery({
+    queryKey: inventoryQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchInventory(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
+  const updateInventoryMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      ingredientId,
+      input,
+    }: {
+      branchId: string
+      ingredientId: string
+      input: Omit<InventoryEditInput, "ingredientId" | "reserved">
+    }) => apiUpdateBranchInventory(branchId, ingredientId, input),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+    onSuccess: (row, variables) => {
+      syncBranchInventoryRow(variables.branchId, row)
+      void queryClient.invalidateQueries({
+        queryKey: inventoryQueryKey(variables.branchId),
+      })
+    },
+    onError: (error) => {
+      setInventoryMutationError(
+        errorMessage(error, "Inventory could not be updated.")
+      )
+    },
+  })
+
   useEffect(() => {
     if (authSessionQuery.isPending) {
       return
@@ -594,6 +727,19 @@ export function useEasyReceiptStore() {
     clearAuthenticatedMember,
     syncAuthenticatedMember,
   ])
+
+  useEffect(() => {
+    if (!inventoryQuery.data) {
+      return
+    }
+
+    const branchId = activeBranchId
+    const timeoutId = window.setTimeout(() => {
+      syncBranchInventorySnapshot(branchId, inventoryQuery.data)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeBranchId, inventoryQuery.data, syncBranchInventorySnapshot])
 
   const accessibleBranchIds = useMemo(
     () => getMemberBranchIds(currentMember),
@@ -707,7 +853,10 @@ export function useEasyReceiptStore() {
         }
 
         const incoming = incomingByIngredient.get(item.ingredientId) ?? 0
-        const reserved = reservedByIngredient.get(item.ingredientId) ?? 0
+        const reserved = Math.max(
+          item.reserved,
+          reservedByIngredient.get(item.ingredientId) ?? 0
+        )
         const available = Math.max(item.onHand - reserved, 0)
         const suggestedPurchaseQuantity = Math.max(reserved - item.onHand, 0)
         const stockPercent = Math.min(
@@ -748,10 +897,7 @@ export function useEasyReceiptStore() {
 
   const activeCashFlowMetrics = useMemo(
     () =>
-      createCashFlowMetricsForWorkspaces(
-        activeWorkspace ? [activeWorkspace] : [],
-        activeWorkspace ? 1 : 0
-      ),
+      createCashFlowMetricsForWorkspaces(activeWorkspace ? [activeWorkspace] : []),
     [activeWorkspace]
   )
 
@@ -861,12 +1007,8 @@ export function useEasyReceiptStore() {
     [accessibleBranchIds, reportWorkspaces]
   )
   const reportCashFlowMetrics = useMemo(
-    () =>
-      createCashFlowMetricsForWorkspaces(
-        reportWorkspaces,
-        accessibleBranches.length
-      ),
-    [accessibleBranches.length, reportWorkspaces]
+    () => createCashFlowMetricsForWorkspaces(reportWorkspaces),
+    [reportWorkspaces]
   )
   const reportBranchSummary = useMemo<BranchReportSummary>(
     () => ({
@@ -876,6 +1018,16 @@ export function useEasyReceiptStore() {
     }),
     [accessibleBranches]
   )
+  const inventoryError =
+    inventoryMutationError ||
+    (inventoryQuery.isError
+      ? errorMessage(
+          inventoryQuery.error,
+          "ไม่สามารถโหลดข้อมูลคลังวัตถุดิบได้"
+        )
+      : "")
+  const isInventoryLoading =
+    inventoryQuery.isPending && Boolean(currentMember && activeBranchId)
 
   function setActiveBranch(branchId: string) {
     if (!currentMember || !accessibleBranchIds.includes(branchId)) {
@@ -1098,53 +1250,47 @@ export function useEasyReceiptStore() {
     return ingredient
   }
 
-  function updateInventoryItem(input: InventoryEditInput) {
+  async function updateInventoryItem(input: InventoryEditInput) {
     const name = input.name.trim()
     const unit = input.unit.trim() || "กก."
 
     if (!name) {
-      return false
+      return {
+        ok: false,
+        error: "กรุณากรอกชื่อวัตถุดิบ",
+      }
     }
 
-    const duplicateIngredient = ingredientList.find(
-      (ingredient) =>
-        ingredient.id !== input.ingredientId &&
-        normalizeLookup(ingredient.name) === normalizeLookup(name) &&
-        normalizeLookup(ingredient.unit) === normalizeLookup(unit)
-    )
-
-    if (duplicateIngredient) {
-      return false
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
     }
 
-    updateActiveWorkspace((workspace) => ({
-      ...workspace,
-      ingredients: workspace.ingredients.map((ingredient) =>
-        ingredient.id === input.ingredientId
-          ? {
-              ...ingredient,
-              name,
-              category: input.category.trim() || "วัตถุดิบ",
-              unit,
-              defaultPrice: Math.max(input.defaultPrice, 0),
-              supplier: input.supplier.trim() || "-",
-            }
-          : ingredient
-      ),
-      inventoryItems: workspace.inventoryItems.map((item) =>
-        item.ingredientId === input.ingredientId
-          ? {
-              ...item,
-              onHand: Math.max(input.onHand, 0),
-              reorderPoint: Math.max(input.reorderPoint, 0),
-              costPerUnit: Math.max(input.costPerUnit, 0),
-              lastUpdated: todayIso,
-            }
-          : item
-      ),
-    }))
+    try {
+      await updateInventoryMutation.mutateAsync({
+        branchId: activeBranchId,
+        ingredientId: input.ingredientId,
+        input: {
+          name,
+          category: input.category.trim() || "วัตถุดิบ",
+          unit,
+          defaultPrice: Math.max(input.defaultPrice, 0),
+          supplier: input.supplier.trim() || "-",
+          onHand: Math.max(input.onHand, 0),
+          reorderPoint: Math.max(input.reorderPoint, 0),
+          costPerUnit: Math.max(input.costPerUnit, 0),
+        },
+      })
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถบันทึกข้อมูลคลังวัตถุดิบได้"),
+      }
+    }
 
-    return true
+    return { ok: true }
   }
 
   function addRecipe(input: RecipeFormInput) {
@@ -1413,6 +1559,9 @@ export function useEasyReceiptStore() {
     ingredientById,
     inventoryItems: inventoryList,
     inventoryRows,
+    isInventoryLoading,
+    isInventorySaving: updateInventoryMutation.isPending,
+    inventoryError,
     addIngredientFromPurchase,
     updateInventoryItem,
     lowStockItems,

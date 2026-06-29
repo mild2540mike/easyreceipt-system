@@ -2,9 +2,7 @@ import "dotenv/config"
 import { PrismaMssql } from "@prisma/adapter-mssql"
 import { PrismaClient } from "@prisma/client"
 
-const connectionString =
-  process.env.DATABASE_URL ??
-  "sqlserver://localhost:1433;database=EasyReceiptSystem;user=sa;password=YourStrong(!)Password;encrypt=true;trustServerCertificate=true"
+const connectionString = process.env.DATABASE_URL
 
 const prisma = new PrismaClient({
   adapter: new PrismaMssql(connectionString),
