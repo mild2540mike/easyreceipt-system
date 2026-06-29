@@ -829,6 +829,13 @@ function DashboardView({ store }: { store: Store }) {
           tone="border-amber-200 bg-amber-50 text-amber-800"
         />
         <MetricCard
+          label="ยอดขายวันนี้"
+          value={formatCurrency(dailySales)}
+          helper="+12.4% จากเมื่อวาน"
+          icon={TrendingUp}
+          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
+        />
+        <MetricCard
           label="สต็อกต้องดูแล"
           value={`${store.lowStockItems.length} รายการ`}
           helper="คงเหลือไม่พอต่อการจองใช้"
@@ -3163,7 +3170,7 @@ function ReportsView({ store }: { store: Store }) {
             label={metric.label}
             value={formatCurrency(metric.value)}
             helper={`${metric.delta > 0 ? "+" : ""}${percentFormatter.format(metric.delta)}% จากช่วงก่อน`}
-            icon={metric.kind === "cash" ? Wallet : BarChart3}
+            icon={BarChart3}
             tone={
               metric.kind === "expense"
                 ? "border-amber-200 bg-amber-50 text-amber-800"
