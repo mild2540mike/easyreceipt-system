@@ -439,29 +439,14 @@ function createCashFlowMetricsForWorkspaces(
       )
     )
   }, 0)
-  const cash = branchCount * 24000 + Math.max(sales - currentPurchaseTotal, 0)
 
   return [
-    {
-      id: "sales",
-      label: "ยอดขายวันนี้",
-      value: sales,
-      delta: 12.4,
-      kind: "income",
-    },
     {
       id: "ingredient-cost",
       label: "ต้นทุนวัตถุดิบ",
       value: ingredientCost,
       delta: -3.2,
       kind: "expense",
-    },
-    {
-      id: "cash",
-      label: "เงินสดคงเหลือ",
-      value: cash,
-      delta: 8.1,
-      kind: "cash",
     },
     {
       id: "margin",

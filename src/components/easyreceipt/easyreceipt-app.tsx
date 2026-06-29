@@ -829,13 +829,6 @@ function DashboardView({ store }: { store: Store }) {
           tone="border-amber-200 bg-amber-50 text-amber-800"
         />
         <MetricCard
-          label="ยอดขายวันนี้"
-          value={formatCurrency(dailySales)}
-          helper="+12.4% จากเมื่อวาน"
-          icon={TrendingUp}
-          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
-        />
-        <MetricCard
           label="สต็อกต้องดูแล"
           value={`${store.lowStockItems.length} รายการ`}
           helper="คงเหลือไม่พอต่อการจองใช้"
