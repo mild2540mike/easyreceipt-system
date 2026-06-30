@@ -624,7 +624,35 @@ export function useEasyReceiptStore() {
     createInitialBranchWorkspaces()
   )
   const [inventoryMutationError, setInventoryMutationError] = useState("")
-  const [recipeMutationError, setRecipeMutationError] = useState("")
+  // คำสั่งดึงข้อมูลสมาชิกจาก API หลังบ้าน
+  useEffect(() => {
+    const fetchRealMembers = async () => {
+      try {
+        const response = await fetch("http://localhost:4000/api/v1/members", {
+          method: "GET",
+          credentials: "include", // ต้องมีบรรทัดนี้เพื่อส่งคุกกี้/สิทธิ์การล็อกอินไปด้วย
+        });
+        
+        const result = await response.json();
+        
+        if (result.members) {
+  // ปรับโครงสร้างข้อมูลให้มี branchIds ตามที่หน้าเว็บต้องการ
+  const formattedMembers = result.members.map((member: any) => ({
+    ...member,
+    branchIds: member.branchIds || (member.branches ? member.branches.map((b: any) => b.id) : [])
+  }));
+
+  // เอาข้อมูลที่ปรับแต่งแล้วไปใส่ State
+  setMembers(formattedMembers); 
+}
+      } catch (error) {
+        console.error("ดึงข้อมูลสมาชิกจาก API ไม่สำเร็จ:", error);
+      }
+    };
+
+    // สั่งให้ฟังก์ชันทำงานทันทีที่โหลดหน้านี้
+    fetchRealMembers();
+  }, []);
 
   const activeWorkspace =
     branchWorkspaces[activeBranchId] ??
@@ -1729,37 +1757,64 @@ export function useEasyReceiptStore() {
         : allowedBranchIds.slice(0, 1)
   }
 
-  function addMember(input: MemberFormInput) {
-    const trimmedEmail = input.email.trim().toLowerCase()
-    const branchIds = sanitizeBranchIds(input.branchIds, input.role)
+  async function addMember(input: MemberFormInput) {
+      const trimmedEmail = input.email.trim().toLowerCase()
+      const branchIds = sanitizeBranchIds(input.branchIds, input.role)
+  
+      // ตรวจสอบข้อมูลเบื้องต้นเหมือนเดิม
+      if (
+        !input.name.trim() ||
+        !trimmedEmail ||
+        branchIds.length === 0 ||
+        members.some((member) => member.email.toLowerCase() === trimmedEmail)
+      ) {
+        return false
+      }
+  
+      try {
+        // 1. ส่งข้อมูลไปบันทึกที่ฐานข้อมูลผ่าน API (POST)
+        const response = await fetch("http://localhost:4000/api/v1/members", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            name: input.name.trim(),
+            email: trimmedEmail,
+            role: input.role,
+            password: "123456", // ตั้งรหัสผ่านเริ่มต้นให้พนักงาน
+            branchIds: branchIds
+          })
+        });
+  
+        const result = await response.json();
+  
+        // 2. ถ้า API บันทึกสำเร็จ
+        if (response.ok) {
+          // ดึงข้อมูลพนักงานใหม่ที่ฐานข้อมูลสร้างให้ (พร้อม ID ของจริง)
+          const newMember = result.member || result.data || result;
+  
+          // ปรับโครงสร้าง branchIds ให้ตรงกับที่ UI ต้องการ (เหมือนตอนทำ GET)
+          const formattedNewMember = {
+            ...newMember,
+            branchIds: newMember.branchIds || (newMember.branches ? newMember.branches.map((b: any) => b.id) : branchIds)
+          };
+  
+          // อัปเดตตารางหน้าเว็บโดยเอาคนใหม่ไปต่อท้าย
+          setMembers((items) => [...items, formattedNewMember]);
+          return true;
 
-    if (
-      !input.name.trim() ||
-      !trimmedEmail ||
-      branchIds.length === 0 ||
-      members.some((member) => member.email.toLowerCase() === trimmedEmail)
-    ) {
-      return false
+        } else {
+          console.error("API แจ้งว่าเพิ่มข้อมูลไม่สำเร็จ:", result);
+          return false;
+        }
+
+      } catch (error) {
+        console.error("เกิดข้อผิดพลาดในการเชื่อมต่อ API:", error);
+        return false;
+      }
     }
-
-    setMembers((items) => [
-      ...items,
-      {
-        id: `member-${Date.now()}`,
-        name: input.name.trim(),
-        email: trimmedEmail,
-        role: input.role,
-        status: "invited",
-        lastActive: "-",
-        joinedAt: "2026-06-27",
-        password: "123456",
-        branchIds,
-        primaryBranchId: branchIds[0],
-      },
-    ])
-
-    return true
-  }
 
   function updateMemberRole(memberId: string, role: MemberRole) {
     setMembers((items) =>
