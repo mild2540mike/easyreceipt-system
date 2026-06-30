@@ -560,7 +560,7 @@ export const openApiDocument = {
     "/branches/{branchId}/recipes": {
       get: {
         tags: ["Recipes"],
-        summary: "List active branch recipes with pinned plans.",
+        summary: "List active branch recipes with latest pinned or cooked plans.",
         security: [{ sessionCookie: [] }],
         parameters: [{ $ref: "#/components/parameters/branchId" }],
         responses: {
@@ -642,6 +642,23 @@ export const openApiDocument = {
         ],
         responses: {
           "201": { description: "Recipe plan pinned." },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/branches/{branchId}/recipes/{recipeId}/unpin": {
+      post: {
+        tags: ["Recipes"],
+        summary: "Unpin a recipe and release active reservations.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/branchId" },
+          { $ref: "#/components/parameters/recipeId" },
+        ],
+        responses: {
+          "200": { description: "Recipe plan unpinned." },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
           "404": { $ref: "#/components/responses/NotFound" },

@@ -23,13 +23,22 @@ import {
   type ViewId,
 } from "@/lib/easyreceipt-data"
 import {
+  apiCookBranchRecipePlan,
+  apiCreateBranchRecipe,
+  apiDeleteBranchRecipe,
   apiGetBranchInventory,
+  apiGetBranchRecipes,
   apiGetCurrentMember,
   apiLogin,
   apiLogout,
+  apiPinBranchRecipe,
+  apiUnpinBranchRecipe,
+  apiUpdateBranchRecipe,
   apiUpdateBranchInventory,
   type NormalizedInventoryRow,
   type NormalizedInventorySnapshot,
+  type NormalizedRecipePlan,
+  type NormalizedRecipeSnapshot,
 } from "@/lib/easyreceipt-api"
 
 export type StockStatus = "ok" | "watch" | "low"
@@ -97,6 +106,11 @@ type InventoryAdjustment = {
   delta: number
 }
 
+type RecipeActionResult = {
+  ok: boolean
+  error?: string
+}
+
 export type BranchWorkspace = {
   branchId: string
   ingredients: Ingredient[]
@@ -104,6 +118,7 @@ export type BranchWorkspace = {
   recipes: Recipe[]
   pinnedRecipeIds: Set<string>
   cookedRecipeIds: Set<string>
+  recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
   purchaseDate: Date
   purchaseItems: PurchaseItem[]
   purchaseStockLedger: Record<string, PurchaseStockEntry>
@@ -122,6 +137,8 @@ const sessionBranchKey = "easyreceipt.branchId"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
+const recipesQueryKey = (branchId: string) =>
+  ["easyreceipt", "recipes", branchId] as const
 const activeMemberLabel = "กำลังใช้งาน"
 
 function readSessionValue(key: string) {
@@ -345,6 +362,15 @@ function createInitialBranchWorkspace(
     recipes: branchRecipes,
     pinnedRecipeIds: new Set(branchRecipes.map((recipe) => recipe.id)),
     cookedRecipeIds: new Set(),
+    recipePlanByRecipeId: Object.fromEntries(
+      branchRecipes.map((recipe) => [
+        recipe.id,
+        {
+          id: `local-plan-${branch.id}-${recipe.id}`,
+          status: "pinned",
+        },
+      ])
+    ),
     purchaseDate: new Date(today),
     purchaseItems,
     purchaseStockLedger: createPurchaseStockLedger(purchaseItems),
@@ -417,8 +443,37 @@ function mergeInventoryRow(
   }
 }
 
+function mergeRecipeSnapshot(
+  workspace: BranchWorkspace,
+  snapshot: NormalizedRecipeSnapshot
+) {
+  return {
+    ...workspace,
+    recipes: snapshot.recipes,
+    pinnedRecipeIds: new Set(snapshot.pinnedRecipeIds),
+    cookedRecipeIds: new Set(snapshot.cookedRecipeIds),
+    recipePlanByRecipeId: snapshot.recipePlanByRecipeId,
+  }
+}
+
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+function normalizeRecipeInput(input: RecipeFormInput) {
+  const ingredients = input.ingredients.filter((item) => item.quantity > 0)
+
+  if (!input.name.trim() || ingredients.length === 0) {
+    return null
+  }
+
+  return {
+    name: input.name.trim(),
+    menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
+    yield: Math.max(Math.round(input.yield), 1),
+    pricePerServing: Math.max(input.pricePerServing, 0),
+    ingredients,
+  }
 }
 
 function getMemberBranchIds(member: Member | null) {
@@ -569,6 +624,7 @@ export function useEasyReceiptStore() {
     createInitialBranchWorkspaces()
   )
   const [inventoryMutationError, setInventoryMutationError] = useState("")
+  const [recipeMutationError, setRecipeMutationError] = useState("")
 
   const activeWorkspace =
     branchWorkspaces[activeBranchId] ??
@@ -605,6 +661,24 @@ export function useEasyReceiptStore() {
         return {
           ...workspaces,
           [branchId]: mergeInventoryRow(workspace, row),
+        }
+      })
+    },
+    []
+  )
+
+  const syncBranchRecipesSnapshot = useCallback(
+    (branchId: string, snapshot: NormalizedRecipeSnapshot) => {
+      setBranchWorkspaces((workspaces) => {
+        const workspace = workspaces[branchId]
+
+        if (!workspace) {
+          return workspaces
+        }
+
+        return {
+          ...workspaces,
+          [branchId]: mergeRecipeSnapshot(workspace, snapshot),
         }
       })
     },
@@ -671,6 +745,13 @@ export function useEasyReceiptStore() {
     staleTime: 15_000,
   })
 
+  const recipesQuery = useQuery({
+    queryKey: recipesQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchRecipes(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
   const updateInventoryMutation = useMutation({
     mutationFn: ({
       branchId,
@@ -694,6 +775,112 @@ export function useEasyReceiptStore() {
       setInventoryMutationError(
         errorMessage(error, "Inventory could not be updated.")
       )
+    },
+  })
+
+  const createRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      input,
+    }: {
+      branchId: string
+      input: RecipeFormInput
+    }) => apiCreateBranchRecipe(branchId, input),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(
+        errorMessage(error, "Recipe could not be created.")
+      )
+    },
+  })
+
+  const updateRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      recipeId,
+      input,
+    }: {
+      branchId: string
+      recipeId: string
+      input: RecipeFormInput
+    }) => apiUpdateBranchRecipe(branchId, recipeId, input),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(
+        errorMessage(error, "Recipe could not be updated.")
+      )
+    },
+  })
+
+  const deleteRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      recipeId,
+    }: {
+      branchId: string
+      recipeId: string
+    }) => apiDeleteBranchRecipe(branchId, recipeId),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(
+        errorMessage(error, "Recipe could not be deleted.")
+      )
+    },
+  })
+
+  const pinRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      recipeId,
+    }: {
+      branchId: string
+      recipeId: string
+    }) => apiPinBranchRecipe(branchId, recipeId),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(errorMessage(error, "Recipe could not be pinned."))
+    },
+  })
+
+  const unpinRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      recipeId,
+    }: {
+      branchId: string
+      recipeId: string
+    }) => apiUnpinBranchRecipe(branchId, recipeId),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(
+        errorMessage(error, "Recipe could not be unpinned.")
+      )
+    },
+  })
+
+  const cookRecipeMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      planId,
+    }: {
+      branchId: string
+      planId: string
+    }) => apiCookBranchRecipePlan(branchId, planId),
+    onMutate: () => {
+      setRecipeMutationError("")
+    },
+    onError: (error) => {
+      setRecipeMutationError(errorMessage(error, "Recipe could not be cooked."))
     },
   })
 
@@ -741,6 +928,19 @@ export function useEasyReceiptStore() {
     return () => window.clearTimeout(timeoutId)
   }, [activeBranchId, inventoryQuery.data, syncBranchInventorySnapshot])
 
+  useEffect(() => {
+    if (!recipesQuery.data) {
+      return
+    }
+
+    const branchId = activeBranchId
+    const timeoutId = window.setTimeout(() => {
+      syncBranchRecipesSnapshot(branchId, recipesQuery.data)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeBranchId, recipesQuery.data, syncBranchRecipesSnapshot])
+
   const accessibleBranchIds = useMemo(
     () => getMemberBranchIds(currentMember),
     [currentMember]
@@ -778,6 +978,7 @@ export function useEasyReceiptStore() {
   const recipeList = activeWorkspace.recipes
   const pinnedRecipeIds = activeWorkspace.pinnedRecipeIds
   const cookedRecipeIds = activeWorkspace.cookedRecipeIds
+  const recipePlanByRecipeId = activeWorkspace.recipePlanByRecipeId
   const purchaseDate = activeWorkspace.purchaseDate
   const purchaseItems = activeWorkspace.purchaseItems
 
@@ -1028,6 +1229,20 @@ export function useEasyReceiptStore() {
       : "")
   const isInventoryLoading =
     inventoryQuery.isPending && Boolean(currentMember && activeBranchId)
+  const recipeError =
+    recipeMutationError ||
+    (recipesQuery.isError
+      ? errorMessage(recipesQuery.error, "ไม่สามารถโหลดข้อมูลสูตรอาหารได้")
+      : "")
+  const isRecipesLoading =
+    recipesQuery.isPending && Boolean(currentMember && activeBranchId)
+  const isRecipeSaving =
+    createRecipeMutation.isPending ||
+    updateRecipeMutation.isPending ||
+    deleteRecipeMutation.isPending ||
+    pinRecipeMutation.isPending ||
+    unpinRecipeMutation.isPending ||
+    cookRecipeMutation.isPending
 
   function setActiveBranch(branchId: string) {
     if (!currentMember || !accessibleBranchIds.includes(branchId)) {
@@ -1293,146 +1508,208 @@ export function useEasyReceiptStore() {
     return { ok: true }
   }
 
-  function addRecipe(input: RecipeFormInput) {
-    const ingredients = input.ingredients.filter((item) => item.quantity > 0)
-
-    if (!input.name.trim() || ingredients.length === 0) {
-      return false
-    }
-
-    const recipeId = `recipe-${Date.now()}`
-
-    updateActiveWorkspace((workspace) => ({
-      ...workspace,
-      recipes: [
-        ...workspace.recipes,
-        {
-          ...input,
-          id: recipeId,
-          name: input.name.trim(),
-          menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
-          ingredients,
-        },
-      ],
-      pinnedRecipeIds: new Set([...workspace.pinnedRecipeIds, recipeId]),
-    }))
-
-    return true
+  async function refreshRecipeAndInventory(branchId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKey(branchId) }),
+    ])
   }
 
-  function updateRecipe(recipeId: string, input: RecipeFormInput) {
-    const ingredients = input.ingredients.filter((item) => item.quantity > 0)
-
-    if (!input.name.trim() || ingredients.length === 0) {
-      return false
-    }
-
-    updateActiveWorkspace((workspace) => ({
-      ...workspace,
-      recipes: workspace.recipes.map((recipe) =>
-        recipe.id === recipeId
-          ? {
-              ...recipe,
-              ...input,
-              name: input.name.trim(),
-              menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
-              ingredients,
-            }
-          : recipe
-      ),
-    }))
-
-    return true
-  }
-
-  function deleteRecipe(recipeId: string) {
-    updateActiveWorkspace((workspace) => {
-      const nextPinned = new Set(workspace.pinnedRecipeIds)
-      const nextCooked = new Set(workspace.cookedRecipeIds)
-      nextPinned.delete(recipeId)
-      nextCooked.delete(recipeId)
-
+  function recipeAuthError(): RecipeActionResult | null {
+    if (!currentMember || !activeBranchId) {
       return {
-        ...workspace,
-        recipes: workspace.recipes.filter((recipe) => recipe.id !== recipeId),
-        pinnedRecipeIds: nextPinned,
-        cookedRecipeIds: nextCooked,
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
       }
-    })
+    }
+
+    return null
   }
 
-  function pinRecipe(recipeId: string) {
+  async function addRecipe(input: RecipeFormInput): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
+    const normalizedInput = normalizeRecipeInput(input)
+
+    if (authError) {
+      return authError
+    }
+
+    if (!normalizedInput) {
+      return {
+        ok: false,
+        error: "กรุณากรอกชื่อเมนู และเพิ่มวัตถุดิบอย่างน้อย 1 รายการ",
+      }
+    }
+
+    try {
+      const createdRecipe = await createRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: normalizedInput,
+      })
+      await pinRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        recipeId: createdRecipe.id,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถสร้างสูตรอาหารได้")
+      setRecipeMutationError(message)
+      void refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function updateRecipe(
+    recipeId: string,
+    input: RecipeFormInput
+  ): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
+    const normalizedInput = normalizeRecipeInput(input)
+
+    if (authError) {
+      return authError
+    }
+
+    if (!normalizedInput) {
+      return {
+        ok: false,
+        error: "กรุณากรอกชื่อเมนู และเพิ่มวัตถุดิบอย่างน้อย 1 รายการ",
+      }
+    }
+
+    try {
+      await updateRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        recipeId,
+        input: normalizedInput,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถแก้ไขสูตรอาหารได้")
+      setRecipeMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function deleteRecipe(recipeId: string): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
+
+    if (authError) {
+      return authError
+    }
+
+    try {
+      await deleteRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        recipeId,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถลบสูตรอาหารได้")
+      setRecipeMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function pinRecipe(recipeId: string): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
+
+    if (authError) {
+      return authError
+    }
+
     if (!recipeList.some((recipe) => recipe.id === recipeId)) {
-      return false
+      return {
+        ok: false,
+        error: "ไม่พบสูตรอาหารที่ต้องการปักหมุด",
+      }
     }
 
-    updateActiveWorkspace((workspace) => {
-      const nextPinned = new Set(workspace.pinnedRecipeIds)
-      const nextCooked = new Set(workspace.cookedRecipeIds)
-      nextPinned.add(recipeId)
-      nextCooked.delete(recipeId)
+    try {
+      await pinRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        recipeId,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
 
-      return {
-        ...workspace,
-        pinnedRecipeIds: nextPinned,
-        cookedRecipeIds: nextCooked,
-      }
-    })
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถปักหมุดสูตรอาหารได้")
+      setRecipeMutationError(message)
 
-    return true
+      return { ok: false, error: message }
+    }
   }
 
-  function unpinRecipe(recipeId: string) {
-    updateActiveWorkspace((workspace) => {
-      const nextPinned = new Set(workspace.pinnedRecipeIds)
-      const nextCooked = new Set(workspace.cookedRecipeIds)
-      nextPinned.delete(recipeId)
-      nextCooked.delete(recipeId)
+  async function unpinRecipe(recipeId: string): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
 
-      return {
-        ...workspace,
-        pinnedRecipeIds: nextPinned,
-        cookedRecipeIds: nextCooked,
-      }
-    })
+    if (authError) {
+      return authError
+    }
 
-    return true
+    try {
+      await unpinRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        recipeId,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถถอนปักหมุดสูตรอาหารได้")
+      setRecipeMutationError(message)
+
+      return { ok: false, error: message }
+    }
   }
 
-  function cookRecipe(recipeId: string) {
-    const recipe = recipeList.find((item) => item.id === recipeId)
+  async function cookRecipe(recipeId: string): Promise<RecipeActionResult> {
+    const authError = recipeAuthError()
     const recipeImpact = recipeImpacts.find((item) => item.id === recipeId)
+    const plan = recipePlanByRecipeId[recipeId]
 
-    if (!recipe || !recipeImpact?.isPinned || !recipeImpact.canProduce) {
-      return false
+    if (authError) {
+      return authError
     }
 
-    updateActiveWorkspace((workspace) => {
-      const nextCooked = new Set(workspace.cookedRecipeIds)
-      nextCooked.add(recipeId)
-
+    if (!recipeImpact?.isPinned || recipeImpact.isCooked || !recipeImpact.canProduce) {
       return {
-        ...workspace,
-        inventoryItems: workspace.inventoryItems.map((item) => {
-          const recipeIngredient = recipe.ingredients.find(
-            (ingredient) => ingredient.ingredientId === item.ingredientId
-          )
-
-          if (!recipeIngredient) {
-            return item
-          }
-
-          return {
-            ...item,
-            onHand: Math.max(item.onHand - recipeIngredient.quantity, 0),
-            lastUpdated: todayIso,
-          }
-        }),
-        cookedRecipeIds: nextCooked,
+        ok: false,
+        error: "ยังปรุงไม่ได้ กรุณาตรวจสอบวัตถุดิบคงเหลือก่อน",
       }
-    })
+    }
 
-    return true
+    if (!plan || plan.status !== "pinned") {
+      return {
+        ok: false,
+        error: "ไม่พบแผนสูตรอาหารที่ปักหมุด",
+      }
+    }
+
+    try {
+      await cookRecipeMutation.mutateAsync({
+        branchId: activeBranchId,
+        planId: plan.id,
+      })
+      await refreshRecipeAndInventory(activeBranchId)
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถปรุงรายการอาหารได้")
+      setRecipeMutationError(message)
+
+      return { ok: false, error: message }
+    }
   }
 
   function sanitizeBranchIds(branchIds: string[], role?: MemberRole) {
@@ -1574,6 +1851,9 @@ export function useEasyReceiptStore() {
     recipeImpacts,
     pinnedRecipeImpacts,
     recipeStats,
+    isRecipesLoading,
+    isRecipeSaving,
+    recipeError,
     addRecipe,
     updateRecipe,
     deleteRecipe,
