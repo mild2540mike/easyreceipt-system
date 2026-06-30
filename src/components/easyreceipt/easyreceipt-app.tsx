@@ -1872,18 +1872,31 @@ function normalizeRecipeDraft(draft: RecipeFormInput): RecipeFormInput {
 function RecipesView({ store }: { store: Store }) {
   const [cookMessage, setCookMessage] = useState("")
 
-  function handleUnpinRecipe(recipeId: string) {
-    store.unpinRecipe(recipeId)
-    setCookMessage("ถอนปักหมุดเมนูออกจากหน้าสูตรอาหารแล้ว")
+  async function handleUnpinRecipe(recipeId: string) {
+    const result = await store.unpinRecipe(recipeId)
+    setCookMessage(
+      result.ok
+        ? "ถอนปักหมุดเมนูออกจากหน้าสูตรอาหารแล้ว"
+        : (result.error ?? "ไม่สามารถถอนปักหมุดสูตรอาหารได้")
+    )
   }
 
-  function handleCookRecipe(recipeId: string) {
-    const ok = store.cookRecipe(recipeId)
+  async function handleCookRecipe(recipeId: string) {
+    const result = await store.cookRecipe(recipeId)
 
     setCookMessage(
-      ok
+      result.ok
         ? "ปรุงรายการอาหารแล้ว ระบบตัดสต็อกและปลดจองวัตถุดิบเรียบร้อย"
-        : "ยังปรุงไม่ได้ กรุณาตรวจสอบวัตถุดิบคงเหลือก่อน"
+        : (result.error ?? "ยังปรุงไม่ได้ กรุณาตรวจสอบวัตถุดิบคงเหลือก่อน")
+    )
+  }
+
+  async function handleDeleteRecipe(recipeId: string) {
+    const result = await store.deleteRecipe(recipeId)
+    setCookMessage(
+      result.ok
+        ? "ลบสูตรอาหารและปลดจองวัตถุดิบที่เกี่ยวข้องแล้ว"
+        : (result.error ?? "ไม่สามารถลบสูตรอาหารได้")
     )
   }
 
@@ -1935,6 +1948,17 @@ function RecipesView({ store }: { store: Store }) {
             {cookMessage}
           </div>
         )}
+        {store.isRecipesLoading && (
+          <div className="mt-4 flex min-h-12 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+            <LoaderCircle className="size-4 animate-spin" />
+            กำลังโหลดข้อมูลสูตรอาหารจาก API
+          </div>
+        )}
+        {store.recipeError && !store.isRecipeSaving && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {store.recipeError}
+          </div>
+        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
@@ -1946,6 +1970,8 @@ function RecipesView({ store }: { store: Store }) {
             editHref={`/portal/recipes/${recipe.id}/edit`}
             onUnpin={handleUnpinRecipe}
             onCook={handleCookRecipe}
+            onDelete={handleDeleteRecipe}
+            isSaving={store.isRecipeSaving}
           />
         ))}
         <RecipeAddCard />
@@ -1972,10 +1998,12 @@ function RecipePinSelection({
   recipes,
   store,
   onPin,
+  isSaving,
 }: {
   recipes: RecipeImpact[]
   store: Store
   onPin: (recipeId: string) => void
+  isSaving: boolean
 }) {
   return (
     <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
@@ -2052,9 +2080,13 @@ function RecipePinSelection({
                 <Button
                   className="h-11 flex-1"
                   onClick={() => onPin(recipe.id)}
-                  disabled={pinned}
+                  disabled={pinned || isSaving}
                 >
-                  <Pin className="size-4" />
+                  {isSaving ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : (
+                    <Pin className="size-4" />
+                  )}
                   {pinned ? "ปักหมุดแล้ว" : "ปักหมุดเมนูนี้"}
                 </Button>
                 <Link
@@ -2109,7 +2141,21 @@ function RecipeFormView({
       ? draftFromRecipe(editingRecipe)
       : createRecipeDraft(defaultIngredientId)
   )
+  const [loadedRecipeId, setLoadedRecipeId] = useState(editingRecipe?.id ?? "")
   const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    if (mode !== "edit" || !editingRecipe || loadedRecipeId === editingRecipe.id) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setRecipeDraft(draftFromRecipe(editingRecipe))
+      setLoadedRecipeId(editingRecipe.id)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [editingRecipe, loadedRecipeId, mode])
 
   function handleRecipeIngredientChange(
     index: number,
@@ -2157,31 +2203,44 @@ function RecipeFormView({
     }))
   }
 
-  function handlePinExistingRecipe(recipeId: string) {
-    const ok = store.pinRecipe(recipeId)
+  async function handlePinExistingRecipe(recipeId: string) {
+    const result = await store.pinRecipe(recipeId)
 
-    if (!ok) {
-      setMessage("ไม่พบสูตรอาหารที่ต้องการปักหมุด")
+    if (!result.ok) {
+      setMessage(result.error ?? "ไม่พบสูตรอาหารที่ต้องการปักหมุด")
       return
     }
 
     router.push("/portal/recipes")
   }
 
-  function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedDraft = normalizeRecipeDraft(recipeDraft)
-    const ok =
+    const result =
       mode === "edit" && recipeId
-        ? store.updateRecipe(recipeId, normalizedDraft)
-        : store.addRecipe(normalizedDraft)
+        ? await store.updateRecipe(recipeId, normalizedDraft)
+        : await store.addRecipe(normalizedDraft)
 
-    if (!ok) {
-      setMessage("กรุณากรอกชื่อเมนู และเพิ่มวัตถุดิบอย่างน้อย 1 รายการ")
+    if (!result.ok) {
+      setMessage(
+        result.error ?? "กรุณากรอกชื่อเมนู และเพิ่มวัตถุดิบอย่างน้อย 1 รายการ"
+      )
       return
     }
 
     router.push("/portal/recipes")
+  }
+
+  if (mode === "edit" && store.isRecipesLoading) {
+    return (
+      <div className="w-full max-w-4xl">
+        <div className="flex min-h-24 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+          <LoaderCircle className="size-4 animate-spin" />
+          กำลังโหลดข้อมูลสูตรอาหารจาก API
+        </div>
+      </div>
+    )
   }
 
   if (mode === "edit" && !editingRecipe) {
@@ -2234,6 +2293,7 @@ function RecipeFormView({
           recipes={store.recipeImpacts}
           store={store}
           onPin={handlePinExistingRecipe}
+          isSaving={store.isRecipeSaving}
         />
       )}
 
@@ -2379,8 +2439,16 @@ function RecipeFormView({
             )}
 
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button type="submit" className="h-11 flex-1">
-                <Save className="size-4" />
+              <Button
+                type="submit"
+                className="h-11 flex-1"
+                disabled={store.isRecipeSaving}
+              >
+                {store.isRecipeSaving ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
                 {mode === "edit" ? "บันทึกเมนู" : "สร้างและปักหมุด"}
               </Button>
               <Link
@@ -2407,12 +2475,16 @@ function RecipeCard({
   editHref,
   onUnpin,
   onCook,
+  onDelete,
+  isSaving,
 }: {
   recipe: RecipeImpact
   store: Store
   editHref: string
   onUnpin: (recipeId: string) => void
   onCook: (recipeId: string) => void
+  onDelete: (recipeId: string) => void
+  isSaving: boolean
 }) {
   const recipeStatusLabel = recipe.isCooked
     ? "ปรุงแล้ว"
@@ -2452,9 +2524,24 @@ function RecipeCard({
               size="icon-lg"
               className="h-10 w-10 text-red-600"
               onClick={() => onUnpin(recipe.id)}
+              disabled={isSaving || recipe.isCooked}
             >
-              <Pin className="size-4" />
+              {isSaving ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Pin className="size-4" />
+              )}
               <span className="sr-only">ถอนปักหมุดเมนู</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              className="h-10 w-10 text-red-600"
+              onClick={() => onDelete(recipe.id)}
+              disabled={isSaving}
+            >
+              <Trash2 className="size-4" />
+              <span className="sr-only">ลบเมนู</span>
             </Button>
           </div>
         </CardAction>
@@ -2495,8 +2582,16 @@ function RecipeCard({
             ปรุงแล้วและตัดสต็อกวัตถุดิบเรียบร้อย
           </div>
         ) : recipe.canProduce ? (
-          <Button className="h-11 w-full" onClick={() => onCook(recipe.id)}>
-            <ChefHat className="size-4" />
+          <Button
+            className="h-11 w-full"
+            onClick={() => onCook(recipe.id)}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <ChefHat className="size-4" />
+            )}
             ปรุงรายการอาหาร
           </Button>
         ) : null}

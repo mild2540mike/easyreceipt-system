@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { Prisma } from "@prisma/client"
 import { Router } from "express"
 import { z } from "zod"
@@ -119,8 +121,9 @@ recipesRouter.get(
       include: {
         items: { include: { ingredient: true } },
         plans: {
-          where: { status: "pinned" },
+          where: { status: { in: ["pinned", "cooked"] } },
           include: { reservations: true },
+          orderBy: { plannedAt: "desc" },
         },
       },
       orderBy: { name: "asc" },
@@ -142,33 +145,55 @@ recipesRouter.post(
     const recipe = await prisma.$transaction(async (tx) => {
       await assertBranchAccess(tx, member.id, branchId)
 
-      const ingredientCount = await tx.ingredient.count({
-        where: {
-          id: { in: input.ingredients.map((item) => item.ingredientId) },
-        },
-      })
+      const recipeId = `recipe-${randomUUID()}`
+      const now = new Date()
 
-      if (
-        ingredientCount !==
-        new Set(input.ingredients.map((item) => item.ingredientId)).size
-      ) {
-        throw badRequest("Some recipe ingredients do not exist.")
+      await tx.$executeRaw`
+        INSERT INTO [recipes] (
+          [id],
+          [branchId],
+          [name],
+          [menuCategory],
+          [yield],
+          [pricePerServing],
+          [isActive],
+          [createdAt],
+          [updatedAt]
+        )
+        VALUES (
+          CAST(${recipeId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          CAST(${branchId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          CAST(${input.name.trim()} AS NVARCHAR(180)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          CAST(${input.menuCategory.trim() || "เมนูทั่วไป"} AS NVARCHAR(100)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          ${input.yield},
+          ${roundMoney(input.pricePerServing)},
+          1,
+          ${now},
+          ${now}
+        )
+      `
+
+      for (const item of input.ingredients) {
+        await tx.$executeRaw`
+          INSERT INTO [recipe_items] (
+            [id],
+            [recipeId],
+            [ingredientId],
+            [quantity],
+            [createdAt]
+          )
+          VALUES (
+            CAST(${`recipe-item-${randomUUID()}`} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            CAST(${recipeId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            CAST(${item.ingredientId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            ${roundQuantity(item.quantity)},
+            ${now}
+          )
+        `
       }
 
-      return tx.recipe.create({
-        data: {
-          branchId,
-          name: input.name.trim(),
-          menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
-          servingYield: input.yield,
-          pricePerServing: roundMoney(input.pricePerServing),
-          items: {
-            create: input.ingredients.map((item) => ({
-              ingredientId: item.ingredientId,
-              quantity: roundQuantity(item.quantity),
-            })),
-          },
-        },
+      return tx.recipe.findUniqueOrThrow({
+        where: { id: recipeId },
         include: {
           items: { include: { ingredient: true } },
           plans: { include: { reservations: true } },
@@ -209,27 +234,53 @@ recipesRouter.patch(
         throw badRequest("Unpin or cook this recipe before editing it.")
       }
 
-      await tx.recipeItem.deleteMany({ where: { recipeId } })
+      await tx.$executeRaw`
+        DELETE FROM [recipe_items]
+        WHERE [recipeId] = CAST(${recipeId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS
+      `
 
-      return tx.recipe.update({
+      await tx.$executeRaw`
+        UPDATE [recipes]
+        SET
+          [name] = CAST(${input.name.trim()} AS NVARCHAR(180)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          [menuCategory] = CAST(${input.menuCategory.trim() || "เมนูทั่วไป"} AS NVARCHAR(100)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+          [yield] = ${input.yield},
+          [pricePerServing] = ${roundMoney(input.pricePerServing)},
+          [updatedAt] = ${new Date()}
+        WHERE
+          [id] = CAST(${recipeId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS
+          AND [branchId] = CAST(${branchId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS
+      `
+
+      const now = new Date()
+
+      for (const item of input.ingredients) {
+        await tx.$executeRaw`
+          INSERT INTO [recipe_items] (
+            [id],
+            [recipeId],
+            [ingredientId],
+            [quantity],
+            [createdAt]
+          )
+          VALUES (
+            CAST(${`recipe-item-${randomUUID()}`} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            CAST(${recipeId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            CAST(${item.ingredientId} AS NVARCHAR(64)) COLLATE SQL_Latin1_General_CP1_CI_AS,
+            ${roundQuantity(item.quantity)},
+            ${now}
+          )
+        `
+      }
+
+      return tx.recipe.findUniqueOrThrow({
         where: { id: recipeId },
-        data: {
-          name: input.name.trim(),
-          menuCategory: input.menuCategory.trim() || "เมนูทั่วไป",
-          servingYield: input.yield,
-          pricePerServing: roundMoney(input.pricePerServing),
-          items: {
-            create: input.ingredients.map((item) => ({
-              ingredientId: item.ingredientId,
-              quantity: roundQuantity(item.quantity),
-            })),
-          },
-        },
         include: {
           items: { include: { ingredient: true } },
           plans: {
-            where: { status: "pinned" },
+            where: { status: { in: ["pinned", "cooked"] } },
             include: { reservations: true },
+            orderBy: { plannedAt: "desc" },
           },
         },
       })
@@ -360,6 +411,66 @@ recipesRouter.post(
     )
 
     res.status(201).json({ plan })
+  })
+)
+
+recipesRouter.post(
+  "/:recipeId/unpin",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const recipeId = routeParam(req.params.recipeId, "recipeId")
+
+    await prisma.$transaction(
+      async (tx) => {
+        await assertBranchAccess(tx, member.id, branchId)
+
+        const recipe = await tx.recipe.findFirst({
+          where: { id: recipeId, branchId, isActive: true },
+        })
+
+        if (!recipe) {
+          throw notFound("Recipe not found.")
+        }
+
+        const activeReservations = await tx.stockReservation.findMany({
+          where: {
+            branchId,
+            recipePlan: { recipeId, status: "pinned" },
+            status: "active",
+          },
+          select: { ingredientId: true },
+        })
+        const touchedIngredientIds = new Set(
+          activeReservations.map((reservation) => reservation.ingredientId)
+        )
+
+        await tx.stockReservation.updateMany({
+          where: {
+            branchId,
+            recipePlan: { recipeId, status: "pinned" },
+            status: "active",
+          },
+          data: {
+            status: "released",
+            releasedAt: new Date(),
+          },
+        })
+        await tx.recipePlan.updateMany({
+          where: { branchId, recipeId, status: "pinned" },
+          data: { status: "cancelled" },
+        })
+
+        for (const ingredientId of touchedIngredientIds) {
+          await refreshReservedQuantity(tx, branchId, ingredientId)
+        }
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }
+    )
+
+    res.json({ ok: true })
   })
 )
 

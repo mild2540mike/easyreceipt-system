@@ -5,6 +5,8 @@ import type {
   Member,
   MemberRole,
   MemberStatus,
+  Recipe,
+  RecipeIngredient,
 } from "@/lib/easyreceipt-data"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_EASYRECEIPT_API_URL
@@ -79,6 +81,59 @@ export type NormalizedInventorySnapshot = {
 export type NormalizedInventoryRow = {
   ingredient: Ingredient
   inventoryItem: InventoryItem
+}
+
+export type ApiRecipeItem = {
+  id: string
+  ingredientId: string
+  ingredient?: ApiIngredient
+  quantity: number | string
+}
+
+export type ApiRecipePlan = {
+  id: string
+  status: string
+  batchCount: number
+  plannedAt: string
+  cookedAt: string | null
+  reservations?: {
+    id: string
+    ingredientId: string
+    quantity: number | string
+    status: string
+  }[]
+}
+
+export type ApiRecipe = {
+  id: string
+  branchId: string
+  name: string
+  menuCategory: string
+  yield: number | string
+  pricePerServing: number | string
+  isActive: boolean
+  items: ApiRecipeItem[]
+  pinnedPlans?: ApiRecipePlan[]
+}
+
+export type RecipeApiInput = {
+  name: string
+  menuCategory: string
+  yield: number
+  pricePerServing: number
+  ingredients: RecipeIngredient[]
+}
+
+export type NormalizedRecipePlan = {
+  id: string
+  status: string
+}
+
+export type NormalizedRecipeSnapshot = {
+  recipes: Recipe[]
+  pinnedRecipeIds: string[]
+  cookedRecipeIds: string[]
+  recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
 }
 
 function isMemberRole(role: string): role is MemberRole {
@@ -187,6 +242,78 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
   }
 }
 
+function normalizeRecipe(recipe: ApiRecipe): Recipe {
+  return {
+    id: recipe.id,
+    name: recipe.name,
+    menuCategory: recipe.menuCategory,
+    yield: Math.max(Math.round(toNumber(recipe.yield)), 1),
+    pricePerServing: toNumber(recipe.pricePerServing),
+    ingredients: recipe.items.map((item) => ({
+      ingredientId: item.ingredientId,
+      quantity: toNumber(item.quantity),
+    })),
+  }
+}
+
+function latestRecipePlan(recipe: ApiRecipe) {
+  const plans = [...(recipe.pinnedPlans ?? [])].sort(
+    (left, right) =>
+      new Date(right.plannedAt).getTime() - new Date(left.plannedAt).getTime()
+  )
+
+  return (
+    plans.find((plan) => plan.status === "pinned") ??
+    plans.find((plan) => plan.status === "cooked") ??
+    null
+  )
+}
+
+function normalizeRecipeSnapshot(recipes: ApiRecipe[]): NormalizedRecipeSnapshot {
+  const pinnedRecipeIds: string[] = []
+  const cookedRecipeIds: string[] = []
+  const recipePlanByRecipeId: Record<string, NormalizedRecipePlan> = {}
+
+  for (const recipe of recipes) {
+    const plan = latestRecipePlan(recipe)
+
+    if (!plan) {
+      continue
+    }
+
+    if (plan.status === "pinned" || plan.status === "cooked") {
+      pinnedRecipeIds.push(recipe.id)
+      recipePlanByRecipeId[recipe.id] = {
+        id: plan.id,
+        status: plan.status,
+      }
+    }
+
+    if (plan.status === "cooked") {
+      cookedRecipeIds.push(recipe.id)
+    }
+  }
+
+  return {
+    recipes: recipes.map(normalizeRecipe),
+    pinnedRecipeIds,
+    cookedRecipeIds,
+    recipePlanByRecipeId,
+  }
+}
+
+async function ensureEmptyResponse(response: Response) {
+  if (response.ok) {
+    return
+  }
+
+  const data = (await response.json().catch(() => null)) as
+    | { error?: { message?: string } }
+    | null
+
+  throw new Error(data?.error?.message ?? "EasyReceipt API request failed.")
+}
+
 export async function apiLogin(input: LoginInput) {
   const response = await fetch(`${apiBaseUrl}/auth/login`, {
     method: "POST",
@@ -241,6 +368,127 @@ export async function apiUpdateBranchInventory(
   const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
 
   return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiGetBranchRecipes(
+  branchId: string
+): Promise<NormalizedRecipeSnapshot> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/recipes`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<{ recipes: ApiRecipe[] }>(response)
+
+  return normalizeRecipeSnapshot(data.recipes)
+}
+
+export async function apiCreateBranchRecipe(
+  branchId: string,
+  input: RecipeApiInput
+): Promise<Recipe> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/recipes`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ recipe: ApiRecipe }>(response)
+
+  return normalizeRecipe(data.recipe)
+}
+
+export async function apiUpdateBranchRecipe(
+  branchId: string,
+  recipeId: string,
+  input: RecipeApiInput
+): Promise<Recipe> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/recipes/${encodeURIComponent(recipeId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ recipe: ApiRecipe }>(response)
+
+  return normalizeRecipe(data.recipe)
+}
+
+export async function apiDeleteBranchRecipe(
+  branchId: string,
+  recipeId: string
+) {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/recipes/${encodeURIComponent(recipeId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  )
+
+  await ensureEmptyResponse(response)
+}
+
+export async function apiPinBranchRecipe(
+  branchId: string,
+  recipeId: string
+): Promise<ApiRecipePlan> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/recipes/${encodeURIComponent(recipeId)}/pin`,
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<{ plan: ApiRecipePlan }>(response)
+
+  return data.plan
+}
+
+export async function apiUnpinBranchRecipe(branchId: string, recipeId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/recipes/${encodeURIComponent(recipeId)}/unpin`,
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  )
+
+  await parseJsonResponse<{ ok: boolean }>(response)
+}
+
+export async function apiCookBranchRecipePlan(branchId: string, planId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/recipe-plans/${encodeURIComponent(planId)}/cook`,
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  )
+
+  await parseJsonResponse<{ cookingRun: unknown }>(response)
 }
 
 export async function apiLogout() {
