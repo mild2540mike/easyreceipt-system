@@ -2978,7 +2978,7 @@ function MemberFormView() {
   )
   const [message, setMessage] = useState("")
 
-  function handleAddMember(event: FormEvent<HTMLFormElement>) {
+  async function handleAddMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     if (!store.canManageMembers) {
@@ -2990,10 +2990,10 @@ function MemberFormView() {
       role === "owner"
         ? store.branches.map((branch) => branch.id)
         : branchIds
-    const ok = store.addMember({ name, email, role, branchIds: nextBranchIds })
+    const ok = await store.addMember({ name, email, role, branchIds: nextBranchIds })
 
     if (!ok) {
-      setMessage("กรุณากรอกชื่อ อีเมล เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ")
+      setMessage(store.memberError || "กรุณากรอกชื่อ อีเมล เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ")
       return
     }
 

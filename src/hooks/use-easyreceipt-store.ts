@@ -29,12 +29,17 @@ import {
   apiGetBranchInventory,
   apiGetBranchRecipes,
   apiGetCurrentMember,
+  apiGetMembers,
+  apiAddMember,
+  apiUpdateMember,
   apiLogin,
   apiLogout,
   apiPinBranchRecipe,
   apiUnpinBranchRecipe,
   apiUpdateBranchRecipe,
   apiUpdateBranchInventory,
+  type AddMemberApiInput,
+  type UpdateMemberApiInput,
   type NormalizedInventoryRow,
   type NormalizedInventorySnapshot,
   type NormalizedRecipePlan,
@@ -135,6 +140,7 @@ const todayIso = "2026-06-27"
 const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
+const membersQueryKey = ["easyreceipt", "members"] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
 const recipesQueryKey = (branchId: string) =>
@@ -625,6 +631,7 @@ export function useEasyReceiptStore() {
   )
   const [inventoryMutationError, setInventoryMutationError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
+  const [memberMutationError, setMemberMutationError] = useState("")
 
   const activeWorkspace =
     branchWorkspaces[activeBranchId] ??
@@ -750,6 +757,45 @@ export function useEasyReceiptStore() {
     queryFn: () => apiGetBranchRecipes(activeBranchId),
     enabled: Boolean(currentMember && activeBranchId),
     staleTime: 15_000,
+  })
+
+  const membersQuery = useQuery({
+    queryKey: membersQueryKey,
+    queryFn: apiGetMembers,
+    enabled: Boolean(currentMember),
+    staleTime: 30_000,
+  })
+
+  const addMemberMutation = useMutation({
+    mutationFn: (input: AddMemberApiInput) => apiAddMember(input),
+    onMutate: () => {
+      setMemberMutationError("")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+    },
+    onError: (error) => {
+      setMemberMutationError(errorMessage(error, "ไม่สามารถเพิ่มสมาชิกได้"))
+    },
+  })
+
+  const updateMemberMutation = useMutation({
+    mutationFn: ({
+      memberId,
+      input,
+    }: {
+      memberId: string
+      input: UpdateMemberApiInput
+    }) => apiUpdateMember(memberId, input),
+    onMutate: () => {
+      setMemberMutationError("")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+    },
+    onError: (error) => {
+      setMemberMutationError(errorMessage(error, "ไม่สามารถแก้ไขข้อมูลสมาชิกได้"))
+    },
   })
 
   const updateInventoryMutation = useMutation({
@@ -940,6 +986,19 @@ export function useEasyReceiptStore() {
 
     return () => window.clearTimeout(timeoutId)
   }, [activeBranchId, recipesQuery.data, syncBranchRecipesSnapshot])
+
+  useEffect(() => {
+    if (!membersQuery.data) {
+      return
+    }
+
+    const data = membersQuery.data
+    const timeoutId = window.setTimeout(() => {
+      setMembers(data)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [membersQuery.data])
 
   const accessibleBranchIds = useMemo(
     () => getMemberBranchIds(currentMember),
@@ -1729,36 +1788,25 @@ export function useEasyReceiptStore() {
         : allowedBranchIds.slice(0, 1)
   }
 
-  function addMember(input: MemberFormInput) {
+  async function addMember(input: MemberFormInput): Promise<boolean> {
     const trimmedEmail = input.email.trim().toLowerCase()
     const branchIds = sanitizeBranchIds(input.branchIds, input.role)
 
-    if (
-      !input.name.trim() ||
-      !trimmedEmail ||
-      branchIds.length === 0 ||
-      members.some((member) => member.email.toLowerCase() === trimmedEmail)
-    ) {
+    if (!input.name.trim() || !trimmedEmail || branchIds.length === 0) {
       return false
     }
 
-    setMembers((items) => [
-      ...items,
-      {
-        id: `member-${Date.now()}`,
+    try {
+      await addMemberMutation.mutateAsync({
         name: input.name.trim(),
         email: trimmedEmail,
         role: input.role,
-        status: "invited",
-        lastActive: "-",
-        joinedAt: "2026-06-27",
-        password: "123456",
         branchIds,
-        primaryBranchId: branchIds[0],
-      },
-    ])
-
-    return true
+      })
+      return true
+    } catch {
+      return false
+    }
   }
 
   function updateMemberRole(memberId: string, role: MemberRole) {
@@ -1770,6 +1818,7 @@ export function useEasyReceiptStore() {
     setCurrentMember((member) =>
       member?.id === memberId ? { ...member, role } : member
     )
+    updateMemberMutation.mutate({ memberId, input: { role } })
   }
 
   function updateMemberStatus(memberId: string, status: MemberStatus) {
@@ -1785,6 +1834,7 @@ export function useEasyReceiptStore() {
       clearMemberSession()
       clearBranchSession()
     }
+    updateMemberMutation.mutate({ memberId, input: { status } })
   }
 
   function updateMemberBranches(memberId: string, branchIds: string[]) {
@@ -1811,6 +1861,7 @@ export function useEasyReceiptStore() {
           }
         : member
     )
+    updateMemberMutation.mutate({ memberId, input: { branchIds: nextBranchIds } })
   }
 
   return {
@@ -1863,6 +1914,9 @@ export function useEasyReceiptStore() {
     members,
     memberStats,
     canManageMembers,
+    memberError: memberMutationError || (membersQuery.isError ? errorMessage(membersQuery.error, "ไม่สามารถโหลดข้อมูลสมาชิกได้") : ""),
+    isMembersLoading: membersQuery.isPending && Boolean(currentMember),
+    isMemberSaving: addMemberMutation.isPending || updateMemberMutation.isPending,
     addMember,
     updateMemberRole,
     updateMemberStatus,

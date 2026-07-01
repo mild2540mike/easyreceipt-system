@@ -24,6 +24,23 @@ type ApiMember = {
   joinedAt: string
 }
 
+type ApiMemberWithBranches = ApiMember & {
+  branches: Branch[]
+}
+
+export type AddMemberApiInput = {
+  name: string
+  email: string
+  role: string
+  branchIds: string[]
+}
+
+export type UpdateMemberApiInput = {
+  role?: string
+  status?: string
+  branchIds?: string[]
+}
+
 type ApiAuthResponse = {
   member: ApiMember
   branchIds?: string[]
@@ -511,4 +528,46 @@ export async function apiGetCurrentMember() {
   const data = await parseJsonResponse<ApiAuthResponse>(response)
 
   return normalizeMember(data.member, authBranchIds(data))
+}
+
+export async function apiGetMembers(): Promise<Member[]> {
+  const response = await fetch(`${apiBaseUrl}/members`, {
+    method: "GET",
+    credentials: "include",
+  })
+  const data = await parseJsonResponse<{ members: ApiMemberWithBranches[] }>(response)
+
+  return data.members.map((member) =>
+    normalizeMember(member, member.branches.map((branch) => branch.id))
+  )
+}
+
+export async function apiAddMember(input: AddMemberApiInput): Promise<Member> {
+  const response = await fetch(`${apiBaseUrl}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  })
+  const data = await parseJsonResponse<{ member: ApiMember }>(response)
+
+  return normalizeMember(data.member, input.branchIds)
+}
+
+export async function apiUpdateMember(
+  memberId: string,
+  input: UpdateMemberApiInput
+): Promise<ApiMember> {
+  const response = await fetch(
+    `${apiBaseUrl}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ member: ApiMember }>(response)
+
+  return data.member
 }
