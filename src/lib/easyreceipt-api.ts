@@ -90,6 +90,7 @@ export type PurchaseApiInput = {
 type ApiPurchaseItem = {
   id: string
   ingredientId: string
+  ingredient?: ApiIngredient
   quantity: number | string
   unit: string
   unitPrice: number | string
@@ -107,11 +108,13 @@ type ApiPurchase = {
 export type NormalizedPurchase = {
   id: string
   date: string
+  purchasedAt: string
   vendor: string
   total: number
   items: {
     id: string
     ingredientId: string
+    ingredient?: Ingredient
     quantity: number
     unit: string
     unitPrice: number
@@ -336,11 +339,13 @@ function normalizePurchase(purchase: ApiPurchase): NormalizedPurchase {
   return {
     id: purchase.id,
     date: formatApiDate(purchase.purchaseDate),
+    purchasedAt: purchase.purchaseDate,
     vendor: purchase.vendor,
     total: toNumber(purchase.totalAmount),
     items: purchase.items.map((item) => ({
       id: item.id,
       ingredientId: item.ingredientId,
+      ingredient: item.ingredient ? normalizeIngredient(item.ingredient) : undefined,
       quantity: toNumber(item.quantity),
       unit: item.unit,
       unitPrice: toNumber(item.unitPrice),
@@ -535,10 +540,18 @@ export async function apiCreateBranchIngredientFromPurchase(
 }
 
 export async function apiGetBranchPurchases(
-  branchId: string
+  branchId: string,
+  input: { date?: string } = {}
 ): Promise<NormalizedPurchase[]> {
+  const params = new URLSearchParams()
+
+  if (input.date) {
+    params.set("date", input.date)
+  }
+
+  const query = params.toString()
   const response = await fetch(
-    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases`,
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases${query ? `?${query}` : ""}`,
     {
       method: "GET",
       credentials: "include",

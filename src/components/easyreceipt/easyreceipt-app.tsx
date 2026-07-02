@@ -222,6 +222,19 @@ function formatThaiDate(date: Date) {
   }).format(date)
 }
 
+function formatThaiTime(value: string) {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "-"
+  }
+
+  return new Intl.DateTimeFormat("th-TH", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
 function statusLabel(status: StockStatus) {
   if (status === "low") {
     return "ต่ำกว่าจุดสั่งซื้อ"
@@ -1119,6 +1132,8 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       </section>
 
+      <SavedPurchasesSection store={store} />
+
       <section className="grid gap-4 xl:grid-cols-3">
         {store.inventoryRows
           .filter((item) => item.incoming > 0)
@@ -1138,6 +1153,99 @@ function PurchaseView({ store }: { store: Store }) {
             </div>
           ))}
       </section>
+    </div>
+  )
+}
+
+function SavedPurchasesSection({ store }: { store: Store }) {
+  const purchases = store.savedPurchasesForDate
+
+  return (
+    <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <ReceiptText className="size-5 text-sky-700" />
+            <h2 className="text-lg font-semibold">
+              ใบซื้อที่บันทึกแล้วของวันที่เลือก
+            </h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            แสดงเฉพาะรายการวันที่ {formatThaiDate(store.purchaseDate)}
+          </p>
+        </div>
+        <Badge variant="secondary" className="h-8 w-fit px-3">
+          {purchases.length} ใบ / {formatCurrency(store.savedPurchaseTotalForDate)}
+        </Badge>
+      </div>
+
+      {purchases.length > 0 ? (
+        <div className="grid gap-3">
+          {purchases.map((purchase) => (
+            <SavedPurchaseCard
+              key={purchase.id}
+              purchase={purchase}
+              store={store}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+          ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SavedPurchaseCard({
+  purchase,
+  store,
+}: {
+  purchase: Store["savedPurchasesForDate"][number]
+  store: Store
+}) {
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="font-semibold">{purchase.vendor || "ไม่ระบุผู้ขาย"}</p>
+          <p className="text-sm text-muted-foreground">
+            เวลา {formatThaiTime(purchase.purchasedAt)} · {purchase.items.length} รายการ
+          </p>
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-sm text-muted-foreground">ยอดรวม</p>
+          <p className="text-xl font-bold">{formatCurrency(purchase.total)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {purchase.items.map((item) => {
+          const ingredient =
+            item.ingredient ?? store.ingredientById.get(item.ingredientId)
+
+          return (
+            <div
+              key={item.id}
+              className="rounded-lg bg-muted/60 px-3 py-2 text-sm"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate font-medium">
+                  {ingredient?.name ?? "วัตถุดิบ"}
+                </span>
+                <span className="shrink-0 font-semibold">
+                  {formatCurrency(item.lineTotal)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {formatNumber(item.quantity)} {item.unit} ×{" "}
+                {formatCurrency(item.unitPrice)}
+              </p>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1478,6 +1586,8 @@ function FieldNumber({
   )
 }
 
+const newIngredientCategory = "วัตถุดิบใหม่"
+
 function StockView({ store }: { store: Store }) {
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     null
@@ -1486,9 +1596,96 @@ function StockView({ store }: { store: Store }) {
     createStockEditDraft(store.inventoryRows[0])
   )
   const [stockMessage, setStockMessage] = useState("")
+  const [stockSearch, setStockSearch] = useState("")
+  const [stockCategory, setStockCategory] = useState("all")
+  const [stockFilter, setStockFilter] = useState("all")
   const editingItem = store.inventoryRows.find(
-    (item: { ingredientId: string | null }) => item.ingredientId === editingIngredientId
+    (item) => item.ingredientId === editingIngredientId
   )
+  const stockCategoryOptions = Array.from(
+    new Set(store.inventoryRows.map((item) => item.ingredient.category))
+  ).sort((left, right) => {
+    if (left === newIngredientCategory) {
+      return -1
+    }
+
+    if (right === newIngredientCategory) {
+      return 1
+    }
+
+    return left.localeCompare(right, "th")
+  })
+  const visibleInventoryRows = store.inventoryRows
+    .filter((item) => {
+      const searchTerm = normalizeSearch(stockSearch)
+      const matchesSearch =
+        !searchTerm ||
+        [
+          item.ingredient.name,
+          item.ingredient.category,
+          item.ingredient.supplier,
+          item.ingredient.unit,
+        ]
+          .map(normalizeSearch)
+          .some((value) => value.includes(searchTerm))
+      const matchesCategory =
+        stockCategory === "all" || item.ingredient.category === stockCategory
+      const matchesStatus =
+        stockFilter === "all" ||
+        (stockFilter === "new" &&
+          item.ingredient.category === newIngredientCategory) ||
+        (stockFilter === "incoming" && item.incoming > 0) ||
+        item.status === stockFilter
+
+      return matchesSearch && matchesCategory && matchesStatus
+    })
+    .sort((left, right) => {
+      const leftIsNew = left.ingredient.category === newIngredientCategory
+      const rightIsNew = right.ingredient.category === newIngredientCategory
+
+      if (leftIsNew !== rightIsNew) {
+        return leftIsNew ? -1 : 1
+      }
+
+      if (left.suggestedPurchaseQuantity !== right.suggestedPurchaseQuantity) {
+        return right.suggestedPurchaseQuantity - left.suggestedPurchaseQuantity
+      }
+
+      if (left.incoming !== right.incoming) {
+        return right.incoming - left.incoming
+      }
+
+      return left.ingredient.name.localeCompare(right.ingredient.name, "th")
+    })
+  const newIngredientCount = store.inventoryRows.filter(
+    (item) => item.ingredient.category === newIngredientCategory
+  ).length
+  const incomingCount = store.inventoryRows.filter((item) => item.incoming > 0)
+    .length
+  const hasStockFilters =
+    Boolean(stockSearch.trim()) || stockCategory !== "all" || stockFilter !== "all"
+  const stockFilterOptions = [
+    { id: "all", label: "ทั้งหมด" },
+    { id: "new", label: `วัตถุดิบใหม่ ${newIngredientCount}` },
+    { id: "low", label: `ต้องดูแล ${store.lowStockItems.length}` },
+    { id: "incoming", label: `รับเข้า ${incomingCount}` },
+    { id: "ok", label: "พร้อมใช้" },
+  ]
+
+  function clearStockFilters() {
+    setStockSearch("")
+    setStockCategory("all")
+    setStockFilter("all")
+  }
+
+  function stockFilterButtonClass(isActive: boolean) {
+    return cn(
+      "h-10 rounded-lg border px-3 text-sm font-medium transition",
+      isActive
+        ? "border-sky-300 bg-sky-50 text-sky-800"
+        : "border-border bg-background text-muted-foreground hover:bg-muted"
+    )
+  }
 
   function startStockEdit(item: InventoryRow) {
     setEditingIngredientId(item.ingredientId)
@@ -1559,8 +1756,81 @@ function StockView({ store }: { store: Store }) {
         </div>
       )}
 
+      <section className="rounded-lg border border-border bg-background p-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_15rem_auto] lg:items-end">
+          <div>
+            <Label className="mb-2 block">ค้นหาวัตถุดิบ</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-11 pl-9"
+                value={stockSearch}
+                placeholder="ค้นหาชื่อ หมวดหมู่ หน่วย หรือซัพพลายเออร์"
+                onChange={(event) => setStockSearch(event.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="mb-2 block">หมวดหมู่</Label>
+            <Select
+              value={stockCategory}
+              onValueChange={(value) => setStockCategory(value ?? "all")}
+            >
+              <SelectTrigger className="h-11 w-full">
+                <SelectValue>
+                  {(value) => (value === "all" ? "ทุกหมวดหมู่" : value)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="all" label="ทุกหมวดหมู่">
+                  ทุกหมวดหมู่
+                </SelectItem>
+                {stockCategoryOptions.map((category) => (
+                  <SelectItem key={category} value={category} label={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            className="h-11"
+            onClick={clearStockFilters}
+            disabled={!hasStockFilters}
+          >
+            ล้างตัวกรอง
+          </Button>
+        </div>
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {stockFilterOptions.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className={cn(
+                stockFilterButtonClass(stockFilter === option.id),
+                "shrink-0"
+              )}
+              onClick={() => setStockFilter(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          แสดง {visibleInventoryRows.length} จาก {store.inventoryRows.length} รายการ · วัตถุดิบใหม่ถูกเรียงไว้บนสุด
+        </p>
+      </section>
+
+      {visibleInventoryRows.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+          ไม่พบวัตถุดิบที่ตรงกับเงื่อนไขการค้นหา
+        </div>
+      )}
+
       <section className="grid gap-3 md:grid-cols-2 xl:hidden">
-        {store.inventoryRows.map((item: InventoryRow) => (
+        {visibleInventoryRows.map((item) => (
           <StockMobileCard
             key={item.ingredientId}
             item={item}
@@ -1584,7 +1854,7 @@ function StockView({ store }: { store: Store }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {store.inventoryRows.map((item: InventoryRow) => (
+            {visibleInventoryRows.map((item) => (
               <TableRow
                 key={item.ingredientId}
                 className={cn(
@@ -1594,7 +1864,19 @@ function StockView({ store }: { store: Store }) {
                 <TableCell className="font-semibold">
                   {item.ingredient.name}
                 </TableCell>
-                <TableCell>{item.ingredient.category}</TableCell>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-6",
+                      item.ingredient.category === newIngredientCategory
+                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                        : "border-border bg-muted/50 text-muted-foreground"
+                    )}
+                  >
+                    {item.ingredient.category}
+                  </Badge>
+                </TableCell>
                 <TableCell className="text-right">
                   {formatNumber(item.onHand)} {item.ingredient.unit}
                 </TableCell>
@@ -1872,7 +2154,19 @@ function StockMobileCard({
             </Button>
           </div>
         </CardAction>
-        <CardDescription>{item.ingredient.category}</CardDescription>
+        <CardDescription>
+          <Badge
+            variant="outline"
+            className={cn(
+              "h-6",
+              item.ingredient.category === newIngredientCategory
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-border bg-muted/50 text-muted-foreground"
+            )}
+          >
+            {item.ingredient.category}
+          </Badge>
+        </CardDescription>
         <CardTitle>{item.ingredient.name}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">

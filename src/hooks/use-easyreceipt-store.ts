@@ -135,8 +135,8 @@ const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
-const purchasesQueryKey = (branchId: string) =>
-  ["easyreceipt", "purchases", branchId] as const
+const purchasesQueryKey = (branchId: string, dateKey: string) =>
+  ["easyreceipt", "purchases", branchId, dateKey] as const
 const recipesQueryKey = (branchId: string) =>
   ["easyreceipt", "recipes", branchId] as const
 const activeMemberLabel = "กำลังใช้งาน"
@@ -233,6 +233,20 @@ function dayLabel(date: string) {
     day: "2-digit",
     month: "short",
   }).format(new Date(`${date}T08:00:00+07:00`))
+}
+
+function bangkokDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970"
+  const month = parts.find((part) => part.type === "month")?.value ?? "01"
+  const day = parts.find((part) => part.type === "day")?.value ?? "01"
+
+  return `${year}-${month}-${day}`
 }
 
 function normalizeLookup(value: string) {
@@ -518,6 +532,10 @@ export function useEasyReceiptStore() {
     setActiveView("dashboard")
   }, [])
 
+  const activePurchaseDate =
+    activeWorkspace.purchaseDate ?? createEmptyBranchWorkspace("").purchaseDate
+  const purchaseDateKey = bangkokDateKey(activePurchaseDate)
+
   const authSessionQuery = useQuery({
     queryKey: authSessionQueryKey,
     queryFn: apiGetCurrentMember,
@@ -546,8 +564,8 @@ export function useEasyReceiptStore() {
   })
 
   const purchasesQuery = useQuery({
-    queryKey: purchasesQueryKey(activeBranchId),
-    queryFn: () => apiGetBranchPurchases(activeBranchId),
+    queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
+    queryFn: () => apiGetBranchPurchases(activeBranchId, { date: purchaseDateKey }),
     enabled: Boolean(currentMember && activeBranchId),
     staleTime: 15_000,
   })
@@ -944,6 +962,10 @@ export function useEasyReceiptStore() {
   const purchaseHistory = useMemo(
     () => purchasesQuery.data ?? [],
     [purchasesQuery.data]
+  )
+  const savedPurchaseTotalForDate = useMemo(
+    () => purchaseHistory.reduce((total, purchase) => total + purchase.total, 0),
+    [purchaseHistory]
   )
   const dashboardSummary = dashboardQuery.data ?? emptyDashboard
   const reportSummary = useMemo(
@@ -1377,7 +1399,7 @@ export function useEasyReceiptStore() {
       }))
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: purchasesQueryKey(activeBranchId),
+          queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
         }),
         queryClient.invalidateQueries({
           queryKey: inventoryQueryKey(activeBranchId),
@@ -1792,6 +1814,9 @@ export function useEasyReceiptStore() {
     purchaseDate,
     setPurchaseDate,
     purchaseItems,
+    purchaseDateKey,
+    savedPurchasesForDate: purchaseHistory,
+    savedPurchaseTotalForDate,
     updatePurchaseItem,
     addPurchaseItem,
     removePurchaseItem,

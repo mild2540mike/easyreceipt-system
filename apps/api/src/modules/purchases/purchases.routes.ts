@@ -23,6 +23,10 @@ const createPurchaseSchema = z.object({
   items: z.array(purchaseItemSchema).min(1),
 })
 
+const purchaseQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+})
+
 export const purchasesRouter = Router({ mergeParams: true })
 
 type PurchaseWithItems = Prisma.PurchaseGetPayload<{
@@ -34,11 +38,21 @@ purchasesRouter.get(
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
     const branchId = routeParam(req.params.branchId, "branchId")
+    const query = purchaseQuerySchema.parse(req.query)
 
     await assertBranchAccess(prisma, member.id, branchId)
 
+    const where: Prisma.PurchaseWhereInput = { branchId }
+
+    if (query.date) {
+      where.purchaseDate = {
+        gte: new Date(`${query.date}T00:00:00.000+07:00`),
+        lte: new Date(`${query.date}T23:59:59.999+07:00`),
+      }
+    }
+
     const purchases = await prisma.purchase.findMany({
-      where: { branchId },
+      where,
       include: {
         items: {
           include: {

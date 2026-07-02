@@ -529,7 +529,16 @@ export const openApiDocument = {
         tags: ["Purchases"],
         summary: "List recent branch purchases.",
         security: [{ sessionCookie: [] }],
-        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        parameters: [
+          { $ref: "#/components/parameters/branchId" },
+          {
+            name: "date",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date" },
+            description: "Filter purchases by Bangkok business date (YYYY-MM-DD).",
+          },
+        ],
         responses: {
           "200": { description: "Recent purchases." },
           "401": { $ref: "#/components/responses/Unauthorized" },
