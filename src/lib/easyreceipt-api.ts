@@ -52,6 +52,73 @@ export type LoginInput = {
   password: string
 }
 
+export type DashboardStockNeed = {
+  ingredientId: string
+  name: string
+  unit: string
+  onHand: number
+  reservedQuantity: number
+  suggestedPurchaseQuantity: number
+}
+
+export type DashboardSummary = {
+  purchaseTotal: number
+  cookingCount: number
+  stockNeedCount: number
+  stockNeeds: DashboardStockNeed[]
+}
+
+export type ReportSummary = {
+  branchCount: number
+  branchNames: string[]
+  purchaseTotal: number
+  cookingCount: number
+  stockMovementCount: number
+}
+
+export type PurchaseApiInput = {
+  purchaseDate: string
+  vendor?: string
+  items: {
+    ingredientId: string
+    quantity: number
+    unit?: string
+    unitPrice: number
+  }[]
+}
+
+type ApiPurchaseItem = {
+  id: string
+  ingredientId: string
+  quantity: number | string
+  unit: string
+  unitPrice: number | string
+  lineTotal: number | string
+}
+
+type ApiPurchase = {
+  id: string
+  purchaseDate: string
+  vendor: string
+  totalAmount: number | string
+  items: ApiPurchaseItem[]
+}
+
+export type NormalizedPurchase = {
+  id: string
+  date: string
+  vendor: string
+  total: number
+  items: {
+    id: string
+    ingredientId: string
+    quantity: number
+    unit: string
+    unitPrice: number
+    lineTotal: number
+  }[]
+}
+
 type ApiIngredient = {
   id: string
   name: string
@@ -88,6 +155,12 @@ export type UpdateInventoryApiInput = {
   onHand: number
   reorderPoint: number
   costPerUnit: number
+}
+
+export type CreateIngredientFromPurchaseApiInput = {
+  name: string
+  unit: string
+  unitPrice: number
 }
 
 export type NormalizedInventorySnapshot = {
@@ -259,6 +332,23 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
   }
 }
 
+function normalizePurchase(purchase: ApiPurchase): NormalizedPurchase {
+  return {
+    id: purchase.id,
+    date: formatApiDate(purchase.purchaseDate),
+    vendor: purchase.vendor,
+    total: toNumber(purchase.totalAmount),
+    items: purchase.items.map((item) => ({
+      id: item.id,
+      ingredientId: item.ingredientId,
+      quantity: toNumber(item.quantity),
+      unit: item.unit,
+      unitPrice: toNumber(item.unitPrice),
+      lineTotal: toNumber(item.lineTotal),
+    })),
+  }
+}
+
 function normalizeRecipe(recipe: ApiRecipe): Recipe {
   return {
     id: recipe.id,
@@ -345,6 +435,43 @@ export async function apiLogin(input: LoginInput) {
   return normalizeMember(data.member, authBranchIds(data))
 }
 
+export async function apiGetBranches(): Promise<Branch[]> {
+  const response = await fetch(`${apiBaseUrl}/branches`, {
+    method: "GET",
+    credentials: "include",
+  })
+  const data = await parseJsonResponse<{ branches: Branch[] }>(response)
+
+  return data.branches
+}
+
+export async function apiGetBranchDashboard(
+  branchId: string
+): Promise<DashboardSummary> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/dashboard`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<DashboardSummary>(response)
+
+  return {
+    purchaseTotal: toNumber(data.purchaseTotal),
+    cookingCount: toNumber(data.cookingCount),
+    stockNeedCount: toNumber(data.stockNeedCount),
+    stockNeeds: data.stockNeeds.map((item) => ({
+      ingredientId: item.ingredientId,
+      name: item.name,
+      unit: item.unit,
+      onHand: toNumber(item.onHand),
+      reservedQuantity: toNumber(item.reservedQuantity),
+      suggestedPurchaseQuantity: toNumber(item.suggestedPurchaseQuantity),
+    })),
+  }
+}
+
 export async function apiGetBranchInventory(
   branchId: string
 ): Promise<NormalizedInventorySnapshot> {
@@ -385,6 +512,61 @@ export async function apiUpdateBranchInventory(
   const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
 
   return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiCreateBranchIngredientFromPurchase(
+  branchId: string,
+  input: CreateIngredientFromPurchaseApiInput
+): Promise<NormalizedInventoryRow> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/ingredients`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
+
+  return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiGetBranchPurchases(
+  branchId: string
+): Promise<NormalizedPurchase[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<{ purchases: ApiPurchase[] }>(response)
+
+  return data.purchases.map(normalizePurchase)
+}
+
+export async function apiCreateBranchPurchase(
+  branchId: string,
+  input: PurchaseApiInput
+): Promise<NormalizedPurchase> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ purchase: ApiPurchase }>(response)
+
+  return normalizePurchase(data.purchase)
 }
 
 export async function apiGetBranchRecipes(
@@ -528,6 +710,22 @@ export async function apiGetCurrentMember() {
   const data = await parseJsonResponse<ApiAuthResponse>(response)
 
   return normalizeMember(data.member, authBranchIds(data))
+}
+
+export async function apiGetReportSummary(): Promise<ReportSummary> {
+  const response = await fetch(`${apiBaseUrl}/reports/summary`, {
+    method: "GET",
+    credentials: "include",
+  })
+  const data = await parseJsonResponse<ReportSummary>(response)
+
+  return {
+    branchCount: toNumber(data.branchCount),
+    branchNames: data.branchNames,
+    purchaseTotal: toNumber(data.purchaseTotal),
+    cookingCount: toNumber(data.cookingCount),
+    stockMovementCount: toNumber(data.stockMovementCount),
+  }
 }
 
 export async function apiGetMembers(): Promise<Member[]> {

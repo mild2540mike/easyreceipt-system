@@ -4,13 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
-  branches as initialBranches,
-  historicalPurchases,
-  ingredients as initialIngredients,
-  initialPurchaseItems,
-  inventoryItems as initialInventoryItems,
-  members as initialMembers,
-  recipes,
   type Branch,
   type CashFlowMetric,
   type Ingredient,
@@ -23,27 +16,35 @@ import {
   type ViewId,
 } from "@/lib/easyreceipt-data"
 import {
+  apiAddMember,
   apiCookBranchRecipePlan,
+  apiCreateBranchIngredientFromPurchase,
+  apiCreateBranchPurchase,
   apiCreateBranchRecipe,
   apiDeleteBranchRecipe,
+  apiGetBranchDashboard,
+  apiGetBranches,
   apiGetBranchInventory,
+  apiGetBranchPurchases,
   apiGetBranchRecipes,
   apiGetCurrentMember,
   apiGetMembers,
-  apiAddMember,
-  apiUpdateMember,
+  apiGetReportSummary,
   apiLogin,
   apiLogout,
   apiPinBranchRecipe,
   apiUnpinBranchRecipe,
-  apiUpdateBranchRecipe,
   apiUpdateBranchInventory,
+  apiUpdateBranchRecipe,
+  apiUpdateMember,
   type AddMemberApiInput,
-  type UpdateMemberApiInput,
+  type DashboardSummary,
   type NormalizedInventoryRow,
   type NormalizedInventorySnapshot,
   type NormalizedRecipePlan,
   type NormalizedRecipeSnapshot,
+  type ReportSummary,
+  type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 
 export type StockStatus = "ok" | "watch" | "low"
@@ -101,17 +102,7 @@ export type InventoryEditInput = {
   costPerUnit: number
 }
 
-type PurchaseStockEntry = {
-  ingredientId: string
-  quantity: number
-}
-
-type InventoryAdjustment = {
-  ingredientId: string
-  delta: number
-}
-
-type RecipeActionResult = {
+type ActionResult = {
   ok: boolean
   error?: string
 }
@@ -126,7 +117,6 @@ export type BranchWorkspace = {
   recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
   purchaseDate: Date
   purchaseItems: PurchaseItem[]
-  purchaseStockLedger: Record<string, PurchaseStockEntry>
 }
 
 export type BranchReportSummary = {
@@ -135,17 +125,36 @@ export type BranchReportSummary = {
   helper: string
 }
 
-const today = new Date("2026-06-27T08:00:00+07:00")
-const todayIso = "2026-06-27"
 const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
+const branchesQueryKey = ["easyreceipt", "branches"] as const
 const membersQueryKey = ["easyreceipt", "members"] as const
+const reportsQueryKey = ["easyreceipt", "reports", "summary"] as const
+const dashboardQueryKey = (branchId: string) =>
+  ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
+const purchasesQueryKey = (branchId: string) =>
+  ["easyreceipt", "purchases", branchId] as const
 const recipesQueryKey = (branchId: string) =>
   ["easyreceipt", "recipes", branchId] as const
 const activeMemberLabel = "กำลังใช้งาน"
+
+const emptyDashboard: DashboardSummary = {
+  purchaseTotal: 0,
+  cookingCount: 0,
+  stockNeedCount: 0,
+  stockNeeds: [],
+}
+
+const emptyReport: ReportSummary = {
+  branchCount: 0,
+  branchNames: [],
+  purchaseTotal: 0,
+  cookingCount: 0,
+  stockMovementCount: 0,
+}
 
 function readSessionValue(key: string) {
   if (typeof window === "undefined") {
@@ -234,190 +243,28 @@ function roundQuantity(value: number) {
   return Math.round(value * 100) / 100
 }
 
-function createIngredientId(name: string, ingredients: Ingredient[]) {
-  const normalizedName = normalizeLookup(name)
-  const base =
-    normalizedName
-      .normalize("NFKD")
-      .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
-      .replace(/^-+|-+$/g, "") || "ingredient"
-  const existingIds = new Set(ingredients.map((ingredient) => ingredient.id))
-  let candidate = base
-  let index = 2
-
-  while (existingIds.has(candidate)) {
-    candidate = `${base}-${index}`
-    index += 1
-  }
-
-  return candidate
-}
-
-function createPurchaseStockLedger(items: PurchaseItem[]) {
-  return items.reduce<Record<string, PurchaseStockEntry>>((ledger, item) => {
-    ledger[item.id] = {
-      ingredientId: item.ingredientId,
-      quantity: Math.max(item.quantity, 0),
-    }
-
-    return ledger
-  }, {})
-}
-
-function applyInventoryAdjustments(
-  items: InventoryItem[],
-  adjustments: InventoryAdjustment[]
-) {
-  const deltaByIngredient = new Map<string, number>()
-
-  for (const adjustment of adjustments) {
-    if (!adjustment.ingredientId || adjustment.delta === 0) {
-      continue
-    }
-
-    deltaByIngredient.set(
-      adjustment.ingredientId,
-      (deltaByIngredient.get(adjustment.ingredientId) ?? 0) + adjustment.delta
-    )
-  }
-
-  if (deltaByIngredient.size === 0) {
-    return items
-  }
-
-  return items.map((item) => {
-    const delta = deltaByIngredient.get(item.ingredientId) ?? 0
-
-    if (delta === 0) {
-      return item
-    }
-
-    return {
-      ...item,
-      onHand: Math.max(roundQuantity(item.onHand + delta), 0),
-      lastUpdated: todayIso,
-    }
-  })
-}
-
-function branchFactor(branchIndex: number) {
-  return 1 + branchIndex * 0.08
-}
-
-function createInitialBranchIngredients(branchIndex: number) {
-  const factor = branchFactor(branchIndex)
-
-  return initialIngredients.map((ingredient) => ({
-    ...ingredient,
-    defaultPrice: roundQuantity(ingredient.defaultPrice * factor),
-  }))
-}
-
-function createInitialBranchPurchaseItems(branch: Branch, branchIndex: number) {
-  const factor = branchFactor(branchIndex)
-
-  return initialPurchaseItems.map((item) => ({
-    ...item,
-    id: `${branch.id}-${item.id}`,
-    quantity: roundQuantity(item.quantity * factor),
-    unitPrice: roundQuantity(item.unitPrice * factor),
-  }))
-}
-
-function createInitialBranchInventory(
-  branchIndex: number,
-  purchaseItems: PurchaseItem[]
-) {
-  const factor = branchFactor(branchIndex)
-  const baseInventory = initialInventoryItems.map((item) => ({
-    ...item,
-    onHand: roundQuantity(item.onHand * factor + branchIndex),
-    costPerUnit: roundQuantity(item.costPerUnit * factor),
-    lastUpdated: branchIndex % 2 === 0 ? item.lastUpdated : "2026-06-26",
-  }))
-
-  return applyInventoryAdjustments(
-    baseInventory,
-    purchaseItems.map((item) => ({
-      ingredientId: item.ingredientId,
-      delta: item.quantity,
-    }))
-  )
-}
-
-function createInitialBranchRecipes(branchIndex: number) {
-  return recipes.map((recipe) => ({
-    ...recipe,
-    yield: recipe.yield + branchIndex * 2,
-    pricePerServing: recipe.pricePerServing + branchIndex * 5,
-    ingredients: recipe.ingredients.map((item) => ({ ...item })),
-  }))
-}
-
-function createInitialBranchWorkspace(
-  branch: Branch,
-  branchIndex: number
-): BranchWorkspace {
-  const purchaseItems = createInitialBranchPurchaseItems(branch, branchIndex)
-  const branchRecipes = createInitialBranchRecipes(branchIndex)
-
+function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
   return {
-    branchId: branch.id,
-    ingredients: createInitialBranchIngredients(branchIndex),
-    inventoryItems: createInitialBranchInventory(branchIndex, purchaseItems),
-    recipes: branchRecipes,
-    pinnedRecipeIds: new Set(branchRecipes.map((recipe) => recipe.id)),
+    branchId,
+    ingredients: [],
+    inventoryItems: [],
+    recipes: [],
+    pinnedRecipeIds: new Set(),
     cookedRecipeIds: new Set(),
-    recipePlanByRecipeId: Object.fromEntries(
-      branchRecipes.map((recipe) => [
-        recipe.id,
-        {
-          id: `local-plan-${branch.id}-${recipe.id}`,
-          status: "pinned",
-        },
-      ])
-    ),
-    purchaseDate: new Date(today),
-    purchaseItems,
-    purchaseStockLedger: createPurchaseStockLedger(purchaseItems),
+    recipePlanByRecipeId: {},
+    purchaseDate: new Date(),
+    purchaseItems: [],
   }
-}
-
-function createInitialBranchWorkspaces() {
-  return initialBranches.reduce<Record<string, BranchWorkspace>>(
-    (workspaces, branch, index) => {
-      workspaces[branch.id] = createInitialBranchWorkspace(branch, index)
-      return workspaces
-    },
-    {}
-  )
 }
 
 function mergeInventorySnapshot(
   workspace: BranchWorkspace,
   snapshot: NormalizedInventorySnapshot
 ) {
-  const apiIngredientIds = new Set(
-    snapshot.ingredients.map((ingredient) => ingredient.id)
-  )
-  const apiInventoryIds = new Set(
-    snapshot.inventoryItems.map((item) => item.ingredientId)
-  )
-
   return {
     ...workspace,
-    ingredients: [
-      ...snapshot.ingredients,
-      ...workspace.ingredients.filter(
-        (ingredient) => !apiIngredientIds.has(ingredient.id)
-      ),
-    ],
-    inventoryItems: [
-      ...snapshot.inventoryItems,
-      ...workspace.inventoryItems.filter(
-        (item) => !apiInventoryIds.has(item.ingredientId)
-      ),
-    ],
+    ingredients: snapshot.ingredients,
+    inventoryItems: snapshot.inventoryItems,
   }
 }
 
@@ -487,14 +334,7 @@ function getMemberBranchIds(member: Member | null) {
     return []
   }
 
-  if (member.role === "owner") {
-    return initialBranches.map((branch) => branch.id)
-  }
-
-  const validBranchIds = new Set(initialBranches.map((branch) => branch.id))
-  const branchIds = member.branchIds.filter((branchId) =>
-    validBranchIds.has(branchId)
-  )
+  const branchIds = member.branchIds.filter(Boolean)
 
   if (branchIds.length > 0) {
     if (member.role === "staff" || member.role === "viewer") {
@@ -504,11 +344,7 @@ function getMemberBranchIds(member: Member | null) {
     return branchIds
   }
 
-  if (validBranchIds.has(member.primaryBranchId)) {
-    return [member.primaryBranchId]
-  }
-
-  return initialBranches[0] ? [initialBranches[0].id] : []
+  return member.primaryBranchId ? [member.primaryBranchId] : []
 }
 
 function preferredBranchId(member: Member, requestedBranchId?: string | null) {
@@ -522,99 +358,33 @@ function preferredBranchId(member: Member, requestedBranchId?: string | null) {
     return member.primaryBranchId
   }
 
-  return accessibleBranchIds[0] ?? initialBranches[0]?.id ?? ""
+  return accessibleBranchIds[0] ?? ""
 }
 
-function createCashFlowMetricsForWorkspaces(workspaces: BranchWorkspace[]) {
-  const currentPurchaseTotal = workspaces.reduce(
-    (total, workspace) => total + purchaseTotal(workspace.purchaseItems),
-    0
-  )
-  const ingredientCost = workspaces.reduce((total, workspace) => {
-    const inventoryByIngredient = new Map(
-      workspace.inventoryItems.map((item) => [item.ingredientId, item] as const)
-    )
-
-    return (
-      total +
-      workspace.recipes.reduce((recipeTotal, recipe) => {
-        return (
-          recipeTotal +
-          recipe.ingredients.reduce((ingredientTotal, ingredient) => {
-            const inventoryItem = inventoryByIngredient.get(
-              ingredient.ingredientId
-            )
-
-            return (
-              ingredientTotal +
-              ingredient.quantity * (inventoryItem?.costPerUnit ?? 0)
-            )
-          }, 0)
-        )
-      }, 0)
-    )
-  }, currentPurchaseTotal)
-  const sales = workspaces.reduce((total, workspace) => {
-    return (
-      total +
-      workspace.recipes.reduce(
-        (recipeTotal, recipe) => recipeTotal + recipe.yield * recipe.pricePerServing,
-        0
-      )
-    )
-  }, 0)
-
+function buildReportMetrics(report: ReportSummary) {
   return [
     {
-      id: "ingredient-cost",
-      label: "ต้นทุนวัตถุดิบ",
-      value: ingredientCost,
-      delta: -3.2,
+      id: "purchase-total",
+      label: "ยอดซื้อรวม",
+      value: report.purchaseTotal,
+      delta: 0,
       kind: "expense",
     },
     {
-      id: "margin",
-      label: "กำไรขั้นต้น",
-      value: Math.max(sales - ingredientCost, 0),
-      delta: 6.8,
-      kind: "margin",
+      id: "cooking-count",
+      label: "รายการปรุงสำเร็จ",
+      value: report.cookingCount,
+      delta: 0,
+      kind: "income",
+    },
+    {
+      id: "stock-movement-count",
+      label: "ความเคลื่อนไหวสต็อก",
+      value: report.stockMovementCount,
+      delta: 0,
+      kind: "cash",
     },
   ] satisfies CashFlowMetric[]
-}
-
-function createPurchaseSeriesForWorkspaces(
-  workspaces: BranchWorkspace[],
-  branchIds: string[]
-) {
-  const totalsByLabel = new Map<string, number>()
-
-  for (const purchase of historicalPurchases) {
-    const label = dayLabel(purchase.date)
-    const baseTotal = purchaseTotal(purchase.items)
-    const total = branchIds.reduce((sum, branchId) => {
-      const branchIndex = Math.max(
-        initialBranches.findIndex((branch) => branch.id === branchId),
-        0
-      )
-
-      return sum + baseTotal * branchFactor(branchIndex)
-    }, 0)
-
-    totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + total)
-  }
-
-  totalsByLabel.set(
-    "วันนี้",
-    workspaces.reduce(
-      (total, workspace) => total + purchaseTotal(workspace.purchaseItems),
-      0
-    )
-  )
-
-  return Array.from(totalsByLabel.entries()).map(([label, total]) => ({
-    label,
-    total,
-  }))
 }
 
 export function useEasyReceiptStore() {
@@ -622,74 +392,96 @@ export function useEasyReceiptStore() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
-  const [members, setMembers] = useState<Member[]>(initialMembers)
-  const [activeBranchId, setActiveBranchId] = useState(
-    initialBranches[0]?.id ?? ""
-  )
-  const [branchWorkspaces, setBranchWorkspaces] = useState(() =>
-    createInitialBranchWorkspaces()
-  )
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [members, setMembers] = useState<Member[]>([])
+  const [activeBranchId, setActiveBranchId] = useState("")
+  const [branchWorkspaces, setBranchWorkspaces] = useState<
+    Record<string, BranchWorkspace>
+  >({})
   const [inventoryMutationError, setInventoryMutationError] = useState("")
+  const [purchaseMutationError, setPurchaseMutationError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
   const [memberMutationError, setMemberMutationError] = useState("")
 
-  const activeWorkspace =
-    branchWorkspaces[activeBranchId] ??
-    Object.values(branchWorkspaces)[0] ??
-    createInitialBranchWorkspace(initialBranches[0], 0)
+  const activeWorkspace = activeBranchId
+    ? (branchWorkspaces[activeBranchId] ?? createEmptyBranchWorkspace(activeBranchId))
+    : createEmptyBranchWorkspace("")
 
-  const syncBranchInventorySnapshot = useCallback(
-    (branchId: string, snapshot: NormalizedInventorySnapshot) => {
+  const accessibleBranchIds = useMemo(
+    () => getMemberBranchIds(currentMember),
+    [currentMember]
+  )
+  const accessibleBranches = useMemo(() => {
+    const allowed = new Set(accessibleBranchIds)
+    return branches.filter((branch) => allowed.has(branch.id))
+  }, [accessibleBranchIds, branches])
+
+  const activeBranch =
+    branches.find((branch) => branch.id === activeBranchId) ??
+    accessibleBranches[0]
+
+  const ensureBranchWorkspace = useCallback((branchId: string) => {
+    if (!branchId) {
+      return
+    }
+
+    setBranchWorkspaces((workspaces) =>
+      workspaces[branchId]
+        ? workspaces
+        : {
+            ...workspaces,
+            [branchId]: createEmptyBranchWorkspace(branchId),
+          }
+    )
+  }, [])
+
+  const updateBranchWorkspace = useCallback(
+    (
+      branchId: string,
+      updater: (workspace: BranchWorkspace) => BranchWorkspace
+    ) => {
+      if (!branchId) {
+        return
+      }
+
       setBranchWorkspaces((workspaces) => {
-        const workspace = workspaces[branchId]
-
-        if (!workspace) {
-          return workspaces
-        }
+        const workspace =
+          workspaces[branchId] ?? createEmptyBranchWorkspace(branchId)
 
         return {
           ...workspaces,
-          [branchId]: mergeInventorySnapshot(workspace, snapshot),
+          [branchId]: updater(workspace),
         }
       })
     },
     []
+  )
+
+  const syncBranchInventorySnapshot = useCallback(
+    (branchId: string, snapshot: NormalizedInventorySnapshot) => {
+      updateBranchWorkspace(branchId, (workspace) =>
+        mergeInventorySnapshot(workspace, snapshot)
+      )
+    },
+    [updateBranchWorkspace]
   )
 
   const syncBranchInventoryRow = useCallback(
     (branchId: string, row: NormalizedInventoryRow) => {
-      setBranchWorkspaces((workspaces) => {
-        const workspace = workspaces[branchId]
-
-        if (!workspace) {
-          return workspaces
-        }
-
-        return {
-          ...workspaces,
-          [branchId]: mergeInventoryRow(workspace, row),
-        }
-      })
+      updateBranchWorkspace(branchId, (workspace) =>
+        mergeInventoryRow(workspace, row)
+      )
     },
-    []
+    [updateBranchWorkspace]
   )
 
   const syncBranchRecipesSnapshot = useCallback(
     (branchId: string, snapshot: NormalizedRecipeSnapshot) => {
-      setBranchWorkspaces((workspaces) => {
-        const workspace = workspaces[branchId]
-
-        if (!workspace) {
-          return workspaces
-        }
-
-        return {
-          ...workspaces,
-          [branchId]: mergeRecipeSnapshot(workspace, snapshot),
-        }
-      })
+      updateBranchWorkspace(branchId, (workspace) =>
+        mergeRecipeSnapshot(workspace, snapshot)
+      )
     },
-    []
+    [updateBranchWorkspace]
   )
 
   const syncAuthenticatedMember = useCallback((member: Member) => {
@@ -705,11 +497,13 @@ export function useEasyReceiptStore() {
 
       return existingMember
         ? items.map((item) => (item.id === member.id ? nextMember : item))
-        : [...items, nextMember]
+        : [nextMember, ...items]
     })
     setActiveBranchId(nextBranchId)
     saveMemberSession(member.id)
-    saveBranchSession(nextBranchId)
+    if (nextBranchId) {
+      saveBranchSession(nextBranchId)
+    }
     setActiveView("dashboard")
   }, [])
 
@@ -717,7 +511,10 @@ export function useEasyReceiptStore() {
     clearMemberSession()
     clearBranchSession()
     setCurrentMember(null)
-    setActiveBranchId(initialBranches[0]?.id ?? "")
+    setBranches([])
+    setMembers([])
+    setActiveBranchId("")
+    setBranchWorkspaces({})
     setActiveView("dashboard")
   }, [])
 
@@ -725,6 +522,55 @@ export function useEasyReceiptStore() {
     queryKey: authSessionQueryKey,
     queryFn: apiGetCurrentMember,
     staleTime: 60_000,
+  })
+
+  const branchesQuery = useQuery({
+    queryKey: branchesQueryKey,
+    queryFn: apiGetBranches,
+    enabled: Boolean(currentMember),
+    staleTime: 60_000,
+  })
+
+  const dashboardQuery = useQuery({
+    queryKey: dashboardQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchDashboard(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
+  const inventoryQuery = useQuery({
+    queryKey: inventoryQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchInventory(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
+  const purchasesQuery = useQuery({
+    queryKey: purchasesQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchPurchases(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
+  const recipesQuery = useQuery({
+    queryKey: recipesQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchRecipes(activeBranchId),
+    enabled: Boolean(currentMember && activeBranchId),
+    staleTime: 15_000,
+  })
+
+  const reportsQuery = useQuery({
+    queryKey: reportsQueryKey,
+    queryFn: apiGetReportSummary,
+    enabled: Boolean(currentMember),
+    staleTime: 15_000,
+  })
+
+  const membersQuery = useQuery({
+    queryKey: membersQueryKey,
+    queryFn: apiGetMembers,
+    enabled: Boolean(currentMember),
+    staleTime: 30_000,
   })
 
   const loginMutation = useMutation({
@@ -745,56 +591,27 @@ export function useEasyReceiptStore() {
     },
   })
 
-  const inventoryQuery = useQuery({
-    queryKey: inventoryQueryKey(activeBranchId),
-    queryFn: () => apiGetBranchInventory(activeBranchId),
-    enabled: Boolean(currentMember && activeBranchId),
-    staleTime: 15_000,
-  })
-
-  const recipesQuery = useQuery({
-    queryKey: recipesQueryKey(activeBranchId),
-    queryFn: () => apiGetBranchRecipes(activeBranchId),
-    enabled: Boolean(currentMember && activeBranchId),
-    staleTime: 15_000,
-  })
-
-  const membersQuery = useQuery({
-    queryKey: membersQueryKey,
-    queryFn: apiGetMembers,
-    enabled: Boolean(currentMember),
-    staleTime: 30_000,
-  })
-
-  const addMemberMutation = useMutation({
-    mutationFn: (input: AddMemberApiInput) => apiAddMember(input),
-    onMutate: () => {
-      setMemberMutationError("")
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
-    },
-    onError: (error) => {
-      setMemberMutationError(errorMessage(error, "ไม่สามารถเพิ่มสมาชิกได้"))
-    },
-  })
-
-  const updateMemberMutation = useMutation({
+  const createIngredientMutation = useMutation({
     mutationFn: ({
-      memberId,
+      branchId,
       input,
     }: {
-      memberId: string
-      input: UpdateMemberApiInput
-    }) => apiUpdateMember(memberId, input),
+      branchId: string
+      input: NewIngredientFromPurchaseInput
+    }) => apiCreateBranchIngredientFromPurchase(branchId, input),
     onMutate: () => {
-      setMemberMutationError("")
+      setInventoryMutationError("")
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+    onSuccess: (row, variables) => {
+      syncBranchInventoryRow(variables.branchId, row)
+      void queryClient.invalidateQueries({
+        queryKey: inventoryQueryKey(variables.branchId),
+      })
     },
     onError: (error) => {
-      setMemberMutationError(errorMessage(error, "ไม่สามารถแก้ไขข้อมูลสมาชิกได้"))
+      setInventoryMutationError(
+        errorMessage(error, "ไม่สามารถเพิ่มวัตถุดิบใหม่ได้")
+      )
     },
   })
 
@@ -816,10 +633,45 @@ export function useEasyReceiptStore() {
       void queryClient.invalidateQueries({
         queryKey: inventoryQueryKey(variables.branchId),
       })
+      void queryClient.invalidateQueries({
+        queryKey: dashboardQueryKey(variables.branchId),
+      })
     },
     onError: (error) => {
       setInventoryMutationError(
         errorMessage(error, "Inventory could not be updated.")
+      )
+    },
+  })
+
+  const createPurchaseMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      input,
+    }: {
+      branchId: string
+      input: {
+        purchaseDate: string
+        vendor?: string
+        items: PurchaseItem[]
+      }
+    }) =>
+      apiCreateBranchPurchase(branchId, {
+        purchaseDate: input.purchaseDate,
+        vendor: input.vendor,
+        items: input.items.map((item) => ({
+          ingredientId: item.ingredientId,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+        })),
+      }),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+    onError: (error) => {
+      setPurchaseMutationError(
+        errorMessage(error, "ไม่สามารถบันทึกใบซื้อได้")
       )
     },
   })
@@ -930,6 +782,42 @@ export function useEasyReceiptStore() {
     },
   })
 
+  const addMemberMutation = useMutation({
+    mutationFn: (input: AddMemberApiInput) => apiAddMember(input),
+    onMutate: () => {
+      setMemberMutationError("")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+    },
+    onError: (error) => {
+      setMemberMutationError(
+        errorMessage(error, "ไม่สามารถเพิ่มสมาชิกได้")
+      )
+    },
+  })
+
+  const updateMemberMutation = useMutation({
+    mutationFn: ({
+      memberId,
+      input,
+    }: {
+      memberId: string
+      input: UpdateMemberApiInput
+    }) => apiUpdateMember(memberId, input),
+    onMutate: () => {
+      setMemberMutationError("")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+    },
+    onError: (error) => {
+      setMemberMutationError(
+        errorMessage(error, "ไม่สามารถแก้ไขข้อมูลสมาชิกได้")
+      )
+    },
+  })
+
   useEffect(() => {
     if (authSessionQuery.isPending) {
       return
@@ -960,6 +848,51 @@ export function useEasyReceiptStore() {
     clearAuthenticatedMember,
     syncAuthenticatedMember,
   ])
+
+  useEffect(() => {
+    if (!branchesQuery.data) {
+      return
+    }
+
+    const data = branchesQuery.data
+    const timeoutId = window.setTimeout(() => {
+      setBranches(data)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [branchesQuery.data])
+
+  useEffect(() => {
+    if (!activeBranchId) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      ensureBranchWorkspace(activeBranchId)
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeBranchId, ensureBranchWorkspace])
+
+  useEffect(() => {
+    if (!currentMember || accessibleBranchIds.length === 0) {
+      return
+    }
+
+    if (activeBranchId && accessibleBranchIds.includes(activeBranchId)) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const nextBranchId = preferredBranchId(currentMember)
+      setActiveBranchId(nextBranchId)
+      if (nextBranchId) {
+        saveBranchSession(nextBranchId)
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [accessibleBranchIds, activeBranchId, currentMember])
 
   useEffect(() => {
     if (!inventoryQuery.data) {
@@ -1000,38 +933,6 @@ export function useEasyReceiptStore() {
     return () => window.clearTimeout(timeoutId)
   }, [membersQuery.data])
 
-  const accessibleBranchIds = useMemo(
-    () => getMemberBranchIds(currentMember),
-    [currentMember]
-  )
-  const accessibleBranches = useMemo(() => {
-    const allowed = new Set(accessibleBranchIds)
-    return initialBranches.filter((branch) => allowed.has(branch.id))
-  }, [accessibleBranchIds])
-
-  useEffect(() => {
-    if (!currentMember || accessibleBranchIds.length === 0) {
-      return
-    }
-
-    if (accessibleBranchIds.includes(activeBranchId)) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      const nextBranchId = preferredBranchId(currentMember)
-      setActiveBranchId(nextBranchId)
-      saveBranchSession(nextBranchId)
-    }, 0)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [accessibleBranchIds, activeBranchId, currentMember])
-
-  const activeBranch =
-    initialBranches.find((branch) => branch.id === activeBranchId) ??
-    accessibleBranches[0] ??
-    initialBranches[0]
-
   const ingredientList = activeWorkspace.ingredients
   const inventoryList = activeWorkspace.inventoryItems
   const recipeList = activeWorkspace.recipes
@@ -1040,22 +941,25 @@ export function useEasyReceiptStore() {
   const recipePlanByRecipeId = activeWorkspace.recipePlanByRecipeId
   const purchaseDate = activeWorkspace.purchaseDate
   const purchaseItems = activeWorkspace.purchaseItems
+  const purchaseHistory = useMemo(
+    () => purchasesQuery.data ?? [],
+    [purchasesQuery.data]
+  )
+  const dashboardSummary = dashboardQuery.data ?? emptyDashboard
+  const reportSummary = useMemo(
+    () =>
+      reportsQuery.data ?? {
+        ...emptyReport,
+        branchCount: accessibleBranches.length,
+        branchNames: accessibleBranches.map((branch) => branch.name),
+      },
+    [accessibleBranches, reportsQuery.data]
+  )
 
   function updateActiveWorkspace(
     updater: (workspace: BranchWorkspace) => BranchWorkspace
   ) {
-    setBranchWorkspaces((workspaces) => {
-      const workspace = workspaces[activeBranchId]
-
-      if (!workspace) {
-        return workspaces
-      }
-
-      return {
-        ...workspaces,
-        [activeBranchId]: updater(workspace),
-      }
-    })
+    updateBranchWorkspace(activeBranchId, updater)
   }
 
   const ingredientById = useMemo(
@@ -1103,41 +1007,43 @@ export function useEasyReceiptStore() {
     return reserved
   }, [cookedRecipeIds, pinnedRecipeIds, recipeList])
 
-  const inventoryRows = useMemo<InventoryRow[]>(
-    () =>
-      inventoryList.map((item) => {
-        const ingredient = ingredientById.get(item.ingredientId)
+  const inventoryRows = useMemo<InventoryRow[]>(() => {
+    const rows: InventoryRow[] = []
 
-        if (!ingredient) {
-          throw new Error(`Missing ingredient ${item.ingredientId}`)
-        }
+    for (const item of inventoryList) {
+      const ingredient = ingredientById.get(item.ingredientId)
 
-        const incoming = incomingByIngredient.get(item.ingredientId) ?? 0
-        const reserved = Math.max(
-          item.reserved,
-          reservedByIngredient.get(item.ingredientId) ?? 0
-        )
-        const available = Math.max(item.onHand - reserved, 0)
-        const suggestedPurchaseQuantity = Math.max(reserved - item.onHand, 0)
-        const stockPercent = Math.min(
-          Math.round((available / Math.max(item.reorderPoint * 2, 1)) * 100),
-          100
-        )
+      if (!ingredient) {
+        continue
+      }
 
-        return {
-          ...item,
-          ingredient,
-          reserved,
-          incoming,
-          projected: item.onHand,
-          available,
-          suggestedPurchaseQuantity,
-          status: stockStatus({ ...item, onHand: available }),
-          stockPercent,
-        }
-      }),
-    [ingredientById, incomingByIngredient, inventoryList, reservedByIngredient]
-  )
+      const incoming = incomingByIngredient.get(item.ingredientId) ?? 0
+      const reserved = Math.max(
+        item.reserved,
+        reservedByIngredient.get(item.ingredientId) ?? 0
+      )
+      const available = Math.max(item.onHand - reserved, 0)
+      const suggestedPurchaseQuantity = Math.max(reserved - item.onHand, 0)
+      const stockPercent = Math.min(
+        Math.round((available / Math.max(item.reorderPoint * 2, 1)) * 100),
+        100
+      )
+
+      rows.push({
+        ...item,
+        ingredient,
+        reserved,
+        incoming,
+        projected: roundQuantity(item.onHand + incoming),
+        available,
+        suggestedPurchaseQuantity,
+        status: stockStatus({ ...item, onHand: available }),
+        stockPercent,
+      })
+    }
+
+    return rows
+  }, [ingredientById, incomingByIngredient, inventoryList, reservedByIngredient])
 
   const lowStockItems = useMemo(
     () =>
@@ -1155,74 +1061,59 @@ export function useEasyReceiptStore() {
     [inventoryRows]
   )
 
-  const activeCashFlowMetrics = useMemo(
-    () =>
-      createCashFlowMetricsForWorkspaces(activeWorkspace ? [activeWorkspace] : []),
-    [activeWorkspace]
-  )
+  const recipeImpacts = useMemo<RecipeImpact[]>(() => {
+    return recipeList.map((recipe) => {
+      const isPinned = pinnedRecipeIds.has(recipe.id)
+      const isCooked = cookedRecipeIds.has(recipe.id)
+      const cost = recipe.ingredients.reduce((total, item) => {
+        const inventoryItem = inventoryRowByIngredientId.get(item.ingredientId)
 
-  const recipeImpacts = useMemo<RecipeImpact[]>(
-    () => {
-      return recipeList.map((recipe) => {
-        const isPinned = pinnedRecipeIds.has(recipe.id)
-        const isCooked = cookedRecipeIds.has(recipe.id)
-        const cost = recipe.ingredients.reduce((total, item) => {
-          const inventoryItem = inventoryRowByIngredientId.get(item.ingredientId)
+        return total + item.quantity * (inventoryItem?.costPerUnit ?? 0)
+      }, 0)
+      const missingNames = isCooked
+        ? []
+        : recipe.ingredients
+            .filter((item) => {
+              const inventoryItem = inventoryRowByIngredientId.get(
+                item.ingredientId
+              )
 
-          return total + item.quantity * (inventoryItem?.costPerUnit ?? 0)
-        }, 0)
+              if (!inventoryItem) {
+                return true
+              }
 
-        const missingNames = isCooked
-          ? []
-          : recipe.ingredients
-              .filter((item) => {
-                const inventoryItem = inventoryRowByIngredientId.get(
-                  item.ingredientId
-                )
+              const totalReserved = reservedByIngredient.get(item.ingredientId) ?? 0
+              const competingReserved = Math.max(totalReserved - item.quantity, 0)
+              const availableForRecipe = Math.max(
+                inventoryItem.onHand - competingReserved,
+                0
+              )
 
-                if (!inventoryItem) {
-                  return true
-                }
+              return availableForRecipe < item.quantity
+            })
+            .map((item) => ingredientById.get(item.ingredientId)?.name)
+            .filter((name): name is string => Boolean(name))
+      const revenue = recipe.yield * recipe.pricePerServing
 
-                const totalReserved =
-                  reservedByIngredient.get(item.ingredientId) ?? 0
-                const competingReserved = Math.max(
-                  totalReserved - item.quantity,
-                  0
-                )
-                const availableForRecipe = Math.max(
-                  inventoryItem.onHand - competingReserved,
-                  0
-                )
-
-                return availableForRecipe < item.quantity
-              })
-              .map((item) => ingredientById.get(item.ingredientId)?.name)
-              .filter((name): name is string => Boolean(name))
-
-        const revenue = recipe.yield * recipe.pricePerServing
-
-        return {
-          ...recipe,
-          cost,
-          revenue,
-          margin: revenue - cost,
-          canProduce: !isCooked && missingNames.length === 0,
-          isCooked,
-          isPinned,
-          missingNames,
-        }
-      })
-    },
-    [
-      cookedRecipeIds,
-      ingredientById,
-      inventoryRowByIngredientId,
-      pinnedRecipeIds,
-      recipeList,
-      reservedByIngredient,
-    ]
-  )
+      return {
+        ...recipe,
+        cost,
+        revenue,
+        margin: revenue - cost,
+        canProduce: !isCooked && missingNames.length === 0,
+        isCooked,
+        isPinned,
+        missingNames,
+      }
+    })
+  }, [
+    cookedRecipeIds,
+    ingredientById,
+    inventoryRowByIngredientId,
+    pinnedRecipeIds,
+    recipeList,
+    reservedByIngredient,
+  ])
 
   const pinnedRecipeImpacts = useMemo(
     () => recipeImpacts.filter((recipe) => recipe.isPinned),
@@ -1255,29 +1146,52 @@ export function useEasyReceiptStore() {
   const canManageMembers =
     currentMember?.role === "owner" || currentMember?.role === "manager"
 
-  const reportWorkspaces = useMemo(
-    () =>
-      accessibleBranchIds
-        .map((branchId) => branchWorkspaces[branchId])
-        .filter((workspace): workspace is BranchWorkspace => Boolean(workspace)),
-    [accessibleBranchIds, branchWorkspaces]
-  )
-  const reportPurchaseSeries = useMemo(
-    () => createPurchaseSeriesForWorkspaces(reportWorkspaces, accessibleBranchIds),
-    [accessibleBranchIds, reportWorkspaces]
-  )
+  const reportPurchaseSeries = useMemo<PurchaseSeriesItem[]>(() => {
+    if (purchaseHistory.length > 0) {
+      const totalsByLabel = new Map<string, number>()
+
+      for (const purchase of purchaseHistory) {
+        const label = dayLabel(purchase.date)
+        totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + purchase.total)
+      }
+
+      return Array.from(totalsByLabel.entries()).map(([label, total]) => ({
+        label,
+        total,
+      }))
+    }
+
+    return reportSummary.purchaseTotal > 0
+      ? [{ label: "รวม", total: reportSummary.purchaseTotal }]
+      : []
+  }, [purchaseHistory, reportSummary.purchaseTotal])
+
   const reportCashFlowMetrics = useMemo(
-    () => createCashFlowMetricsForWorkspaces(reportWorkspaces),
-    [reportWorkspaces]
+    () => buildReportMetrics(reportSummary),
+    [reportSummary]
+  )
+  const activeCashFlowMetrics = useMemo(
+    () => buildReportMetrics({
+      branchCount: activeBranch ? 1 : 0,
+      branchNames: activeBranch ? [activeBranch.name] : [],
+      purchaseTotal: dashboardSummary.purchaseTotal,
+      cookingCount: dashboardSummary.cookingCount,
+      stockMovementCount: 0,
+    }),
+    [activeBranch, dashboardSummary]
   )
   const reportBranchSummary = useMemo<BranchReportSummary>(
     () => ({
-      branchCount: accessibleBranches.length,
-      branchNames: accessibleBranches.map((branch) => branch.name),
-      helper: `สรุปรวม ${accessibleBranches.length} สาขาที่มีสิทธิ์`,
+      branchCount: reportSummary.branchCount,
+      branchNames: reportSummary.branchNames,
+      helper: `สรุปรวม ${reportSummary.branchCount} สาขาที่มีสิทธิ์`,
     }),
-    [accessibleBranches]
+    [reportSummary]
   )
+
+  const dashboardError = dashboardQuery.isError
+    ? errorMessage(dashboardQuery.error, "ไม่สามารถโหลดข้อมูลแดชบอร์ดได้")
+    : ""
   const inventoryError =
     inventoryMutationError ||
     (inventoryQuery.isError
@@ -1286,13 +1200,32 @@ export function useEasyReceiptStore() {
           "ไม่สามารถโหลดข้อมูลคลังวัตถุดิบได้"
         )
       : "")
-  const isInventoryLoading =
-    inventoryQuery.isPending && Boolean(currentMember && activeBranchId)
+  const purchaseError =
+    purchaseMutationError ||
+    (purchasesQuery.isError
+      ? errorMessage(purchasesQuery.error, "ไม่สามารถโหลดข้อมูลใบซื้อได้")
+      : "")
   const recipeError =
     recipeMutationError ||
     (recipesQuery.isError
       ? errorMessage(recipesQuery.error, "ไม่สามารถโหลดข้อมูลสูตรอาหารได้")
       : "")
+  const reportsError = reportsQuery.isError
+    ? errorMessage(reportsQuery.error, "ไม่สามารถโหลดข้อมูลรายงานได้")
+    : ""
+  const memberError =
+    memberMutationError ||
+    (membersQuery.isError
+      ? errorMessage(membersQuery.error, "ไม่สามารถโหลดข้อมูลสมาชิกได้")
+      : "")
+
+  const isDashboardLoading =
+    dashboardQuery.isPending && Boolean(currentMember && activeBranchId)
+  const isInventoryLoading =
+    inventoryQuery.isPending && Boolean(currentMember && activeBranchId)
+  const isPurchasesLoading =
+    purchasesQuery.isPending && Boolean(currentMember && activeBranchId)
+  const isReportsLoading = reportsQuery.isPending && Boolean(currentMember)
   const isRecipesLoading =
     recipesQuery.isPending && Boolean(currentMember && activeBranchId)
   const isRecipeSaving =
@@ -1310,6 +1243,7 @@ export function useEasyReceiptStore() {
 
     setActiveBranchId(branchId)
     saveBranchSession(branchId)
+    ensureBranchWorkspace(branchId)
 
     return true
   }
@@ -1329,11 +1263,7 @@ export function useEasyReceiptStore() {
       })
       .catch(() => null)
 
-    if (!member || member.status !== "active") {
-      return false
-    }
-
-    return true
+    return Boolean(member && member.status === "active")
   }
 
   function logout() {
@@ -1355,19 +1285,15 @@ export function useEasyReceiptStore() {
         return workspace
       }
 
-      const branchIngredientById = new Map(
-        workspace.ingredients.map((ingredient) => [
-          ingredient.id,
-          ingredient,
-        ] as const)
-      )
       const nextItem = { ...currentItem, ...patch }
 
       if (
         patch.ingredientId &&
         patch.ingredientId !== currentItem.ingredientId
       ) {
-        const ingredient = branchIngredientById.get(patch.ingredientId)
+        const ingredient = workspace.ingredients.find(
+          (item) => item.id === patch.ingredientId
+        )
 
         if (ingredient) {
           nextItem.unit = ingredient.unit
@@ -1375,31 +1301,8 @@ export function useEasyReceiptStore() {
         }
       }
 
-      const previousStock = workspace.purchaseStockLedger[itemId] ?? {
-        ingredientId: currentItem.ingredientId,
-        quantity: 0,
-      }
-      const nextStock = {
-        ingredientId: nextItem.ingredientId,
-        quantity: Math.max(nextItem.quantity, 0),
-      }
-
       return {
         ...workspace,
-        inventoryItems: applyInventoryAdjustments(workspace.inventoryItems, [
-          {
-            ingredientId: previousStock.ingredientId,
-            delta: -previousStock.quantity,
-          },
-          {
-            ingredientId: nextStock.ingredientId,
-            delta: nextStock.quantity,
-          },
-        ]),
-        purchaseStockLedger: {
-          ...workspace.purchaseStockLedger,
-          [itemId]: nextStock,
-        },
         purchaseItems: workspace.purchaseItems.map((item) =>
           item.id === itemId ? nextItem : item
         ),
@@ -1425,65 +1328,83 @@ export function useEasyReceiptStore() {
 
       return {
         ...workspace,
-        inventoryItems: applyInventoryAdjustments(workspace.inventoryItems, [
-          { ingredientId: nextItem.ingredientId, delta: nextItem.quantity },
-        ]),
-        purchaseStockLedger: {
-          ...workspace.purchaseStockLedger,
-          [nextItem.id]: {
-            ingredientId: nextItem.ingredientId,
-            quantity: nextItem.quantity,
-          },
-        },
         purchaseItems: [...workspace.purchaseItems, nextItem],
       }
     })
   }
 
   function removePurchaseItem(itemId: string) {
-    updateActiveWorkspace((workspace) => {
-      if (workspace.purchaseItems.length === 1) {
-        return workspace
-      }
-
-      const currentItem = workspace.purchaseItems.find(
-        (item) => item.id === itemId
-      )
-      const previousStock =
-        workspace.purchaseStockLedger[itemId] ??
-        (currentItem
-          ? {
-              ingredientId: currentItem.ingredientId,
-              quantity: currentItem.quantity,
-            }
-          : null)
-      const nextLedger = { ...workspace.purchaseStockLedger }
-      delete nextLedger[itemId]
-
-      return {
-        ...workspace,
-        inventoryItems: previousStock
-          ? applyInventoryAdjustments(workspace.inventoryItems, [
-              {
-                ingredientId: previousStock.ingredientId,
-                delta: -previousStock.quantity,
-              },
-            ])
-          : workspace.inventoryItems,
-        purchaseStockLedger: nextLedger,
-        purchaseItems: workspace.purchaseItems.filter(
-          (item) => item.id !== itemId
-        ),
-      }
-    })
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseItems:
+        workspace.purchaseItems.length <= 1
+          ? workspace.purchaseItems
+          : workspace.purchaseItems.filter((item) => item.id !== itemId),
+    }))
   }
 
-  function addIngredientFromPurchase(input: NewIngredientFromPurchaseInput) {
+  async function submitPurchase(): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    const items = purchaseItems.filter(
+      (item) => item.ingredientId && item.quantity > 0
+    )
+
+    if (items.length === 0) {
+      return {
+        ok: false,
+        error: "กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ",
+      }
+    }
+
+    try {
+      await createPurchaseMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: {
+          purchaseDate: purchaseDate.toISOString(),
+          vendor: "บันทึกจาก EasyReceipt",
+          items,
+        },
+      })
+      updateActiveWorkspace((workspace) => ({
+        ...workspace,
+        purchaseItems: [],
+      }))
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: purchasesQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: inventoryQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
+      ])
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถบันทึกใบซื้อได้")
+      setPurchaseMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function addIngredientFromPurchase(
+    input: NewIngredientFromPurchaseInput
+  ) {
     const name = input.name.trim()
     const unit = input.unit.trim() || "กก."
     const unitPrice = Math.max(input.unitPrice, 0)
 
-    if (!name) {
+    if (!name || !activeBranchId) {
       return null
     }
 
@@ -1497,31 +1418,16 @@ export function useEasyReceiptStore() {
       return existingIngredient
     }
 
-    const ingredient: Ingredient = {
-      id: createIngredientId(name, ingredientList),
-      name,
-      category: "วัตถุดิบใหม่",
-      unit,
-      defaultPrice: unitPrice,
-      supplier: "เพิ่มจากใบซื้อ",
+    try {
+      const row = await createIngredientMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: { name, unit, unitPrice },
+      })
+
+      return row.ingredient
+    } catch {
+      return null
     }
-
-    const inventoryItem: InventoryItem = {
-      ingredientId: ingredient.id,
-      onHand: 0,
-      reserved: 0,
-      reorderPoint: 0,
-      costPerUnit: unitPrice,
-      lastUpdated: todayIso,
-    }
-
-    updateActiveWorkspace((workspace) => ({
-      ...workspace,
-      ingredients: [...workspace.ingredients, ingredient],
-      inventoryItems: [...workspace.inventoryItems, inventoryItem],
-    }))
-
-    return ingredient
   }
 
   async function updateInventoryItem(input: InventoryEditInput) {
@@ -1557,24 +1463,26 @@ export function useEasyReceiptStore() {
           costPerUnit: Math.max(input.costPerUnit, 0),
         },
       })
+
+      return { ok: true }
     } catch (error) {
       return {
         ok: false,
         error: errorMessage(error, "ไม่สามารถบันทึกข้อมูลคลังวัตถุดิบได้"),
       }
     }
-
-    return { ok: true }
   }
 
   async function refreshRecipeAndInventory(branchId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
       queryClient.invalidateQueries({ queryKey: inventoryQueryKey(branchId) }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(branchId) }),
+      queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
     ])
   }
 
-  function recipeAuthError(): RecipeActionResult | null {
+  function recipeAuthError(): ActionResult | null {
     if (!currentMember || !activeBranchId) {
       return {
         ok: false,
@@ -1585,7 +1493,7 @@ export function useEasyReceiptStore() {
     return null
   }
 
-  async function addRecipe(input: RecipeFormInput): Promise<RecipeActionResult> {
+  async function addRecipe(input: RecipeFormInput): Promise<ActionResult> {
     const authError = recipeAuthError()
     const normalizedInput = normalizeRecipeInput(input)
 
@@ -1624,7 +1532,7 @@ export function useEasyReceiptStore() {
   async function updateRecipe(
     recipeId: string,
     input: RecipeFormInput
-  ): Promise<RecipeActionResult> {
+  ): Promise<ActionResult> {
     const authError = recipeAuthError()
     const normalizedInput = normalizeRecipeInput(input)
 
@@ -1656,7 +1564,7 @@ export function useEasyReceiptStore() {
     }
   }
 
-  async function deleteRecipe(recipeId: string): Promise<RecipeActionResult> {
+  async function deleteRecipe(recipeId: string): Promise<ActionResult> {
     const authError = recipeAuthError()
 
     if (authError) {
@@ -1679,7 +1587,7 @@ export function useEasyReceiptStore() {
     }
   }
 
-  async function pinRecipe(recipeId: string): Promise<RecipeActionResult> {
+  async function pinRecipe(recipeId: string): Promise<ActionResult> {
     const authError = recipeAuthError()
 
     if (authError) {
@@ -1709,7 +1617,7 @@ export function useEasyReceiptStore() {
     }
   }
 
-  async function unpinRecipe(recipeId: string): Promise<RecipeActionResult> {
+  async function unpinRecipe(recipeId: string): Promise<ActionResult> {
     const authError = recipeAuthError()
 
     if (authError) {
@@ -1732,7 +1640,7 @@ export function useEasyReceiptStore() {
     }
   }
 
-  async function cookRecipe(recipeId: string): Promise<RecipeActionResult> {
+  async function cookRecipe(recipeId: string): Promise<ActionResult> {
     const authError = recipeAuthError()
     const recipeImpact = recipeImpacts.find((item) => item.id === recipeId)
     const plan = recipePlanByRecipeId[recipeId]
@@ -1774,7 +1682,7 @@ export function useEasyReceiptStore() {
   function sanitizeBranchIds(branchIds: string[], role?: MemberRole) {
     const allowedBranchIds =
       currentMember?.role === "owner"
-        ? initialBranches.map((branch) => branch.id)
+        ? branches.map((branch) => branch.id)
         : accessibleBranchIds
     const allowed = new Set(allowedBranchIds)
     const sanitized = branchIds.filter((branchId) => allowed.has(branchId))
@@ -1864,6 +1772,7 @@ export function useEasyReceiptStore() {
     updateMemberMutation.mutate({ memberId, input: { branchIds: nextBranchIds } })
   }
 
+
   return {
     activeView,
     setActiveView,
@@ -1872,23 +1781,31 @@ export function useEasyReceiptStore() {
     isLoginPending: loginMutation.isPending,
     login,
     logout,
-    branches: initialBranches,
+    branches,
     activeBranch,
     activeBranchId,
     accessibleBranches,
     setActiveBranch,
+    dashboardSummary,
+    isDashboardLoading,
+    dashboardError,
     purchaseDate,
     setPurchaseDate,
     purchaseItems,
     updatePurchaseItem,
     addPurchaseItem,
     removePurchaseItem,
+    submitPurchase,
+    isPurchasesLoading,
+    isPurchaseSaving: createPurchaseMutation.isPending,
+    purchaseError,
     ingredients: ingredientList,
     ingredientById,
     inventoryItems: inventoryList,
     inventoryRows,
     isInventoryLoading,
     isInventorySaving: updateInventoryMutation.isPending,
+    isIngredientSaving: createIngredientMutation.isPending,
     inventoryError,
     addIngredientFromPurchase,
     updateInventoryItem,
@@ -1899,6 +1816,8 @@ export function useEasyReceiptStore() {
     reportPurchaseSeries,
     reportCashFlowMetrics,
     reportBranchSummary,
+    isReportsLoading,
+    reportsError,
     recipeImpacts,
     pinnedRecipeImpacts,
     recipeStats,
@@ -1914,7 +1833,7 @@ export function useEasyReceiptStore() {
     members,
     memberStats,
     canManageMembers,
-    memberError: memberMutationError || (membersQuery.isError ? errorMessage(membersQuery.error, "ไม่สามารถโหลดข้อมูลสมาชิกได้") : ""),
+    memberError,
     isMembersLoading: membersQuery.isPending && Boolean(currentMember),
     isMemberSaving: addMemberMutation.isPending || updateMemberMutation.isPending,
     addMember,

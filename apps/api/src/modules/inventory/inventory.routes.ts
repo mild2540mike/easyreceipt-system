@@ -21,6 +21,12 @@ const updateInventorySchema = z.object({
   costPerUnit: z.coerce.number().min(0),
 })
 
+const createIngredientSchema = z.object({
+  name: z.string().min(1),
+  unit: z.string().min(1).default("กก."),
+  unitPrice: z.coerce.number().min(0).default(0),
+})
+
 export const inventoryRouter = Router({ mergeParams: true })
 
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
@@ -59,6 +65,69 @@ inventoryRouter.get(
         lastUpdatedAt: row.lastUpdatedAt,
       })),
     })
+  })
+)
+
+inventoryRouter.post(
+  "/ingredients",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = createIngredientSchema.parse(req.body)
+
+    const inventory = await prisma.$transaction(async (tx) => {
+      const access = await assertBranchAccess(tx, member.id, branchId)
+      const name = input.name.trim()
+      const unit = input.unit.trim() || "กก."
+      const unitPrice = roundMoney(input.unitPrice)
+      const existingIngredient = await tx.ingredient.findFirst({
+        where: {
+          organizationId: access.branch.organizationId,
+          name,
+          unit,
+          isActive: true,
+        },
+      })
+      const ingredient =
+        existingIngredient ??
+        (await tx.ingredient.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            name,
+            category: "วัตถุดิบใหม่",
+            unit,
+            defaultPrice: unitPrice,
+            supplier: "เพิ่มจากใบซื้อ",
+          },
+        }))
+
+      return tx.branchInventory.upsert({
+        where: {
+          branchId_ingredientId: {
+            branchId,
+            ingredientId: ingredient.id,
+          },
+        },
+        create: {
+          branchId,
+          ingredientId: ingredient.id,
+          onHand: 0,
+          reservedQuantity: 0,
+          reorderPoint: 0,
+          costPerUnit: unitPrice,
+          lastUpdatedAt: new Date(),
+        },
+        update: {
+          costPerUnit: unitPrice,
+          lastUpdatedAt: new Date(),
+        },
+        include: {
+          ingredient: true,
+        },
+      })
+    })
+
+    res.status(201).json({ inventory })
   })
 )
 

@@ -2,6 +2,8 @@ import "dotenv/config"
 import { PrismaMssql } from "@prisma/adapter-mssql"
 import { PrismaClient } from "@prisma/client"
 
+import { stockSeedItems, stockSeedStats } from "./stock-seed-data.mjs"
+
 const connectionString = process.env.DATABASE_URL
 
 const prisma = new PrismaClient({
@@ -16,34 +18,52 @@ const organization = {
 
 const branches = [
   {
-    id: "branch-hq",
-    code: "HQ",
-    name: "สำนักงานใหญ่",
-    location: "กรุงเทพฯ",
+    id: "branch-korat",
+    code: "NRS",
+    name: "โรงเรียนนครราชสีมาวิทยา",
+    location: "นครราชสีมา",
   },
   {
-    id: "branch-bangna",
-    code: "BN",
-    name: "สาขาบางนา",
-    location: "กรุงเทพฯ ฝั่งตะวันออก",
+    id: "branch-korat-2",
+    code: "NRK",
+    name: "โรงเรียนโคราชพิทยาคม",
+    location: "เมือง นครราชสีมา",
   },
   {
-    id: "branch-rangsit",
-    code: "RS",
-    name: "สาขารังสิต",
-    location: "ปทุมธานี",
+    id: "branch-pakchong",
+    code: "PKC",
+    name: "โรงเรียนปากช่องวิทยา",
+    location: "ปากช่อง นครราชสีมา",
   },
   {
-    id: "branch-rama2",
-    code: "R2",
-    name: "สาขาพระราม 2",
-    location: "กรุงเทพฯ ฝั่งใต้",
+    id: "branch-suranari",
+    code: "SNR",
+    name: "โรงเรียนสุรนารีศึกษา",
+    location: "เมือง นครราชสีมา",
   },
   {
-    id: "branch-chiangmai",
-    code: "CM",
-    name: "สาขาเชียงใหม่",
-    location: "เชียงใหม่",
+    id: "branch-bualuang",
+    code: "BLN",
+    name: "โรงเรียนบัวใหญ่นิยมศาสตร์",
+    location: "บัวใหญ่ นครราชสีมา",
+  },
+  {
+    id: "branch-chokechai",
+    code: "CCN",
+    name: "โรงเรียนโชคชัยพรหมบุตรบริหาร",
+    location: "โชคชัย นครราชสีมา",
+  },
+  {
+    id: "branch-sikhio",
+    code: "SKN",
+    name: "โรงเรียนสีคิ้วสวัสดิ์ผดุงวิทยา",
+    location: "สีคิ้ว นครราชสีมา",
+  },
+  {
+    id: "branch-khamthale",
+    code: "KTN",
+    name: "โรงเรียนคำเตยวิทยา",
+    location: "ห้วยแถลง นครราชสีมา",
   },
 ]
 
@@ -54,7 +74,7 @@ const members = [
     email: "owner@easyreceipt.local",
     role: "owner",
     status: "active",
-    primaryBranchId: "branch-hq",
+    primaryBranchId: "branch-korat",
     branchIds: branches.map((branch) => branch.id),
   },
   {
@@ -63,8 +83,8 @@ const members = [
     email: "manager@easyreceipt.local",
     role: "manager",
     status: "active",
-    primaryBranchId: "branch-bangna",
-    branchIds: ["branch-hq", "branch-bangna", "branch-rangsit"],
+    primaryBranchId: "branch-korat",
+    branchIds: ["branch-korat"],
   },
   {
     id: "member-staff",
@@ -72,8 +92,8 @@ const members = [
     email: "staff@easyreceipt.local",
     role: "staff",
     status: "active",
-    primaryBranchId: "branch-bangna",
-    branchIds: ["branch-bangna"],
+    primaryBranchId: "branch-korat",
+    branchIds: ["branch-korat"],
   },
   {
     id: "member-viewer",
@@ -81,142 +101,717 @@ const members = [
     email: "accounting@easyreceipt.local",
     role: "viewer",
     status: "invited",
-    primaryBranchId: "branch-hq",
-    branchIds: ["branch-hq"],
+    primaryBranchId: "branch-korat",
+    branchIds: ["branch-korat"],
   },
 ]
 
-const ingredients = [
-  {
-    id: "chicken-breast",
-    name: "อกไก่",
-    category: "โปรตีน",
-    unit: "กก.",
-    defaultPrice: 118,
-    supplier: "ตลาดสดรุ่งเรือง",
-  },
-  {
-    id: "jasmine-rice",
-    name: "ข้าวหอมมะลิ",
-    category: "ของแห้ง",
-    unit: "กก.",
-    defaultPrice: 43,
-    supplier: "ข้าวถุงชุมชน",
-  },
-  {
-    id: "egg",
-    name: "ไข่ไก่",
-    category: "โปรตีน",
-    unit: "ฟอง",
-    defaultPrice: 4.5,
-    supplier: "ฟาร์มบ้านเหนือ",
-  },
-  {
-    id: "basil",
-    name: "ใบกะเพรา",
-    category: "ผักสด",
-    unit: "กก.",
-    defaultPrice: 72,
-    supplier: "สวนผักแม่คำ",
-  },
-  {
-    id: "fish-sauce",
-    name: "น้ำปลา",
-    category: "เครื่องปรุง",
-    unit: "ขวด",
-    defaultPrice: 34,
-    supplier: "ร้านขายส่งดีดี",
-  },
-  {
-    id: "cooking-oil",
-    name: "น้ำมันพืช",
-    category: "เครื่องปรุง",
-    unit: "ขวด",
-    defaultPrice: 58,
-    supplier: "ร้านขายส่งดีดี",
-  },
-  {
-    id: "thai-chili",
-    name: "พริกสด",
-    category: "ผักสด",
-    unit: "กก.",
-    defaultPrice: 86,
-    supplier: "ตลาดสดรุ่งเรือง",
-  },
-  {
-    id: "garlic",
-    name: "กระเทียม",
-    category: "ผักสด",
-    unit: "กก.",
-    defaultPrice: 64,
-    supplier: "สวนผักแม่คำ",
-  },
-]
-
-const baseInventory = {
-  "chicken-breast": { onHand: 11, reorderPoint: 8, costPerUnit: 118 },
-  "jasmine-rice": { onHand: 38, reorderPoint: 15, costPerUnit: 43 },
-  egg: { onHand: 60, reorderPoint: 48, costPerUnit: 4.5 },
-  basil: { onHand: 3.2, reorderPoint: 1.5, costPerUnit: 72 },
-  "fish-sauce": { onHand: 12, reorderPoint: 6, costPerUnit: 34 },
-  "cooking-oil": { onHand: 9, reorderPoint: 6, costPerUnit: 58 },
-  "thai-chili": { onHand: 1.6, reorderPoint: 1.2, costPerUnit: 86 },
-  garlic: { onHand: 1.8, reorderPoint: 1.2, costPerUnit: 64 },
-}
+const stockItemById = new Map(
+  stockSeedItems.map((item) => [item.id, item])
+)
 
 const purchaseDraft = [
-  { ingredientId: "chicken-breast", quantity: 7.5 },
-  { ingredientId: "egg", quantity: 56 },
-  { ingredientId: "cooking-oil", quantity: 6 },
+  { ingredientId: "stock-0001", quantity: 1 },
+  { ingredientId: "stock-0138", quantity: 56 },
+  { ingredientId: "stock-0083", quantity: 6 },
+  { ingredientId: "stock-0032", quantity: 1 },
+  { ingredientId: "stock-0089", quantity: 1.5 },
+  { ingredientId: "stock-0127", quantity: 5 },
+  { ingredientId: "stock-0043", quantity: 1.5 },
+  { ingredientId: "stock-0033", quantity: 0.5 },
 ]
 
-const recipeTemplates = [
-  {
-    slug: "basil-chicken",
-    name: "ข้าวกะเพราไก่",
-    menuCategory: "อาหารจานเดียว",
-    servingYield: 24,
-    pricePerServing: 65,
-    items: [
-      { ingredientId: "chicken-breast", quantity: 4.8 },
-      { ingredientId: "jasmine-rice", quantity: 5 },
-      { ingredientId: "basil", quantity: 0.8 },
-      { ingredientId: "thai-chili", quantity: 0.25 },
-      { ingredientId: "garlic", quantity: 0.35 },
-      { ingredientId: "fish-sauce", quantity: 0.5 },
-    ],
-  },
-  {
-    slug: "fried-rice-egg",
-    name: "ข้าวผัดไข่",
-    menuCategory: "อาหารจานเดียว",
-    servingYield: 30,
-    pricePerServing: 55,
-    items: [
-      { ingredientId: "jasmine-rice", quantity: 6 },
-      { ingredientId: "egg", quantity: 45 },
-      { ingredientId: "cooking-oil", quantity: 1 },
-      { ingredientId: "garlic", quantity: 0.25 },
-      { ingredientId: "fish-sauce", quantity: 0.4 },
-    ],
-  },
-  {
-    slug: "protein-box",
-    name: "กล่องโปรตีนคลีน",
-    menuCategory: "อาหารสุขภาพ",
-    servingYield: 18,
-    pricePerServing: 89,
-    items: [
-      { ingredientId: "chicken-breast", quantity: 5.4 },
-      { ingredientId: "jasmine-rice", quantity: 3.6 },
-      { ingredientId: "egg", quantity: 18 },
-      { ingredientId: "cooking-oil", quantity: 0.6 },
-    ],
-  },
-]
-
-function branchFactor(index) {
-  return 1 + index * 0.08
+const recipeTemplatesByBranch = {
+  "branch-korat": [
+    {
+      slug: "basil-chicken",
+      name: "ข้าวกะเพราไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 24,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0127", quantity: 4.8 },
+        { ingredientId: "stock-0001", quantity: 5 },
+        { ingredientId: "stock-0043", quantity: 0.8 },
+        { ingredientId: "stock-0033", quantity: 0.25 },
+        { ingredientId: "stock-0032", quantity: 0.35 },
+        { ingredientId: "stock-0089", quantity: 0.5 },
+      ],
+    },
+    {
+      slug: "fried-rice-egg",
+      name: "ข้าวผัดไข่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 30,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0001", quantity: 6 },
+        { ingredientId: "stock-0138", quantity: 45 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "tom-yum-soup",
+      name: "ต้มยำกุ้ง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 4,
+      pricePerServing: 120,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2 },
+        { ingredientId: "stock-0138", quantity: 3 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "green-curry-chicken",
+      name: "แกงเขียวหวานไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 6,
+      pricePerServing: 150,
+      items: [
+        { ingredientId: "stock-0001", quantity: 3 },
+        { ingredientId: "stock-0138", quantity: 4 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0127", quantity: 1 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "pad-thai",
+      name: "ผัดไทย",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0138", quantity: 30 },
+        { ingredientId: "stock-0083", quantity: 2 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.6 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+      ],
+    },
+    {
+      slug: "khao-man-gai",
+      name: "ข้าวมันไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+      ],
+    },
+  ],
+  "branch-korat-2": [
+    {
+      slug: "fried-rice-pork",
+      name: "ข้าวผัดหมู",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 28,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0001", quantity: 5.6 },
+        { ingredientId: "stock-0127", quantity: 2.8 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.28 },
+        { ingredientId: "stock-0089", quantity: 0.42 },
+      ],
+    },
+    {
+      slug: "clear-tofu-soup",
+      name: "แกงจืดเต้าหู้",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 10,
+      pricePerServing: 45,
+      items: [
+        { ingredientId: "stock-0138", quantity: 5 },
+        { ingredientId: "stock-0083", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.1 },
+      ],
+    },
+    {
+      slug: "tom-kha-chicken",
+      name: "ต้มข่าไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 100,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.4 },
+        { ingredientId: "stock-0089", quantity: 0.25 },
+        { ingredientId: "stock-0043", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "red-pork-rice",
+      name: "ข้าวหมูแดง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0033", quantity: 0.4 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "stir-fried-vegetables",
+      name: "ผัดผักรวม",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 15,
+      pricePerServing: 40,
+      items: [
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+        { ingredientId: "stock-0043", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "shrimp-paste-rice",
+      name: "ข้าวคลุกกะปิ",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 15,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0001", quantity: 3 },
+        { ingredientId: "stock-0138", quantity: 8 },
+        { ingredientId: "stock-0033", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+      ],
+    },
+  ],
+  "branch-pakchong": [
+    {
+      slug: "sour-shrimp-curry",
+      name: "แกงส้มกุ้ง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 6,
+      pricePerServing: 130,
+      items: [
+        { ingredientId: "stock-0138", quantity: 6 },
+        { ingredientId: "stock-0083", quantity: 1.5 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+      ],
+    },
+    {
+      slug: "chicken-on-rice",
+      name: "ข้าวหน้าไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0127", quantity: 3.5 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "red-pork-noodles",
+      name: "บะหมี่หมูแดง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 15,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0138", quantity: 12 },
+        { ingredientId: "stock-0127", quantity: 2.5 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.25 },
+        { ingredientId: "stock-0033", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "fried-chicken-rice",
+      name: "ข้าวมันไก่ทอด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 18,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0001", quantity: 3.6 },
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "pad-see-ew",
+      name: "ผัดซีอิ๊ว",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0138", quantity: 20 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+        { ingredientId: "stock-0043", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "massaman-curry",
+      name: "แกงมัสมั่น",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 140,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2.4 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0127", quantity: 0.8 },
+        { ingredientId: "stock-0033", quantity: 0.25 },
+      ],
+    },
+  ],
+  "branch-suranari": [
+    {
+      slug: "seafood-tom-yum",
+      name: "ต้มยำทะเล",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 6,
+      pricePerServing: 130,
+      items: [
+        { ingredientId: "stock-0138", quantity: 5 },
+        { ingredientId: "stock-0083", quantity: 1.5 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.25 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+      ],
+    },
+    {
+      slug: "crispy-pork-rice",
+      name: "ข้าวหมูกรอบ",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0127", quantity: 3.2 },
+        { ingredientId: "stock-0033", quantity: 0.35 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "minced-pork-basil",
+      name: "ผัดกะเพราหมูสับ",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 24,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0127", quantity: 4 },
+        { ingredientId: "stock-0043", quantity: 0.7 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.45 },
+      ],
+    },
+    {
+      slug: "red-duck-curry",
+      name: "แกงเผ็ดเป็ด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 5,
+      pricePerServing: 160,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2.5 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0127", quantity: 0.8 },
+        { ingredientId: "stock-0043", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "pork-congee",
+      name: "ข้าวต้มหมู",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 12,
+      pricePerServing: 45,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2.4 },
+        { ingredientId: "stock-0127", quantity: 1.5 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.15 },
+      ],
+    },
+    {
+      slug: "pineapple-fried-rice",
+      name: "ข้าวผัดสับปะรด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 16,
+      pricePerServing: 70,
+      items: [
+        { ingredientId: "stock-0001", quantity: 3.2 },
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+      ],
+    },
+  ],
+  "branch-bualuang": [
+    {
+      slug: "drunken-noodles",
+      name: "ผัดขี้เมา",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0138", quantity: 18 },
+        { ingredientId: "stock-0127", quantity: 2.5 },
+        { ingredientId: "stock-0043", quantity: 0.6 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "duck-on-rice",
+      name: "ข้าวหน้าเป็ด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 12,
+      pricePerServing: 80,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2.4 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "guay-jab",
+      name: "ก๋วยจั๊บ",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 10,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0138", quantity: 8 },
+        { ingredientId: "stock-0127", quantity: 2 },
+        { ingredientId: "stock-0083", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "chicken-yellow-curry",
+      name: "แกงกะหรี่ไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 120,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "bean-sprout-stirfry",
+      name: "ผัดถั่วงอก",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 15,
+      pricePerServing: 35,
+      items: [
+        { ingredientId: "stock-0138", quantity: 12 },
+        { ingredientId: "stock-0083", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "spicy-veggie-soup",
+      name: "แกงเลียง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 50,
+      items: [
+        { ingredientId: "stock-0138", quantity: 6 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0043", quantity: 0.3 },
+      ],
+    },
+  ],
+  "branch-chokechai": [
+    {
+      slug: "khao-soi",
+      name: "ข้าวซอย",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 10,
+      pricePerServing: 80,
+      items: [
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0001", quantity: 2 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.4 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+      ],
+    },
+    {
+      slug: "hang-lay-curry",
+      name: "แกงฮังเล",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 150,
+      items: [
+        { ingredientId: "stock-0127", quantity: 3.2 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.5 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+        { ingredientId: "stock-0033", quantity: 0.3 },
+        { ingredientId: "stock-0043", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "spicy-chicken-stirfry",
+      name: "ผัดเผ็ดไก่",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0043", quantity: 0.7 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.45 },
+      ],
+    },
+    {
+      slug: "basil-rice-fried-egg",
+      name: "ข้าวผัดกะเพราไข่ดาว",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 22,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4.4 },
+        { ingredientId: "stock-0138", quantity: 22 },
+        { ingredientId: "stock-0043", quantity: 0.6 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "shrimp-congee",
+      name: "ข้าวต้มกุ้ง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 10,
+      pricePerServing: 70,
+      items: [
+        { ingredientId: "stock-0001", quantity: 2 },
+        { ingredientId: "stock-0138", quantity: 6 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.15 },
+      ],
+    },
+    {
+      slug: "classic-fried-rice",
+      name: "ข้าวผัดโบราณ",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 25,
+      pricePerServing: 50,
+      items: [
+        { ingredientId: "stock-0001", quantity: 5 },
+        { ingredientId: "stock-0138", quantity: 25 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+      ],
+    },
+  ],
+  "branch-sikhio": [
+    {
+      slug: "sour-curry",
+      name: "แกงส้ม",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 6,
+      pricePerServing: 110,
+      items: [
+        { ingredientId: "stock-0138", quantity: 5 },
+        { ingredientId: "stock-0083", quantity: 1.5 },
+        { ingredientId: "stock-0032", quantity: 0.45 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+        { ingredientId: "stock-0043", quantity: 0.45 },
+      ],
+    },
+    {
+      slug: "pumpkin-stirfry",
+      name: "ผัดฟักทอง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 12,
+      pricePerServing: 45,
+      items: [
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0083", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.15 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+        { ingredientId: "stock-0127", quantity: 1 },
+      ],
+    },
+    {
+      slug: "shrimp-fried-rice",
+      name: "ข้าวผัดกุ้ง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0138", quantity: 15 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "american-fried-rice",
+      name: "ข้าวผัดอเมริกัน",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 60,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0138", quantity: 20 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+        { ingredientId: "stock-0033", quantity: 0.2 },
+      ],
+    },
+    {
+      slug: "pork-waterfall",
+      name: "น้ำตกหมู",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 10,
+      pricePerServing: 90,
+      items: [
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0033", quantity: 0.3 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+      ],
+    },
+    {
+      slug: "rice-with-curry",
+      name: "ข้าวราดแกง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 25,
+      pricePerServing: 50,
+      items: [
+        { ingredientId: "stock-0001", quantity: 5 },
+        { ingredientId: "stock-0083", quantity: 1.5 },
+        { ingredientId: "stock-0032", quantity: 0.35 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+        { ingredientId: "stock-0127", quantity: 2 },
+      ],
+    },
+  ],
+  "branch-khamthale": [
+    {
+      slug: "vegetarian-noodles",
+      name: "ก๋วยเตี๋ยวลุยสวน",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 12,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.2 },
+        { ingredientId: "stock-0089", quantity: 0.25 },
+        { ingredientId: "stock-0043", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "corn-fried-rice",
+      name: "ข้าวผัดข้าวโพด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0138", quantity: 14 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.22 },
+        { ingredientId: "stock-0089", quantity: 0.38 },
+      ],
+    },
+    {
+      slug: "seafood-drunken-stirfry",
+      name: "ผัดขี้เมาทะเล",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 12,
+      pricePerServing: 90,
+      items: [
+        { ingredientId: "stock-0138", quantity: 10 },
+        { ingredientId: "stock-0043", quantity: 0.6 },
+        { ingredientId: "stock-0033", quantity: 0.25 },
+        { ingredientId: "stock-0032", quantity: 0.3 },
+        { ingredientId: "stock-0089", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "garlic-pork-rice",
+      name: "ข้าวหน้าทอดกระเทียม",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 20,
+      pricePerServing: 65,
+      items: [
+        { ingredientId: "stock-0001", quantity: 4 },
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.3 },
+      ],
+    },
+    {
+      slug: "mushroom-tom-yum",
+      name: "ต้มยำเห็ด",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 8,
+      pricePerServing: 80,
+      items: [
+        { ingredientId: "stock-0138", quantity: 6 },
+        { ingredientId: "stock-0083", quantity: 1 },
+        { ingredientId: "stock-0032", quantity: 0.4 },
+        { ingredientId: "stock-0089", quantity: 0.2 },
+        { ingredientId: "stock-0043", quantity: 0.4 },
+      ],
+    },
+    {
+      slug: "curry-paste-stirfry",
+      name: "ผัดพริกแกง",
+      menuCategory: "อาหารจานเดียว",
+      servingYield: 15,
+      pricePerServing: 55,
+      items: [
+        { ingredientId: "stock-0127", quantity: 3 },
+        { ingredientId: "stock-0043", quantity: 0.5 },
+        { ingredientId: "stock-0033", quantity: 0.25 },
+        { ingredientId: "stock-0032", quantity: 0.25 },
+        { ingredientId: "stock-0089", quantity: 0.35 },
+      ],
+    },
+  ],
 }
 
 function round(value, digits = 3) {
@@ -242,35 +837,46 @@ async function clearDatabase(tx) {
   await tx.organization.deleteMany()
 }
 
-async function seedBranchWorkspace(tx, branch, branchIndex) {
-  const factor = branchFactor(branchIndex)
+async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
   const inventoryByIngredient = new Map()
   const reservationTotals = new Map()
+  const purchaseQuantityByIngredient = new Map(
+    purchaseDraft.map((item) => [item.ingredientId, item.quantity])
+  )
 
-  for (const ingredient of ingredients) {
-    const base = baseInventory[ingredient.id]
+  for (const item of stockSeedItems) {
+    const purchaseQuantity = purchaseQuantityByIngredient.get(item.id) ?? 0
+    const startingOnHand = Math.max(
+      Number(item.inventory.onHand) - purchaseQuantity,
+      0
+    )
     const row = await tx.branchInventory.create({
       data: {
         branchId: branch.id,
-        ingredientId: ingredient.id,
-        onHand: round(base.onHand * factor + branchIndex),
-        reorderPoint: round(base.reorderPoint * factor),
-        costPerUnit: round(base.costPerUnit * factor, 2),
+        ingredientId: item.id,
+        onHand: round(startingOnHand),
+        reorderPoint: round(item.inventory.reorderPoint),
+        costPerUnit: round(item.inventory.costPerUnit, 2),
         lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
       },
     })
-    inventoryByIngredient.set(ingredient.id, row)
+    inventoryByIngredient.set(item.id, row)
   }
 
   const purchaseItems = purchaseDraft.map((item) => {
-    const ingredient = ingredients.find((entry) => entry.id === item.ingredientId)
-    const unitPrice = round((ingredient?.defaultPrice ?? 0) * factor, 2)
-    const quantity = round(item.quantity * factor)
+    const ingredient = stockItemById.get(item.ingredientId)
+
+    if (!ingredient) {
+      throw new Error(`Missing stock seed item: ${item.ingredientId}`)
+    }
+
+    const unitPrice = round(ingredient.defaultPrice, 2)
+    const quantity = round(item.quantity)
 
     return {
       ingredientId: item.ingredientId,
       quantity,
-      unit: ingredient?.unit ?? "-",
+      unit: ingredient.unit,
       unitPrice,
       lineTotal: round(quantity * unitPrice, 2),
     }
@@ -336,7 +942,7 @@ async function seedBranchWorkspace(tx, branch, branchIndex) {
     })
   }
 
-  for (const template of recipeTemplates) {
+  for (const template of templates) {
     const recipe = await tx.recipe.create({
       data: {
         id: `${branch.id}-recipe-${template.slug}`,
@@ -447,17 +1053,23 @@ async function main() {
         }
       }
 
-      for (const ingredient of ingredients) {
+      for (const ingredient of stockSeedItems) {
         await tx.ingredient.create({
           data: {
-            ...ingredient,
+            id: ingredient.id,
             organizationId: organization.id,
+            name: ingredient.name,
+            category: ingredient.category,
+            unit: ingredient.unit,
+            defaultPrice: ingredient.defaultPrice,
+            supplier: ingredient.supplier,
           },
         })
       }
 
       for (const [index, branch] of branches.entries()) {
-        await seedBranchWorkspace(tx, branch, index)
+        const templates = recipeTemplatesByBranch[branch.id]
+        await seedBranchWorkspace(tx, branch, index, templates)
       }
 
       await tx.auditLog.create({
@@ -469,14 +1081,15 @@ async function main() {
           entityId: organization.id,
           metadataJson: JSON.stringify({
             branches: branches.length,
-            ingredients: ingredients.length,
-            recipesPerBranch: recipeTemplates.length,
+            ingredients: stockSeedItems.length,
+            recipesPerBranch: 6,
+            skippedStockRows: stockSeedStats.skippedRows,
           }),
         },
       })
     },
     {
-      timeout: 30000,
+      timeout: 120000,
     }
   )
 }

@@ -33,11 +33,9 @@ import {
   Sparkles,
   Star,
   Trash2,
-  TrendingUp,
   UserPlus,
   UserRound,
   Users,
-  Wallet,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { th } from "date-fns/locale"
@@ -188,16 +186,32 @@ const decimalFormatter = new Intl.NumberFormat("th-TH", {
   maximumFractionDigits: 2,
 })
 
-const percentFormatter = new Intl.NumberFormat("th-TH", {
-  maximumFractionDigits: 1,
-})
-
 function formatCurrency(value: number) {
   return currencyFormatter.format(Math.max(value, 0))
 }
 
 function formatNumber(value: number) {
   return decimalFormatter.format(value)
+}
+
+function formatMetricValue(metric: Store["reportCashFlowMetrics"][number]) {
+  if (metric.id === "purchase-total") {
+    return formatCurrency(metric.value)
+  }
+
+  return `${formatNumber(metric.value)} รายการ`
+}
+
+function metricHelper(metric: Store["reportCashFlowMetrics"][number]) {
+  if (metric.id === "purchase-total") {
+    return "รวมยอดซื้อจากฐานข้อมูล"
+  }
+
+  if (metric.id === "cooking-count") {
+    return "จำนวนครั้งที่ปรุงสำเร็จ"
+  }
+
+  return "จำนวนความเคลื่อนไหวสต็อก"
 }
 
 function formatThaiDate(date: Date) {
@@ -813,13 +827,21 @@ function BranchSwitcher({ store }: { store: Store }) {
 }
 
 function DashboardView({ store }: { store: Store }) {
-  const dailySales =
-    store.cashFlowMetrics.find((metric) => metric.id === "sales")?.value ?? 0
-  const margin =
-    store.cashFlowMetrics.find((metric) => metric.id === "margin")?.value ?? 0
-
   return (
     <div className="space-y-5">
+      {store.isDashboardLoading && (
+        <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+          <LoaderCircle className="size-4 animate-spin" />
+          กำลังโหลดแดชบอร์ดจากฐานข้อมูล
+        </div>
+      )}
+
+      {store.dashboardError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {store.dashboardError}
+        </div>
+      )}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="ยอดซื้อร่างล่าสุด"
@@ -829,24 +851,24 @@ function DashboardView({ store }: { store: Store }) {
           tone="border-amber-200 bg-amber-50 text-amber-800"
         />
         <MetricCard
-          label="ยอดขายวันนี้"
-          value={formatCurrency(dailySales)}
-          helper="+12.4% จากเมื่อวาน"
-          icon={TrendingUp}
+          label="ยอดซื้อรวมในสาขา"
+          value={formatCurrency(store.dashboardSummary.purchaseTotal)}
+          helper="รวมจากใบซื้อที่บันทึกในฐานข้อมูล"
+          icon={ReceiptText}
           tone="border-emerald-200 bg-emerald-50 text-emerald-800"
         />
         <MetricCard
           label="สต็อกต้องดูแล"
-          value={`${store.lowStockItems.length} รายการ`}
+          value={`${store.dashboardSummary.stockNeedCount} รายการ`}
           helper="คงเหลือไม่พอต่อการจองใช้"
           icon={AlertTriangle}
           tone="border-red-200 bg-red-50 text-red-800"
         />
         <MetricCard
-          label="กำไรขั้นต้น"
-          value={formatCurrency(margin)}
-          helper="รวมผลจากยอดซื้อร่าง"
-          icon={Wallet}
+          label="รายการที่ปรุงแล้ว"
+          value={`${store.dashboardSummary.cookingCount} รายการ`}
+          helper="นับจาก cooking runs ในฐานข้อมูล"
+          icon={ChefHat}
           tone="border-teal-200 bg-teal-50 text-teal-800"
         />
       </section>
@@ -859,7 +881,7 @@ function DashboardView({ store }: { store: Store }) {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {store.lowStockItems.length > 0 ? (
-              store.lowStockItems.map((item) => (
+              store.lowStockItems.map((item: InventoryRow) => (
                 <StockAlertRow key={item.ingredientId} item={item} />
               ))
             ) : (
@@ -941,8 +963,42 @@ function StockAlertRow({ item }: { item: InventoryRow }) {
 }
 
 function PurchaseView({ store }: { store: Store }) {
+  const [purchaseMessage, setPurchaseMessage] = useState("")
+
+  async function handleSubmitPurchase() {
+    setPurchaseMessage("")
+    const result = await store.submitPurchase()
+
+    if (!result.ok) {
+      setPurchaseMessage(result.error ?? "ไม่สามารถบันทึกใบซื้อได้")
+      return
+    }
+
+    setPurchaseMessage("บันทึกใบซื้อเข้าฐานข้อมูลและอัปเดตคลังวัตถุดิบแล้ว")
+  }
+
   return (
     <div className="space-y-5">
+      {store.isPurchasesLoading && (
+        <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+          <LoaderCircle className="size-4 animate-spin" />
+          กำลังโหลดประวัติใบซื้อจากฐานข้อมูล
+        </div>
+      )}
+
+      {(store.purchaseError || purchaseMessage) && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3 text-sm",
+            store.purchaseError
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800",
+          )}
+        >
+          {store.purchaseError || purchaseMessage}
+        </div>
+      )}
+
       <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
         <div className="mb-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
@@ -1029,6 +1085,23 @@ function PurchaseView({ store }: { store: Store }) {
             <Button className="h-11" onClick={store.addPurchaseItem}>
               <Plus className="size-4" />
               เพิ่มรายการ
+            </Button>
+            <Button
+              className="h-11"
+              onClick={handleSubmitPurchase}
+              disabled={store.isPurchaseSaving}
+            >
+              {store.isPurchaseSaving ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  กำลังบันทึก...
+                </>
+              ) : (
+                <>
+                  <Save className="size-4" />
+                  บันทึกใบซื้อ
+                </>
+              )}
             </Button>
           </div>
 
@@ -1228,6 +1301,7 @@ function IngredientSelect({
   const selectedIngredient = store.ingredientById.get(item.ingredientId)
   const [query, setQuery] = useState(selectedIngredient?.name ?? "")
   const [isOpen, setIsOpen] = useState(false)
+  const [isAdding, setIsAdding] = useState(false)
   const searchTerm = normalizeSearch(query)
   const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
   const exactIngredient = store.ingredients.find(
@@ -1272,12 +1346,18 @@ function IngredientSelect({
     setIsOpen(false)
   }
 
-  function handleAddIngredient() {
-    const ingredient = store.addIngredientFromPurchase({
+  async function handleAddIngredient() {
+    if (isAdding || store.isIngredientSaving) {
+      return
+    }
+
+    setIsAdding(true)
+    const ingredient = await store.addIngredientFromPurchase({
       name: query,
       unit: item.unit,
       unitPrice: item.unitPrice,
     })
+    setIsAdding(false)
 
     if (!ingredient) {
       return
@@ -1341,8 +1421,13 @@ function IngredientSelect({
               className="mt-1 flex min-h-12 w-full items-center gap-2 rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-left text-amber-900 hover:bg-amber-100"
               onMouseDown={(event) => event.preventDefault()}
               onClick={handleAddIngredient}
+              disabled={isAdding || store.isIngredientSaving}
             >
-              <Plus className="size-4 shrink-0" />
+              {isAdding || store.isIngredientSaving ? (
+                <LoaderCircle className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <Plus className="size-4 shrink-0" />
+              )}
               <span className="min-w-0">
                 <span className="block font-medium">
                   เพิ่ม “{query.trim()}”
@@ -1402,7 +1487,7 @@ function StockView({ store }: { store: Store }) {
   )
   const [stockMessage, setStockMessage] = useState("")
   const editingItem = store.inventoryRows.find(
-    (item) => item.ingredientId === editingIngredientId
+    (item: { ingredientId: string | null }) => item.ingredientId === editingIngredientId
   )
 
   function startStockEdit(item: InventoryRow) {
@@ -1454,7 +1539,7 @@ function StockView({ store }: { store: Store }) {
         />
         <MetricCard
           label="กำลังรับเข้า"
-          value={`${store.inventoryRows.filter((item) => item.incoming > 0).length} รายการ`}
+          value={`${store.inventoryRows.filter((item: { incoming: number }) => item.incoming > 0).length} รายการ`}
           helper="จากใบซื้อร่างล่าสุด"
           icon={Package}
           tone="border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -1475,7 +1560,7 @@ function StockView({ store }: { store: Store }) {
       )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:hidden">
-        {store.inventoryRows.map((item) => (
+        {store.inventoryRows.map((item: InventoryRow) => (
           <StockMobileCard
             key={item.ingredientId}
             item={item}
@@ -1499,7 +1584,7 @@ function StockView({ store }: { store: Store }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {store.inventoryRows.map((item) => (
+            {store.inventoryRows.map((item: InventoryRow) => (
               <TableRow
                 key={item.ingredientId}
                 className={cn(
@@ -1962,7 +2047,7 @@ function RecipesView({ store }: { store: Store }) {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        {store.pinnedRecipeImpacts.map((recipe) => (
+        {store.pinnedRecipeImpacts.map((recipe: RecipeImpact) => (
           <RecipeCard
             key={recipe.id}
             recipe={recipe}
@@ -2134,7 +2219,7 @@ function RecipeFormView({
   const defaultIngredientId = store.ingredients[0]?.id ?? ""
   const editingRecipe =
     mode === "edit"
-      ? store.recipeImpacts.find((recipe) => recipe.id === recipeId)
+      ? store.recipeImpacts.find((recipe: { id: string | undefined }) => recipe.id === recipeId)
       : undefined
   const [recipeDraft, setRecipeDraft] = useState<RecipeFormInput>(() =>
     editingRecipe
@@ -2174,7 +2259,7 @@ function RecipeFormView({
       recipeDraft.ingredients.map((item) => item.ingredientId)
     )
     const ingredient =
-      store.ingredients.find((item) => !usedIngredientIds.has(item.id)) ??
+      store.ingredients.find((item: { id: string }) => !usedIngredientIds.has(item.id)) ??
       store.ingredients[0]
 
     if (!ingredient) {
@@ -2255,7 +2340,7 @@ function RecipeFormView({
             </CardAction>
             <CardTitle>ไม่พบเมนูสูตรอาหาร</CardTitle>
             <CardDescription>
-              เมนูนี้อาจถูกลบแล้ว หรือข้อมูล mock ถูกรีเซ็ตหลัง refresh
+              เมนูนี้อาจถูกลบแล้ว หรือยังโหลดข้อมูลจากฐานข้อมูลไม่สำเร็จ
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -2667,7 +2752,7 @@ function BranchBadgeList({
     ? store.branches
     : branchIds
         .map((branchId) =>
-          store.branches.find((branch) => branch.id === branchId)
+          store.branches.find((branch: { id: string }) => branch.id === branchId)
         )
         .filter((branch): branch is Store["branches"][number] =>
           Boolean(branch)
@@ -3120,7 +3205,7 @@ function MemberFormView() {
               </Link>
             </div>
             <p className="text-xs text-muted-foreground">
-              บัญชี mock ที่เพิ่มใหม่ใช้รหัสผ่านเริ่มต้น 123456
+              บัญชีที่เพิ่มใหม่ใช้รหัสผ่านเริ่มต้น 123456 และถูกบันทึกในฐานข้อมูล
             </p>
           </form>
         </CardContent>
@@ -3282,20 +3367,31 @@ function StatusSelect({
 function ReportsView({ store }: { store: Store }) {
   return (
     <div className="space-y-5">
+      {store.isReportsLoading && (
+        <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+          <LoaderCircle className="size-4 animate-spin" />
+          กำลังโหลดรายงานจากฐานข้อมูล
+        </div>
+      )}
+
+      {store.reportsError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {store.reportsError}
+        </div>
+      )}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {store.reportCashFlowMetrics.map((metric) => (
           <MetricCard
             key={metric.id}
             label={metric.label}
-            value={formatCurrency(metric.value)}
-            helper={`${metric.delta > 0 ? "+" : ""}${percentFormatter.format(metric.delta)}% จากช่วงก่อน`}
+            value={formatMetricValue(metric)}
+            helper={metricHelper(metric)}
             icon={BarChart3}
             tone={
               metric.kind === "expense"
                 ? "border-amber-200 bg-amber-50 text-amber-800"
-                : metric.kind === "margin"
-                  ? "border-teal-200 bg-teal-50 text-teal-800"
-                  : "border-sky-200 bg-sky-50 text-sky-800"
+                : "border-sky-200 bg-sky-50 text-sky-800"
             }
           />
         ))}
@@ -3391,11 +3487,8 @@ function CashFlowList({
               {metric.kind}
             </Badge>
           </div>
-          <p className="text-2xl font-bold">{formatCurrency(metric.value)}</p>
-          <p className="text-sm text-muted-foreground">
-            {metric.delta > 0 ? "+" : ""}
-            {percentFormatter.format(metric.delta)}% จากช่วงก่อน
-          </p>
+          <p className="text-2xl font-bold">{formatMetricValue(metric)}</p>
+          <p className="text-sm text-muted-foreground">{metricHelper(metric)}</p>
         </div>
       ))}
     </div>
