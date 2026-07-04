@@ -2867,12 +2867,15 @@ function RecipeAddCard() {
   return (
     <Link
       href="/portal/recipes/new"
-      className="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50/40 text-sky-700 transition-colors hover:border-sky-500 hover:bg-sky-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="flex min-h-44 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-sky-300 bg-sky-50/40 px-4 py-6 text-center text-sky-700 transition-colors hover:border-sky-500 hover:bg-sky-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:min-h-56"
     >
       <span className="flex size-20 items-center justify-center rounded-full border border-sky-200 bg-background shadow-sm">
         <Plus className="size-10" />
       </span>
-      <span className="sr-only">ปักหมุดเมนูสูตรอาหาร</span>
+      <span className="font-semibold">เพิ่มสูตรอาหารใหม่</span>
+      <span className="max-w-56 text-sm text-sky-700/80">
+        สร้างสูตรพร้อมวัตถุดิบและปักหมุดใช้งาน
+      </span>
     </Link>
   )
 }
@@ -2914,16 +2917,13 @@ function RecipePinSelection({
           const pinned = recipe.isPinned
 
           return (
-            <div
-              key={recipe.id}
-              className="rounded-lg border border-border p-4"
-            >
+            <div key={recipe.id} className="rounded-lg border border-border p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm text-muted-foreground">
                     {recipe.menuCategory}
                   </p>
-                  <h3 className="font-semibold">{recipe.name}</h3>
+                  <h3 className="truncate font-semibold">{recipe.name}</h3>
                 </div>
                 <Badge
                   variant="outline"
@@ -2961,9 +2961,9 @@ function RecipePinSelection({
                 })}
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <Button
-                  className="h-11 flex-1"
+                  className="h-11 w-full sm:col-span-1"
                   onClick={() => onPin(recipe.id)}
                   disabled={pinned || isSaving}
                 >
@@ -2978,15 +2978,15 @@ function RecipePinSelection({
                   href={`/portal/recipes/${recipe.id}/edit`}
                   className={buttonVariants({
                     variant: "outline",
-                    className: "h-11 flex-1",
+                    className: "h-11 w-full",
                   })}
                 >
                   <Pencil className="size-4" />
-                  แก้ไขสูตร
+                  แก้ไข
                 </Link>
                 <Button
                   variant="outline"
-                  className="h-11 flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="h-11 w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                   onClick={() => onDelete(recipe.id)}
                   disabled={isSaving}
                 >
@@ -2995,7 +2995,7 @@ function RecipePinSelection({
                   ) : (
                     <Trash2 className="size-4" />
                   )}
-                  ลบสูตร
+                  ลบ
                 </Button>
               </div>
             </div>
@@ -3274,12 +3274,12 @@ function RecipeFormView({
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Label>วัตถุดิบในสูตร</Label>
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10"
+                  className="h-11 w-full sm:w-auto"
                   onClick={addRecipeIngredientLine}
                 >
                   <Plus className="size-4" />
@@ -3293,8 +3293,24 @@ function RecipeFormView({
                 return (
                   <div
                     key={`${item.ingredientId}-${index}`}
-                    className="grid gap-3 rounded-lg border border-border p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end"
+                    className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end md:bg-background"
                   >
+                    <div className="flex items-center justify-between gap-3 md:hidden">
+                      <Badge variant="secondary" className="h-7 px-3">
+                        รายการที่ {index + 1}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-lg"
+                        className="size-10 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => removeRecipeIngredientLine(index)}
+                        disabled={recipeDraft.ingredients.length === 1}
+                      >
+                        <Trash2 className="size-4" />
+                        <span className="sr-only">ลบวัตถุดิบ</span>
+                      </Button>
+                    </div>
                     <div>
                       <Label className="mb-2 block">วัตถุดิบ</Label>
                       <RecipeIngredientSelect
@@ -3327,9 +3343,9 @@ function RecipeFormView({
                     </div>
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="outline"
                       size="icon-lg"
-                      className="h-11 w-11 text-muted-foreground"
+                      className="hidden h-11 w-11 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 md:inline-flex"
                       onClick={() => removeRecipeIngredientLine(index)}
                       disabled={recipeDraft.ingredients.length === 1}
                     >
@@ -3347,10 +3363,10 @@ function RecipeFormView({
               </div>
             )}
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2">
               <Button
                 type="submit"
-                className="h-11 flex-1"
+                className="h-12 w-full text-base sm:text-sm"
                 disabled={store.isRecipeSaving}
               >
                 {store.isRecipeSaving ? (
@@ -3364,7 +3380,7 @@ function RecipeFormView({
                 href="/portal/recipes"
                 className={buttonVariants({
                   variant: "outline",
-                  className: "h-11 flex-1",
+                  className: "h-12 w-full text-base sm:text-sm",
                 })}
               >
                 <Minus className="size-4" />
@@ -3404,9 +3420,9 @@ function RecipeCard({
 
   return (
     <Card className="rounded-lg">
-      <CardHeader>
-        <CardAction>
-          <div className="flex items-center gap-2">
+      <CardHeader className="max-sm:grid-cols-1">
+        <CardAction className="max-sm:col-start-1 max-sm:row-start-3 max-sm:mt-3 max-sm:w-full max-sm:justify-self-stretch">
+          <div className="flex items-center justify-between gap-2 sm:justify-end">
             <Badge
               variant="outline"
               className={cn("h-6", recipeStatusClassName)}
@@ -3414,9 +3430,8 @@ function RecipeCard({
               {recipeStatusLabel}
             </Badge>
             <Button
-              variant="ghost"
-              size="icon-lg"
-              className="h-10 w-10 text-red-600"
+              variant="outline"
+              className="h-10 border-rose-200 px-3 text-rose-700 hover:bg-rose-50 hover:text-rose-800 sm:w-10 sm:px-0"
               onClick={() => onUnpin(recipe.id)}
               disabled={isSaving || recipe.isCooked}
             >
@@ -3425,7 +3440,7 @@ function RecipeCard({
               ) : (
                 <Pin className="size-4" />
               )}
-              <span className="sr-only">ถอนปักหมุดเมนู</span>
+              <span className="sm:sr-only">ถอนปักหมุด</span>
             </Button>
           </div>
         </CardAction>
@@ -3467,7 +3482,7 @@ function RecipeCard({
           </div>
         ) : recipe.canProduce ? (
           <Button
-            className="h-11 w-full"
+            className="h-12 w-full"
             onClick={() => onCook(recipe.id)}
             disabled={isSaving}
           >
