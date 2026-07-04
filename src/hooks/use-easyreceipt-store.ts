@@ -130,7 +130,8 @@ const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
 const branchesQueryKey = ["easyreceipt", "branches"] as const
-const membersQueryKey = ["easyreceipt", "members"] as const
+const membersQueryKey = (memberId: string) =>
+  ["easyreceipt", "members", memberId] as const
 const reportsQueryKey = ["easyreceipt", "reports", "summary"] as const
 const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
@@ -499,6 +500,20 @@ export function useEasyReceiptStore() {
     [updateBranchWorkspace]
   )
 
+  const clearAccountQueryCache = useCallback(() => {
+    for (const queryKey of [
+      branchesQueryKey,
+      ["easyreceipt", "members"] as const,
+      ["easyreceipt", "reports"] as const,
+      ["easyreceipt", "dashboard"] as const,
+      ["easyreceipt", "inventory"] as const,
+      ["easyreceipt", "purchases"] as const,
+      ["easyreceipt", "recipes"] as const,
+    ]) {
+      queryClient.removeQueries({ queryKey })
+    }
+  }, [queryClient])
+
   const syncAuthenticatedMember = useCallback((member: Member) => {
     const nextMember = {
       ...member,
@@ -525,13 +540,14 @@ export function useEasyReceiptStore() {
   const clearAuthenticatedMember = useCallback(() => {
     clearMemberSession()
     clearBranchSession()
+    clearAccountQueryCache()
     setCurrentMember(null)
     setBranches([])
     setMembers([])
     setActiveBranchId("")
     setBranchWorkspaces({})
     setActiveView("dashboard")
-  }, [])
+  }, [clearAccountQueryCache])
 
   const activePurchaseDate =
     activeWorkspace.purchaseDate ?? createEmptyBranchWorkspace("").purchaseDate
@@ -586,7 +602,7 @@ export function useEasyReceiptStore() {
   })
 
   const membersQuery = useQuery({
-    queryKey: membersQueryKey,
+    queryKey: membersQueryKey(currentMember?.id ?? ""),
     queryFn: apiGetMembers,
     enabled: Boolean(currentMember),
     staleTime: 30_000,
@@ -595,6 +611,7 @@ export function useEasyReceiptStore() {
   const loginMutation = useMutation({
     mutationFn: apiLogin,
     onSuccess: ({ member, branches }) => {
+      clearAccountQueryCache()
       queryClient.setQueryData(authSessionQueryKey, member)
       queryClient.setQueryData(branchesQueryKey, branches)
       syncAuthenticatedMember(member)
@@ -809,7 +826,7 @@ export function useEasyReceiptStore() {
       setMemberMutationError("")
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+      void queryClient.invalidateQueries({ queryKey: ["easyreceipt", "members"] })
     },
     onError: (error) => {
       setMemberMutationError(
@@ -830,7 +847,7 @@ export function useEasyReceiptStore() {
       setMemberMutationError("")
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: membersQueryKey })
+      void queryClient.invalidateQueries({ queryKey: ["easyreceipt", "members"] })
     },
     onError: (error) => {
       setMemberMutationError(
@@ -1293,6 +1310,7 @@ export function useEasyReceiptStore() {
 
   function logout() {
     queryClient.setQueryData(authSessionQueryKey, null)
+    clearAccountQueryCache()
     clearAuthenticatedMember()
     logoutMutation.mutate()
   }
