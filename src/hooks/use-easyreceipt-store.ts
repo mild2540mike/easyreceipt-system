@@ -1064,8 +1064,10 @@ export function useEasyReceiptStore() {
         item.reserved,
         reservedByIngredient.get(item.ingredientId) ?? 0
       )
-      const available = Math.max(item.onHand - reserved, 0)
-      const suggestedPurchaseQuantity = Math.max(reserved - item.onHand, 0)
+      const available = roundQuantity(Math.max(item.onHand - reserved, 0))
+      const suggestedPurchaseQuantity = roundQuantity(
+        Math.max(reserved - item.onHand, 0)
+      )
       const stockPercent = Math.min(
         Math.round((available / Math.max(item.reorderPoint * 2, 1)) * 100),
         100
@@ -1400,7 +1402,7 @@ export function useEasyReceiptStore() {
           purchaseItems.push({
             id: `${workspace.branchId}-suggested-${Date.now()}-${index}`,
             ingredientId: row.ingredientId,
-            quantity: row.suggestedPurchaseQuantity,
+            quantity: roundQuantity(row.suggestedPurchaseQuantity),
             unit: row.ingredient.unit,
             unitPrice: row.ingredient.defaultPrice,
           })
@@ -1410,9 +1412,8 @@ export function useEasyReceiptStore() {
         const currentItem = purchaseItems[existingIndex]
         purchaseItems[existingIndex] = {
           ...currentItem,
-          quantity: Math.max(
-            currentItem.quantity,
-            row.suggestedPurchaseQuantity
+          quantity: roundQuantity(
+            Math.max(currentItem.quantity, row.suggestedPurchaseQuantity)
           ),
           unit: currentItem.unit || row.ingredient.unit,
           unitPrice: currentItem.unitPrice || row.ingredient.defaultPrice,
