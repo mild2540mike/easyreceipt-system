@@ -1,5 +1,6 @@
 import { Router } from "express"
 import { z } from "zod"
+import bcrypt from "bcryptjs"
 
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
@@ -20,6 +21,7 @@ const statusSchema = z.enum(["active", "invited", "suspended"])
 const addMemberSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
+  password: z.string().min(6),
   role: roleSchema,
   branchIds: z.array(z.string().min(1)).min(1),
 })
@@ -131,7 +133,7 @@ membersRouter.post(
           email: input.email.trim().toLowerCase(),
           role: input.role,
           status: "invited",
-          passwordHash: "prototype:123456",
+          passwordHash: await bcrypt.hash(input.password, 10),
         },
       })
 

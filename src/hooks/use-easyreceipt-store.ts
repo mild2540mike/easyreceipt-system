@@ -77,6 +77,7 @@ export type PurchaseSeriesItem = {
 export type MemberFormInput = {
   name: string
   email: string
+  password: string
   role: MemberRole
   branchIds: string[]
 }
@@ -1724,7 +1725,12 @@ export function useEasyReceiptStore() {
     const trimmedEmail = input.email.trim().toLowerCase()
     const branchIds = sanitizeBranchIds(input.branchIds, input.role)
 
-    if (!input.name.trim() || !trimmedEmail || branchIds.length === 0) {
+    if (
+      !input.name.trim() ||
+      !trimmedEmail ||
+      input.password.trim().length < 6 ||
+      branchIds.length === 0
+    ) {
       return false
     }
 
@@ -1732,6 +1738,7 @@ export function useEasyReceiptStore() {
       await addMemberMutation.mutateAsync({
         name: input.name.trim(),
         email: trimmedEmail,
+        password: input.password.trim(),
         role: input.role,
         branchIds,
       })

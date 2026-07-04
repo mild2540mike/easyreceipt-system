@@ -31,6 +31,7 @@ type ApiMemberWithBranches = ApiMember & {
 export type AddMemberApiInput = {
   name: string
   email: string
+  password: string
   role: string
   branchIds: string[]
 }

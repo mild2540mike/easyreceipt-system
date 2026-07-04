@@ -2990,39 +2990,110 @@ function RecipeIngredientSelect({
   store: Store
   onChange: (value: string) => void
 }) {
+  const selectedIngredient = store.ingredientById.get(value)
+  const [query, setQuery] = useState(selectedIngredient?.name ?? "")
+  const [isOpen, setIsOpen] = useState(false)
+  const searchTerm = normalizeSearch(query)
+  const filteredIngredients = store.ingredients
+    .filter((ingredient) => {
+      if (!searchTerm) {
+        return true
+      }
+
+      return [
+        ingredient.name,
+        ingredient.category,
+        ingredient.unit,
+        ingredient.supplier,
+      ]
+        .map(normalizeSearch)
+        .some((item) => item.includes(searchTerm))
+    })
+    .sort((left, right) => {
+      const leftName = normalizeSearch(left.name)
+      const rightName = normalizeSearch(right.name)
+      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+
+      if (leftStarts !== rightStarts) {
+        return leftStarts - rightStarts
+      }
+
+      return left.name.localeCompare(right.name, "th")
+    })
+
+  function handleSelectIngredient(ingredientId: string) {
+    const ingredient = store.ingredientById.get(ingredientId)
+
+    if (!ingredient) {
+      return
+    }
+
+    onChange(ingredientId)
+    setQuery(ingredient.name)
+    setIsOpen(false)
+  }
+
   return (
-    <Select
-      value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue) {
-          onChange(String(nextValue))
-        }
-      }}
-    >
-      <SelectTrigger className="h-11 w-full">
-        <SelectValue placeholder="เลือกวัตถุดิบ">
-          {(nextValue) =>
-            store.ingredientById.get(String(nextValue))?.name ?? "เลือกวัตถุดิบ"
-          }
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent align="start">
-        {store.ingredients.map((ingredient) => (
-          <SelectItem
-            key={ingredient.id}
-            value={ingredient.id}
-            label={ingredient.name}
-          >
-            <span className="flex flex-col">
-              <span>{ingredient.name}</span>
-              <span className="text-xs text-muted-foreground">
-                {ingredient.category} · {ingredient.unit}
-              </span>
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="h-11 pl-9"
+          value={isOpen ? query : (selectedIngredient?.name ?? query)}
+          placeholder="ค้นหาวัตถุดิบ"
+          onFocus={() => {
+            setQuery(selectedIngredient?.name ?? query)
+            setIsOpen(true)
+          }}
+          onBlur={() => {
+            window.setTimeout(() => {
+              setQuery(selectedIngredient?.name ?? query)
+              setIsOpen(false)
+            }, 120)
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setIsOpen(true)
+          }}
+        />
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-50 max-h-80 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
+          {filteredIngredients.length > 0 ? (
+            filteredIngredients.map((ingredient) => (
+              <button
+                key={ingredient.id}
+                type="button"
+                className={cn(
+                  "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted",
+                  ingredient.id === value && "bg-muted"
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => handleSelectIngredient(ingredient.id)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {ingredient.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {ingredient.category} · {ingredient.supplier}
+                  </span>
+                </span>
+                <Badge variant="secondary" className="h-6 shrink-0">
+                  {ingredient.unit}
+                </Badge>
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+              ไม่พบวัตถุดิบที่ตรงกับคำค้น
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -3351,6 +3422,7 @@ function MemberFormView() {
   const router = useRouter()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [role, setRole] = useState<MemberRole>("staff")
   const [branchIds, setBranchIds] = useState<string[]>(() =>
     store.activeBranchId
@@ -3371,15 +3443,25 @@ function MemberFormView() {
       role === "owner"
         ? store.branches.map((branch) => branch.id)
         : branchIds
-    const ok = await store.addMember({ name, email, role, branchIds: nextBranchIds })
+    const ok = await store.addMember({
+      name,
+      email,
+      password,
+      role,
+      branchIds: nextBranchIds,
+    })
 
     if (!ok) {
-      setMessage(store.memberError || "กรุณากรอกชื่อ อีเมล เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ")
+      setMessage(
+        store.memberError ||
+          "กรุณากรอกชื่อ อีเมล รหัสผ่านอย่างน้อย 6 ตัวอักษร เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ"
+      )
       return
     }
 
     setName("")
     setEmail("")
+    setPassword("")
     setRole("staff")
     setBranchIds(
       store.activeBranchId
@@ -3435,6 +3517,17 @@ function MemberFormView() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="name@easyreceipt.local"
+                />
+              </div>
+              <div>
+                <Label className="mb-2 block">รหัสผ่าน</Label>
+                <Input
+                  type="password"
+                  className="h-11"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="อย่างน้อย 6 ตัวอักษร"
+                  autoComplete="new-password"
                 />
               </div>
               <div>
@@ -3501,7 +3594,7 @@ function MemberFormView() {
               </Link>
             </div>
             <p className="text-xs text-muted-foreground">
-              บัญชีที่เพิ่มใหม่ใช้รหัสผ่านเริ่มต้น 123456 และถูกบันทึกในฐานข้อมูล
+              รหัสผ่านของสมาชิกใหม่จะถูกเข้ารหัสก่อนบันทึกในฐานข้อมูล
             </p>
           </form>
         </CardContent>

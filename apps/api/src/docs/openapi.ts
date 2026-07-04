@@ -209,10 +209,11 @@ export const openApiDocument = {
       },
       MemberInput: {
         type: "object",
-        required: ["name", "email", "role", "branchIds"],
+        required: ["name", "email", "password", "role", "branchIds"],
         properties: {
           name: { type: "string", example: "พนักงานใหม่" },
           email: { type: "string", format: "email", example: "staff2@easyreceipt.local" },
+          password: { type: "string", minLength: 6, example: "123456" },
           role: {
             type: "string",
             enum: ["owner", "manager", "staff", "viewer"],
