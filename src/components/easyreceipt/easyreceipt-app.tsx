@@ -2349,7 +2349,6 @@ function RecipesView({ store }: { store: Store }) {
             editHref={`/portal/recipes/${recipe.id}/edit`}
             onUnpin={handleUnpinRecipe}
             onCook={handleCookRecipe}
-            onDelete={handleDeleteRecipe}
             isSaving={store.isRecipeSaving}
           />
         ))}
@@ -2377,11 +2376,13 @@ function RecipePinSelection({
   recipes,
   store,
   onPin,
+  onDelete,
   isSaving,
 }: {
   recipes: RecipeImpact[]
   store: Store
   onPin: (recipeId: string) => void
+  onDelete: (recipeId: string) => void
   isSaving: boolean
 }) {
   return (
@@ -2478,6 +2479,19 @@ function RecipePinSelection({
                   <Pencil className="size-4" />
                   แก้ไขสูตร
                 </Link>
+                <Button
+                  variant="outline"
+                  className="h-11 flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  onClick={() => onDelete(recipe.id)}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  ลบสูตร
+                </Button>
               </div>
             </div>
           )
@@ -2593,6 +2607,16 @@ function RecipeFormView({
     router.push("/portal/recipes")
   }
 
+  async function handleDeleteExistingRecipe(recipeId: string) {
+    const result = await store.deleteRecipe(recipeId)
+
+    setMessage(
+      result.ok
+        ? "ลบสูตรอาหารแล้ว"
+        : (result.error ?? "ไม่สามารถลบสูตรอาหารได้")
+    )
+  }
+
   async function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedDraft = normalizeRecipeDraft(recipeDraft)
@@ -2672,6 +2696,7 @@ function RecipeFormView({
           recipes={store.recipeImpacts}
           store={store}
           onPin={handlePinExistingRecipe}
+          onDelete={handleDeleteExistingRecipe}
           isSaving={store.isRecipeSaving}
         />
       )}
@@ -2854,7 +2879,6 @@ function RecipeCard({
   editHref,
   onUnpin,
   onCook,
-  onDelete,
   isSaving,
 }: {
   recipe: RecipeImpact
@@ -2862,7 +2886,6 @@ function RecipeCard({
   editHref: string
   onUnpin: (recipeId: string) => void
   onCook: (recipeId: string) => void
-  onDelete: (recipeId: string) => void
   isSaving: boolean
 }) {
   const recipeStatusLabel = recipe.isCooked
@@ -2887,17 +2910,6 @@ function RecipeCard({
             >
               {recipeStatusLabel}
             </Badge>
-            <Link
-              href={editHref}
-              className={buttonVariants({
-                variant: "outline",
-                size: "icon-lg",
-                className: "h-10 w-10",
-              })}
-            >
-              <Pencil className="size-4" />
-              <span className="sr-only">แก้ไขเมนู</span>
-            </Link>
             <Button
               variant="ghost"
               size="icon-lg"
@@ -2911,16 +2923,6 @@ function RecipeCard({
                 <Pin className="size-4" />
               )}
               <span className="sr-only">ถอนปักหมุดเมนู</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              className="h-10 w-10 text-red-600"
-              onClick={() => onDelete(recipe.id)}
-              disabled={isSaving}
-            >
-              <Trash2 className="size-4" />
-              <span className="sr-only">ลบเมนู</span>
             </Button>
           </div>
         </CardAction>

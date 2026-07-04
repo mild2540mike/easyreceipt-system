@@ -44,6 +44,27 @@ type RecipePlanForCooking = Prisma.RecipePlanGetPayload<{
   }
 }>
 
+function bangkokDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function bangkokDayRange(date = new Date()) {
+  const key = bangkokDateKey(date)
+
+  return {
+    start: new Date(`${key}T00:00:00.000+07:00`),
+    end: new Date(`${key}T23:59:59.999+07:00`),
+  }
+}
+
 function serializeRecipe(recipe: RecipeWithItemsAndPlans) {
   if (!recipe) {
     return null
@@ -108,20 +129,94 @@ async function refreshReservedQuantity(
   })
 }
 
+async function releaseStalePinnedPlans(
+  tx: Prisma.TransactionClient,
+  branchId: string
+) {
+  const today = bangkokDayRange()
+  const staleReservations = await tx.stockReservation.findMany({
+    where: {
+      branchId,
+      status: "active",
+      recipePlan: {
+        branchId,
+        status: "pinned",
+        plannedAt: {
+          lt: today.start,
+        },
+      },
+    },
+    select: {
+      ingredientId: true,
+    },
+  })
+  const touchedIngredientIds = new Set(
+    staleReservations.map((reservation) => reservation.ingredientId)
+  )
+
+  if (staleReservations.length === 0) {
+    return
+  }
+
+  await tx.stockReservation.updateMany({
+    where: {
+      branchId,
+      status: "active",
+      recipePlan: {
+        branchId,
+        status: "pinned",
+        plannedAt: {
+          lt: today.start,
+        },
+      },
+    },
+    data: {
+      status: "released",
+      releasedAt: new Date(),
+    },
+  })
+  await tx.recipePlan.updateMany({
+    where: {
+      branchId,
+      status: "pinned",
+      plannedAt: {
+        lt: today.start,
+      },
+    },
+    data: {
+      status: "cancelled",
+    },
+  })
+
+  for (const ingredientId of touchedIngredientIds) {
+    await refreshReservedQuantity(tx, branchId, ingredientId)
+  }
+}
+
 recipesRouter.get(
   "/",
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
     const branchId = routeParam(req.params.branchId, "branchId")
+    const today = bangkokDayRange()
 
     await assertBranchAccess(prisma, member.id, branchId)
+    await prisma.$transaction(async (tx) => {
+      await releaseStalePinnedPlans(tx, branchId)
+    })
 
     const recipes = await prisma.recipe.findMany({
       where: { branchId, isActive: true },
       include: {
         items: { include: { ingredient: true } },
         plans: {
-          where: { status: { in: ["pinned", "cooked"] } },
+          where: {
+            status: { in: ["pinned", "cooked"] },
+            plannedAt: {
+              gte: today.start,
+              lte: today.end,
+            },
+          },
           include: { reservations: true },
           orderBy: { plannedAt: "desc" },
         },
@@ -358,9 +453,19 @@ recipesRouter.post(
     const plan = await prisma.$transaction(
       async (tx) => {
         await assertBranchAccess(tx, member.id, branchId)
+        await releaseStalePinnedPlans(tx, branchId)
+        const today = bangkokDayRange()
 
         const existingPlan = await tx.recipePlan.findFirst({
-          where: { branchId, recipeId, status: "pinned" },
+          where: {
+            branchId,
+            recipeId,
+            status: "pinned",
+            plannedAt: {
+              gte: today.start,
+              lte: today.end,
+            },
+          },
           include: { reservations: true },
         })
 

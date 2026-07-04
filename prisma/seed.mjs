@@ -169,21 +169,6 @@ const members = [
   },
 ]
 
-const stockItemById = new Map(
-  stockSeedItems.map((item) => [item.id, item])
-)
-
-const purchaseDraft = [
-  { ingredientId: "stock-0001", quantity: 1 },
-  { ingredientId: "stock-0138", quantity: 56 },
-  { ingredientId: "stock-0083", quantity: 6 },
-  { ingredientId: "stock-0032", quantity: 1 },
-  { ingredientId: "stock-0089", quantity: 1.5 },
-  { ingredientId: "stock-0127", quantity: 5 },
-  { ingredientId: "stock-0043", quantity: 1.5 },
-  { ingredientId: "stock-0033", quantity: 0.5 },
-]
-
 const recipeTemplatesByBranch = {
   "branch-wat-sakaeo": [
     {
