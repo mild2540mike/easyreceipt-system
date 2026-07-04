@@ -13,6 +13,7 @@ import {
   CircleCheck,
   Clock3,
   Database,
+  Download,
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
@@ -314,6 +315,443 @@ function toNumber(value: string) {
 
 function normalizeSearch(value: string) {
   return value.trim().toLocaleLowerCase("th-TH")
+}
+
+function downloadCanvasPng(filename: string, canvas: HTMLCanvasElement) {
+  const link = document.createElement("a")
+
+  link.href = canvas.toDataURL("image/png")
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+function xmlEscape(value: string | number) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+}
+
+function columnName(index: number) {
+  let dividend = index
+  let name = ""
+
+  while (dividend > 0) {
+    const modulo = (dividend - 1) % 26
+    name = String.fromCharCode(65 + modulo) + name
+    dividend = Math.floor((dividend - modulo) / 26)
+  }
+
+  return name
+}
+
+function stringCell(reference: string, value: string, style = 0) {
+  return `<c r="${reference}" t="inlineStr" s="${style}"><is><t>${xmlEscape(
+    value
+  )}</t></is></c>`
+}
+
+function numberCell(reference: string, value: number, style = 0) {
+  return `<c r="${reference}" s="${style}"><v>${value}</v></c>`
+}
+
+function formulaCell(reference: string, formula: string, style = 0) {
+  return `<c r="${reference}" s="${style}"><f>${formula}</f></c>`
+}
+
+function crc32(bytes: Uint8Array) {
+  let crc = -1
+
+  for (const byte of bytes) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+    }
+  }
+
+  return (crc ^ -1) >>> 0
+}
+
+function writeUint16(buffer: Uint8Array, offset: number, value: number) {
+  buffer[offset] = value & 0xff
+  buffer[offset + 1] = (value >>> 8) & 0xff
+}
+
+function writeUint32(buffer: Uint8Array, offset: number, value: number) {
+  buffer[offset] = value & 0xff
+  buffer[offset + 1] = (value >>> 8) & 0xff
+  buffer[offset + 2] = (value >>> 16) & 0xff
+  buffer[offset + 3] = (value >>> 24) & 0xff
+}
+
+function createZipBlob(files: Record<string, string>) {
+  const encoder = new TextEncoder()
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+
+  for (const [path, content] of Object.entries(files)) {
+    const nameBytes = encoder.encode(path)
+    const contentBytes = encoder.encode(content)
+    const checksum = crc32(contentBytes)
+    const localHeader = new Uint8Array(30 + nameBytes.length)
+
+    writeUint32(localHeader, 0, 0x04034b50)
+    writeUint16(localHeader, 4, 20)
+    writeUint16(localHeader, 6, 0x0800)
+    writeUint16(localHeader, 8, 0)
+    writeUint32(localHeader, 10, 0)
+    writeUint32(localHeader, 14, checksum)
+    writeUint32(localHeader, 18, contentBytes.length)
+    writeUint32(localHeader, 22, contentBytes.length)
+    writeUint16(localHeader, 26, nameBytes.length)
+    localHeader.set(nameBytes, 30)
+    localParts.push(localHeader, contentBytes)
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length)
+    writeUint32(centralHeader, 0, 0x02014b50)
+    writeUint16(centralHeader, 4, 20)
+    writeUint16(centralHeader, 6, 20)
+    writeUint16(centralHeader, 8, 0x0800)
+    writeUint16(centralHeader, 10, 0)
+    writeUint32(centralHeader, 12, 0)
+    writeUint32(centralHeader, 16, checksum)
+    writeUint32(centralHeader, 20, contentBytes.length)
+    writeUint32(centralHeader, 24, contentBytes.length)
+    writeUint16(centralHeader, 28, nameBytes.length)
+    writeUint32(centralHeader, 42, offset)
+    centralHeader.set(nameBytes, 46)
+    centralParts.push(centralHeader)
+
+    offset += localHeader.length + contentBytes.length
+  }
+
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0)
+  const endRecord = new Uint8Array(22)
+  writeUint32(endRecord, 0, 0x06054b50)
+  writeUint16(endRecord, 8, centralParts.length)
+  writeUint16(endRecord, 10, centralParts.length)
+  writeUint32(endRecord, 12, centralSize)
+  writeUint32(endRecord, 16, offset)
+
+  return new Blob([...localParts, ...centralParts, endRecord], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  })
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+function exportPurchaseOrderXlsx({
+  branchName,
+  items,
+}: {
+  branchName: string
+  items: InventoryRow[]
+}) {
+  const exportedAt = new Date()
+  const dateKey = exportedAt.toISOString().slice(0, 10)
+  const totalRow = items.length + 6
+  const sheetRows = [
+    `<row r="1">${stringCell("A1", "ใบสั่งซื้อวัตถุดิบ", 1)}</row>`,
+    `<row r="2">${stringCell("A2", "สาขา", 2)}${stringCell(
+      "B2",
+      branchName || "-",
+      2
+    )}</row>`,
+    `<row r="3">${stringCell("A3", "วันที่", 2)}${stringCell(
+      "B3",
+      formatThaiDate(exportedAt),
+      2
+    )}${stringCell("F3", "รวมประมาณการ", 6)}${formulaCell(
+      "G3",
+      `SUM(G6:G${Math.max(5, totalRow - 1)})`,
+      7
+    )}</row>`,
+    `<row r="5">${[
+      "ลำดับ",
+      "วัตถุดิบ",
+      "ซัพพลายเออร์",
+      "คงเหลือ",
+      "ควรซื้อ",
+      "ราคาต่อหน่วย",
+      "รวม",
+    ]
+      .map((header, index) => stringCell(`${columnName(index + 1)}5`, header, 3))
+      .join("")}</row>`,
+    ...items.map((item, index) => {
+      const row = index + 6
+      return `<row r="${row}">${numberCell(`A${row}`, index + 1, 4)}${stringCell(
+        `B${row}`,
+        item.ingredient.name
+      )}${stringCell(`C${row}`, item.ingredient.supplier)}${numberCell(
+        `D${row}`,
+        item.onHand,
+        4
+      )}${numberCell(`E${row}`, item.suggestedPurchaseQuantity, 4)}${numberCell(
+        `F${row}`,
+        item.ingredient.defaultPrice,
+        5
+      )}${formulaCell(`G${row}`, `E${row}*F${row}`, 5)}</row>`
+    }),
+    `<row r="${totalRow}">${stringCell(
+      `F${totalRow}`,
+      "รวมประมาณการ",
+      6
+    )}${formulaCell(`G${totalRow}`, `SUM(G6:G${totalRow - 1})`, 7)}</row>`,
+  ].join("")
+
+  const files = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Purchase Order" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+    "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;฿&quot;#,##0"/></numFmts>
+  <fonts count="3">
+    <font><sz val="11"/><name val="Arial"/></font>
+    <font><b/><sz val="18"/><name val="Arial"/></font>
+    <font><b/><sz val="11"/><name val="Arial"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="8">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+    <xf numFmtId="4" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+    <xf numFmtId="164" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1" applyNumberFormat="1"/>
+  </cellXfs>
+</styleSheet>`,
+    "xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols>
+    <col min="1" max="1" width="8" customWidth="1"/>
+    <col min="2" max="2" width="30" customWidth="1"/>
+    <col min="3" max="3" width="24" customWidth="1"/>
+    <col min="4" max="7" width="16" customWidth="1"/>
+  </cols>
+  <sheetData>${sheetRows}</sheetData>
+  <mergeCells count="1"><mergeCell ref="A1:G1"/></mergeCells>
+</worksheet>`,
+  }
+
+  downloadBlob(
+    `easyreceipt-purchase-order-${dateKey}.xlsx`,
+    createZipBlob(files)
+  )
+}
+
+function exportPurchaseOrderPng({
+  branchName,
+  items,
+}: {
+  branchName: string
+  items: InventoryRow[]
+}) {
+  const exportedAt = new Date()
+  const dateKey = exportedAt.toISOString().slice(0, 10)
+  const width = 1200
+  const rowHeight = 56
+  const height = 270 + items.length * rowHeight
+  const scale = 2
+  const canvas = document.createElement("canvas")
+  const context = canvas.getContext("2d")
+
+  if (!context) {
+    return
+  }
+
+  canvas.width = width * scale
+  canvas.height = height * scale
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
+  context.scale(scale, scale)
+
+  function text(
+    value: string,
+    x: number,
+    y: number,
+    options: {
+      align?: CanvasTextAlign
+      color?: string
+      font?: string
+      maxWidth?: number
+    } = {}
+  ) {
+    context.textAlign = options.align ?? "left"
+    context.fillStyle = options.color ?? "#0f172a"
+    context.font = options.font ?? "16px Arial, sans-serif"
+
+    if (options.maxWidth) {
+      let nextValue = value
+
+      while (
+        nextValue.length > 1 &&
+        context.measureText(nextValue).width > options.maxWidth
+      ) {
+        nextValue = `${nextValue.slice(0, -2)}…`
+      }
+
+      context.fillText(nextValue, x, y)
+      return
+    }
+
+    context.fillText(value, x, y)
+  }
+
+  const total = items.reduce(
+    (sum, item) =>
+      sum + item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
+    0
+  )
+
+  context.fillStyle = "#ffffff"
+  context.fillRect(0, 0, width, height)
+  context.fillStyle = "#f8fafc"
+  context.fillRect(0, 0, width, 160)
+  context.strokeStyle = "#cbd5e1"
+  context.lineWidth = 1
+  context.strokeRect(32, 32, width - 64, height - 64)
+
+  text("ใบสั่งซื้อวัตถุดิบ", 64, 78, {
+    font: "700 30px Arial, sans-serif",
+  })
+  text(`สาขา: ${branchName || "-"}`, 64, 112, {
+    color: "#475569",
+    font: "16px Arial, sans-serif",
+  })
+  text(`วันที่: ${formatThaiDate(exportedAt)}`, width - 64, 78, {
+    align: "right",
+    color: "#475569",
+    font: "16px Arial, sans-serif",
+  })
+  text(`รวมประมาณการ ${formatCurrency(total)}`, width - 64, 118, {
+    align: "right",
+    font: "700 22px Arial, sans-serif",
+  })
+
+  const tableTop = 190
+  const columns = [64, 120, 410, 620, 760, 900, 1068]
+  const headers = [
+    "#",
+    "วัตถุดิบ",
+    "ซัพพลายเออร์",
+    "คงเหลือ",
+    "ควรซื้อ",
+    "ราคาต่อหน่วย",
+    "รวม",
+  ]
+
+  context.fillStyle = "#f1f5f9"
+  context.fillRect(48, tableTop - 36, width - 96, 44)
+  headers.forEach((header, index) => {
+    text(header, columns[index], tableTop - 9, {
+      align: index === 0 ? "center" : index >= 3 ? "right" : "left",
+      color: "#334155",
+      font: "700 14px Arial, sans-serif",
+    })
+  })
+
+  items.forEach((item, index) => {
+    const y = tableTop + index * rowHeight
+
+    context.strokeStyle = "#e2e8f0"
+    context.beginPath()
+    context.moveTo(48, y + 8)
+    context.lineTo(width - 48, y + 8)
+    context.stroke()
+
+    text(String(index + 1), columns[0], y + 41, { align: "center" })
+    text(item.ingredient.name, columns[1], y + 31, {
+      font: "700 16px Arial, sans-serif",
+      maxWidth: 260,
+    })
+    text(item.ingredient.category, columns[1], y + 51, {
+      color: "#64748b",
+      font: "13px Arial, sans-serif",
+      maxWidth: 260,
+    })
+    text(item.ingredient.supplier, columns[2], y + 41, { maxWidth: 170 })
+    text(
+      `${formatNumber(item.onHand)} ${item.ingredient.unit}`,
+      columns[3],
+      y + 41,
+      { align: "right" }
+    )
+    text(
+      `${formatNumber(item.suggestedPurchaseQuantity)} ${item.ingredient.unit}`,
+      columns[4],
+      y + 41,
+      { align: "right", font: "700 16px Arial, sans-serif" }
+    )
+    text(formatCurrency(item.ingredient.defaultPrice), columns[5], y + 41, {
+      align: "right",
+    })
+    text(
+      formatCurrency(
+        item.suggestedPurchaseQuantity * item.ingredient.defaultPrice
+      ),
+      columns[6],
+      y + 41,
+      { align: "right", font: "700 16px Arial, sans-serif" }
+    )
+  })
+
+  const totalY = tableTop + items.length * rowHeight + 36
+  context.fillStyle = "#f8fafc"
+  context.fillRect(48, totalY - 28, width - 96, 48)
+  text("รวมประมาณการ", columns[5], totalY + 2, {
+    align: "right",
+    font: "700 18px Arial, sans-serif",
+  })
+  text(formatCurrency(total), columns[6], totalY + 2, {
+    align: "right",
+    font: "700 20px Arial, sans-serif",
+  })
+
+  downloadCanvasPng(`easyreceipt-purchase-order-${dateKey}.png`, canvas)
 }
 
 export function EasyReceiptLogin() {
@@ -886,25 +1324,7 @@ function DashboardView({ store }: { store: Store }) {
         />
       </section>
 
-      <section>
-        <div className="rounded-lg border border-border bg-background p-4 sm:p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <Sparkles className="size-5 text-amber-500" />
-            <h2 className="text-lg font-semibold">รายการที่ควรซื้อเพิ่ม</h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {store.lowStockItems.length > 0 ? (
-              store.lowStockItems.map((item: InventoryRow) => (
-                <StockAlertRow key={item.ingredientId} item={item} />
-              ))
-            ) : (
-              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:col-span-2">
-                วัตถุดิบเพียงพอต่อการจองใช้ปัจจุบัน
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+      <PurchaseOrderSection store={store} />
     </div>
   )
 }
@@ -945,33 +1365,131 @@ function MetricCard({
   )
 }
 
-function StockAlertRow({ item }: { item: InventoryRow }) {
+function PurchaseOrderSection({ store }: { store: Store }) {
+  const purchaseOrderTotal = store.lowStockItems.reduce(
+    (total, item) =>
+      total + item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
+    0
+  )
+
+  function handleExportPurchaseOrder() {
+    exportPurchaseOrderXlsx({
+      branchName: store.activeBranch?.name ?? "",
+      items: store.lowStockItems,
+    })
+  }
+
+  function handleExportPurchaseOrderImage() {
+    exportPurchaseOrderPng({
+      branchName: store.activeBranch?.name ?? "",
+      items: store.lowStockItems,
+    })
+  }
+
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="mb-3 flex items-start justify-between gap-2">
+    <section className="rounded-lg border border-border bg-background">
+      <div className="flex flex-col gap-4 border-b border-border p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
         <div>
-          <p className="font-semibold">{item.ingredient.name}</p>
+          <div className="mb-2 flex items-center gap-2">
+            <ReceiptText className="size-5 text-amber-600" />
+            <h2 className="text-lg font-semibold">ใบสั่งซื้อวัตถุดิบ</h2>
+          </div>
           <p className="text-sm text-muted-foreground">
-            คงเหลือ {formatNumber(item.onHand)} {item.ingredient.unit} / จองใช้{" "}
-            {formatNumber(item.reserved)} {item.ingredient.unit}
+            สร้างจากรายการที่ควรซื้อเพิ่มของ {store.activeBranch?.name ?? "สาขาที่เลือก"}
           </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            <Badge variant="secondary" className="h-7 px-3">
+              {store.lowStockItems.length} รายการ
+            </Badge>
+            <Badge variant="outline" className="h-7 px-3">
+              รวมประมาณการ {formatCurrency(purchaseOrderTotal)}
+            </Badge>
+          </div>
         </div>
-        <Badge
-          variant="outline"
-          className={cn("h-6", statusClassName(item.status))}
-        >
-          {statusLabel(item.status)}
-        </Badge>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            className="h-11 w-full sm:w-auto"
+            onClick={handleExportPurchaseOrderImage}
+            disabled={store.lowStockItems.length === 0}
+          >
+            <Download className="size-4" />
+            Export PNG
+          </Button>
+          <Button
+            variant="outline"
+            className="h-11 w-full sm:w-auto"
+            onClick={handleExportPurchaseOrder}
+            disabled={store.lowStockItems.length === 0}
+          >
+            <Download className="size-4" />
+            Export XLSX
+          </Button>
+        </div>
       </div>
-      <Progress value={item.stockPercent} />
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
-        <StockValue
-          label="ซื้อเพิ่ม"
-          value={item.suggestedPurchaseQuantity}
-          unit={item.ingredient.unit}
-        />
-      </div>
-    </div>
+
+      {store.lowStockItems.length > 0 ? (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-16 text-center">#</TableHead>
+                <TableHead>วัตถุดิบ</TableHead>
+                <TableHead>ซัพพลายเออร์</TableHead>
+                <TableHead className="text-right">คงเหลือ</TableHead>
+                <TableHead className="text-right">ควรซื้อ</TableHead>
+                <TableHead className="text-right">ราคาต่อหน่วย</TableHead>
+                <TableHead className="text-right">รวม</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {store.lowStockItems.map((item, index) => (
+                <TableRow key={item.ingredientId}>
+                  <TableCell className="text-center">{index + 1}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{item.ingredient.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {item.ingredient.category}
+                    </div>
+                  </TableCell>
+                  <TableCell>{item.ingredient.supplier}</TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(item.onHand)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatNumber(item.suggestedPurchaseQuantity)}{" "}
+                    {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(item.ingredient.defaultPrice)}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatCurrency(
+                      item.suggestedPurchaseQuantity *
+                        item.ingredient.defaultPrice
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="bg-muted/40">
+                <TableCell colSpan={6} className="text-right font-semibold">
+                  รวมประมาณการ
+                </TableCell>
+                <TableCell className="text-right font-bold">
+                  {formatCurrency(purchaseOrderTotal)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="p-4 sm:p-5">
+          <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+            วัตถุดิบเพียงพอต่อการจองใช้ปัจจุบัน
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
