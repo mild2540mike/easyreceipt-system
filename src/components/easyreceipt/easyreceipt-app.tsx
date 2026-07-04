@@ -2337,6 +2337,12 @@ function StockView({ store }: { store: Store }) {
                 <TableHead className="min-w-28 text-right">คงเหลือ</TableHead>
                 <TableHead className="min-w-28 text-right">จองใช้</TableHead>
                 <TableHead className="min-w-28 text-right">รับเข้า</TableHead>
+                <TableHead className="min-w-36 text-right">
+                  ราคาตลาด/หน่วย
+                </TableHead>
+                <TableHead className="min-w-40 text-right">
+                  ราคาปัจจุบัน/หน่วย
+                </TableHead>
                 <TableHead className="min-w-32">สถานะ</TableHead>
                 <TableHead className="w-20 text-right">แก้ไข</TableHead>
               </TableRow>
@@ -2377,6 +2383,19 @@ function StockView({ store }: { store: Store }) {
                   <TableCell className="text-right text-emerald-700">
                     +{formatNumber(item.incoming)} {item.ingredient.unit}
                   </TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(item.ingredient.defaultPrice)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-semibold",
+                      item.costPerUnit > item.ingredient.defaultPrice
+                        ? "text-amber-700"
+                        : "text-emerald-700"
+                    )}
+                  >
+                    {formatCurrency(item.costPerUnit)}
+                  </TableCell>
                   <TableCell>
                     <Badge
                       variant="outline"
@@ -2415,6 +2434,8 @@ function StockView({ store }: { store: Store }) {
               <TableHead className="text-right">คงเหลือ</TableHead>
               <TableHead className="text-right">จองใช้</TableHead>
               <TableHead className="text-right">รับเข้า</TableHead>
+              <TableHead className="text-right">ราคาตลาด/หน่วย</TableHead>
+              <TableHead className="text-right">ราคาปัจจุบัน/หน่วย</TableHead>
               <TableHead>สถานะ</TableHead>
               <TableHead>อัปเดตล่าสุด</TableHead>
               <TableHead className="w-20 text-right">แก้ไข</TableHead>
@@ -2452,6 +2473,19 @@ function StockView({ store }: { store: Store }) {
                 </TableCell>
                 <TableCell className="text-right text-emerald-700">
                   +{formatNumber(item.incoming)} {item.ingredient.unit}
+                </TableCell>
+                <TableCell className="text-right">
+                  {formatCurrency(item.ingredient.defaultPrice)}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "text-right font-semibold",
+                    item.costPerUnit > item.ingredient.defaultPrice
+                      ? "text-amber-700"
+                      : "text-emerald-700"
+                  )}
+                >
+                  {formatCurrency(item.costPerUnit)}
                 </TableCell>
                 <TableCell>
                   <Badge
@@ -2652,12 +2686,12 @@ function StockEditForm({
           onChange={(value) => patchDraft({ reorderPoint: value })}
         />
         <FieldNumber
-          label="ต้นทุน/หน่วย"
+          label="ราคาปัจจุบัน/หน่วย"
           value={draft.costPerUnit}
           onChange={(value) => patchDraft({ costPerUnit: value })}
         />
         <FieldNumber
-          label="ราคาซื้อเริ่มต้น"
+          label="ราคาตลาด/หน่วย"
           value={draft.defaultPrice}
           onChange={(value) => patchDraft({ defaultPrice: value })}
         />
