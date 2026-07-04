@@ -901,106 +901,17 @@ async function clearDatabase(tx) {
 }
 
 async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
-  const inventoryByIngredient = new Map()
   const reservationTotals = new Map()
-  const purchaseQuantityByIngredient = new Map(
-    purchaseDraft.map((item) => [item.ingredientId, item.quantity])
-  )
 
   for (const item of stockSeedItems) {
-    const purchaseQuantity = purchaseQuantityByIngredient.get(item.id) ?? 0
-    const startingOnHand = Math.max(
-      Number(item.inventory.onHand) - purchaseQuantity,
-      0
-    )
-    const row = await tx.branchInventory.create({
+    await tx.branchInventory.create({
       data: {
         branchId: branch.id,
         ingredientId: item.id,
-        onHand: round(startingOnHand),
+        onHand: 0,
         reorderPoint: round(item.inventory.reorderPoint),
         costPerUnit: round(item.inventory.costPerUnit, 2),
         lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
-      },
-    })
-    inventoryByIngredient.set(item.id, row)
-  }
-
-  const purchaseItems = purchaseDraft.map((item) => {
-    const ingredient = stockItemById.get(item.ingredientId)
-
-    if (!ingredient) {
-      throw new Error(`Missing stock seed item: ${item.ingredientId}`)
-    }
-
-    const unitPrice = round(ingredient.defaultPrice, 2)
-    const quantity = round(item.quantity)
-
-    return {
-      ingredientId: item.ingredientId,
-      quantity,
-      unit: ingredient.unit,
-      unitPrice,
-      lineTotal: round(quantity * unitPrice, 2),
-    }
-  })
-
-  const purchase = await tx.purchase.create({
-    data: {
-      id: `${branch.id}-purchase-demo`,
-      branchId: branch.id,
-      createdByMemberId: "member-owner",
-      purchaseDate: new Date("2026-06-27T08:00:00+07:00"),
-      vendor: "ใบซื้อเริ่มต้น",
-      status: "posted",
-      totalAmount: round(
-        purchaseItems.reduce((total, item) => total + item.lineTotal, 0),
-        2
-      ),
-    },
-  })
-
-  for (const item of purchaseItems) {
-    const purchaseItem = await tx.purchaseItem.create({
-      data: {
-        ...item,
-        purchaseId: purchase.id,
-      },
-    })
-    const before = Number(inventoryByIngredient.get(item.ingredientId).onHand)
-    const after = round(before + item.quantity)
-
-    await tx.branchInventory.update({
-      where: {
-        branchId_ingredientId: {
-          branchId: branch.id,
-          ingredientId: item.ingredientId,
-        },
-      },
-      data: {
-        onHand: after,
-        lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
-      },
-    })
-    inventoryByIngredient.set(item.ingredientId, {
-      ...inventoryByIngredient.get(item.ingredientId),
-      onHand: after,
-    })
-
-    await tx.stockMovement.create({
-      data: {
-        branchId: branch.id,
-        ingredientId: item.ingredientId,
-        purchaseItemId: purchaseItem.id,
-        createdByMemberId: "member-owner",
-        movementType: "purchase_in",
-        quantity: item.quantity,
-        unit: item.unit,
-        unitCost: item.unitPrice,
-        beforeQuantity: before,
-        afterQuantity: after,
-        referenceType: "purchase",
-        referenceId: purchase.id,
       },
     })
   }
