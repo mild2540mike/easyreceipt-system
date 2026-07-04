@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import ExcelJS from "exceljs"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -327,121 +328,6 @@ function downloadCanvasPng(filename: string, canvas: HTMLCanvasElement) {
   link.remove()
 }
 
-function xmlEscape(value: string | number) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-}
-
-function columnName(index: number) {
-  let dividend = index
-  let name = ""
-
-  while (dividend > 0) {
-    const modulo = (dividend - 1) % 26
-    name = String.fromCharCode(65 + modulo) + name
-    dividend = Math.floor((dividend - modulo) / 26)
-  }
-
-  return name
-}
-
-function stringCell(reference: string, value: string, style = 0) {
-  return `<c r="${reference}" t="inlineStr" s="${style}"><is><t>${xmlEscape(
-    value
-  )}</t></is></c>`
-}
-
-function numberCell(reference: string, value: number, style = 0) {
-  return `<c r="${reference}" s="${style}"><v>${value}</v></c>`
-}
-
-function formulaCell(reference: string, formula: string, style = 0) {
-  return `<c r="${reference}" s="${style}"><f>${formula}</f></c>`
-}
-
-function crc32(bytes: Uint8Array) {
-  let crc = -1
-
-  for (const byte of bytes) {
-    crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
-    }
-  }
-
-  return (crc ^ -1) >>> 0
-}
-
-function writeUint16(buffer: Uint8Array, offset: number, value: number) {
-  buffer[offset] = value & 0xff
-  buffer[offset + 1] = (value >>> 8) & 0xff
-}
-
-function writeUint32(buffer: Uint8Array, offset: number, value: number) {
-  buffer[offset] = value & 0xff
-  buffer[offset + 1] = (value >>> 8) & 0xff
-  buffer[offset + 2] = (value >>> 16) & 0xff
-  buffer[offset + 3] = (value >>> 24) & 0xff
-}
-
-function createZipBlob(files: Record<string, string>) {
-  const encoder = new TextEncoder()
-  const localParts: Uint8Array[] = []
-  const centralParts: Uint8Array[] = []
-  let offset = 0
-
-  for (const [path, content] of Object.entries(files)) {
-    const nameBytes = encoder.encode(path)
-    const contentBytes = encoder.encode(content)
-    const checksum = crc32(contentBytes)
-    const localHeader = new Uint8Array(30 + nameBytes.length)
-
-    writeUint32(localHeader, 0, 0x04034b50)
-    writeUint16(localHeader, 4, 20)
-    writeUint16(localHeader, 6, 0x0800)
-    writeUint16(localHeader, 8, 0)
-    writeUint32(localHeader, 10, 0)
-    writeUint32(localHeader, 14, checksum)
-    writeUint32(localHeader, 18, contentBytes.length)
-    writeUint32(localHeader, 22, contentBytes.length)
-    writeUint16(localHeader, 26, nameBytes.length)
-    localHeader.set(nameBytes, 30)
-    localParts.push(localHeader, contentBytes)
-
-    const centralHeader = new Uint8Array(46 + nameBytes.length)
-    writeUint32(centralHeader, 0, 0x02014b50)
-    writeUint16(centralHeader, 4, 20)
-    writeUint16(centralHeader, 6, 20)
-    writeUint16(centralHeader, 8, 0x0800)
-    writeUint16(centralHeader, 10, 0)
-    writeUint32(centralHeader, 12, 0)
-    writeUint32(centralHeader, 16, checksum)
-    writeUint32(centralHeader, 20, contentBytes.length)
-    writeUint32(centralHeader, 24, contentBytes.length)
-    writeUint16(centralHeader, 28, nameBytes.length)
-    writeUint32(centralHeader, 42, offset)
-    centralHeader.set(nameBytes, 46)
-    centralParts.push(centralHeader)
-
-    offset += localHeader.length + contentBytes.length
-  }
-
-  const centralSize = centralParts.reduce((total, part) => total + part.length, 0)
-  const endRecord = new Uint8Array(22)
-  writeUint32(endRecord, 0, 0x06054b50)
-  writeUint16(endRecord, 8, centralParts.length)
-  writeUint16(endRecord, 10, centralParts.length)
-  writeUint32(endRecord, 12, centralSize)
-  writeUint32(endRecord, 16, offset)
-
-  return new Blob([...localParts, ...centralParts, endRecord], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  })
-}
-
 function downloadBlob(filename: string, blob: Blob) {
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement("a")
@@ -454,7 +340,7 @@ function downloadBlob(filename: string, blob: Blob) {
   window.URL.revokeObjectURL(url)
 }
 
-function exportPurchaseOrderXlsx({
+async function exportPurchaseOrderXlsx({
   branchName,
   items,
 }: {
@@ -463,123 +349,150 @@ function exportPurchaseOrderXlsx({
 }) {
   const exportedAt = new Date()
   const dateKey = exportedAt.toISOString().slice(0, 10)
-  const totalRow = items.length + 6
-  const sheetRows = [
-    `<row r="1">${stringCell("A1", "ใบสั่งซื้อวัตถุดิบ", 1)}</row>`,
-    `<row r="2">${stringCell("A2", "สาขา", 2)}${stringCell(
-      "B2",
-      branchName || "-",
-      2
-    )}</row>`,
-    `<row r="3">${stringCell("A3", "วันที่", 2)}${stringCell(
-      "B3",
-      formatThaiDate(exportedAt),
-      2
-    )}${stringCell("F3", "รวมประมาณการ", 6)}${formulaCell(
-      "G3",
-      `SUM(G6:G${Math.max(5, totalRow - 1)})`,
-      7
-    )}</row>`,
-    `<row r="5">${[
-      "ลำดับ",
-      "วัตถุดิบ",
-      "ซัพพลายเออร์",
-      "คงเหลือ",
-      "ควรซื้อ",
-      "ราคาต่อหน่วย",
-      "รวม",
-    ]
-      .map((header, index) => stringCell(`${columnName(index + 1)}5`, header, 3))
-      .join("")}</row>`,
-    ...items.map((item, index) => {
-      const row = index + 6
-      return `<row r="${row}">${numberCell(`A${row}`, index + 1, 4)}${stringCell(
-        `B${row}`,
-        item.ingredient.name
-      )}${stringCell(`C${row}`, item.ingredient.supplier)}${numberCell(
-        `D${row}`,
-        item.onHand,
-        4
-      )}${numberCell(`E${row}`, item.suggestedPurchaseQuantity, 4)}${numberCell(
-        `F${row}`,
-        item.ingredient.defaultPrice,
-        5
-      )}${formulaCell(`G${row}`, `E${row}*F${row}`, 5)}</row>`
-    }),
-    `<row r="${totalRow}">${stringCell(
-      `F${totalRow}`,
-      "รวมประมาณการ",
-      6
-    )}${formulaCell(`G${totalRow}`, `SUM(G6:G${totalRow - 1})`, 7)}</row>`,
-  ].join("")
-
-  const files = {
-    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-</Types>`,
-    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>`,
-    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>`,
-    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Purchase Order" sheetId="1" r:id="rId1"/></sheets>
-</workbook>`,
-    "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;฿&quot;#,##0"/></numFmts>
-  <fonts count="3">
-    <font><sz val="11"/><name val="Arial"/></font>
-    <font><b/><sz val="18"/><name val="Arial"/></font>
-    <font><b/><sz val="11"/><name val="Arial"/></font>
-  </fonts>
-  <fills count="3">
-    <fill><patternFill patternType="none"/></fill>
-    <fill><patternFill patternType="gray125"/></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/><bgColor indexed="64"/></patternFill></fill>
-  </fills>
-  <borders count="2">
-    <border><left/><right/><top/><bottom/><diagonal/></border>
-    <border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>
-  </borders>
-  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="8">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
-    <xf numFmtId="4" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
-    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
-    <xf numFmtId="164" fontId="2" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1" applyNumberFormat="1"/>
-  </cellXfs>
-</styleSheet>`,
-    "xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <cols>
-    <col min="1" max="1" width="8" customWidth="1"/>
-    <col min="2" max="2" width="30" customWidth="1"/>
-    <col min="3" max="3" width="24" customWidth="1"/>
-    <col min="4" max="7" width="16" customWidth="1"/>
-  </cols>
-  <sheetData>${sheetRows}</sheetData>
-  <mergeCells count="1"><mergeCell ref="A1:G1"/></mergeCells>
-</worksheet>`,
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet("Purchase Order", {
+    views: [{ state: "frozen", ySplit: 5 }],
+  })
+  const border: Partial<ExcelJS.Borders> = {
+    top: { style: "thin", color: { argb: "FFE2E8F0" } },
+    left: { style: "thin", color: { argb: "FFE2E8F0" } },
+    bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+    right: { style: "thin", color: { argb: "FFE2E8F0" } },
   }
+
+  workbook.creator = "EasyReceipt"
+  workbook.created = exportedAt
+  worksheet.columns = [
+    { key: "index", width: 8 },
+    { key: "ingredient", width: 30 },
+    { key: "supplier", width: 24 },
+    { key: "onHand", width: 16 },
+    { key: "suggested", width: 16 },
+    { key: "unitPrice", width: 16 },
+    { key: "total", width: 16 },
+  ]
+
+  worksheet.mergeCells("A1:G1")
+  worksheet.getCell("A1").value = "ใบสั่งซื้อวัตถุดิบ"
+  worksheet.getCell("A1").font = {
+    bold: true,
+    size: 20,
+    color: { argb: "FF0F172A" },
+  }
+  worksheet.getCell("A1").alignment = { vertical: "middle" }
+  worksheet.getRow(1).height = 34
+  worksheet.getCell("A2").value = "สาขา"
+  worksheet.getCell("B2").value = branchName || "-"
+  worksheet.getCell("A3").value = "วันที่"
+  worksheet.getCell("B3").value = formatThaiDate(exportedAt)
+  worksheet.getCell("F3").value = "รวมประมาณการ"
+  worksheet.getCell("G3").value = {
+    formula: `SUM(G6:G${Math.max(5, items.length + 5)})`,
+    result: items.reduce(
+      (total, item) =>
+        total + item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
+      0
+    ),
+  }
+  worksheet.getCell("G3").numFmt = '"฿"#,##0'
+
+  for (const address of ["A2", "A3", "F3"]) {
+    worksheet.getCell(address).font = { bold: true, color: { argb: "FF475569" } }
+  }
+
+  worksheet.addRow([])
+  worksheet.addRow([
+    "ลำดับ",
+    "วัตถุดิบ",
+    "ซัพพลายเออร์",
+    "คงเหลือ",
+    "ควรซื้อ",
+    "ราคาต่อหน่วย",
+    "รวม",
+  ])
+  worksheet.getRow(5).eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FF0F172A" } }
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF1F5F9" },
+    }
+    cell.border = border
+    cell.alignment = { vertical: "middle", horizontal: "center" }
+  })
+
+  items.forEach((item, index) => {
+    const rowNumber = index + 6
+    const row = worksheet.addRow([
+      index + 1,
+      item.ingredient.name,
+      item.ingredient.supplier,
+      item.onHand,
+      item.suggestedPurchaseQuantity,
+      item.ingredient.defaultPrice,
+      {
+        formula: `E${rowNumber}*F${rowNumber}`,
+        result: item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
+      },
+    ])
+
+    row.eachCell((cell) => {
+      cell.border = border
+      cell.alignment = { vertical: "middle" }
+    })
+    row.getCell(1).alignment = { horizontal: "center", vertical: "middle" }
+    for (const column of [4, 5, 6, 7]) {
+      row.getCell(column).alignment = { horizontal: "right", vertical: "middle" }
+    }
+    row.getCell(4).numFmt = "#,##0.##"
+    row.getCell(5).numFmt = "#,##0.##"
+    row.getCell(6).numFmt = '"฿"#,##0'
+    row.getCell(7).numFmt = '"฿"#,##0'
+  })
+
+  const totalRow = worksheet.addRow([
+    "",
+    "",
+    "",
+    "",
+    "",
+    "รวมประมาณการ",
+    {
+      formula: `SUM(G6:G${Math.max(5, items.length + 5)})`,
+      result: items.reduce(
+        (total, item) =>
+          total + item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
+        0
+      ),
+    },
+  ])
+  totalRow.eachCell((cell) => {
+    cell.font = { bold: true }
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF8FAFC" },
+    }
+    cell.border = border
+    cell.alignment = { horizontal: "right", vertical: "middle" }
+  })
+  totalRow.getCell(7).numFmt = '"฿"#,##0'
+
+  worksheet.autoFilter = {
+    from: "A5",
+    to: `G${Math.max(5, items.length + 5)}`,
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const bytes = new Uint8Array(buffer)
+  const copy = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(copy).set(bytes)
 
   downloadBlob(
     `easyreceipt-purchase-order-${dateKey}.xlsx`,
-    createZipBlob(files)
+    new Blob([copy], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
   )
 }
 
@@ -603,11 +516,13 @@ function exportPurchaseOrderPng({
     return
   }
 
+  const drawingContext: CanvasRenderingContext2D = context
+
   canvas.width = width * scale
   canvas.height = height * scale
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
-  context.scale(scale, scale)
+  drawingContext.scale(scale, scale)
 
   function text(
     value: string,
@@ -620,25 +535,25 @@ function exportPurchaseOrderPng({
       maxWidth?: number
     } = {}
   ) {
-    context.textAlign = options.align ?? "left"
-    context.fillStyle = options.color ?? "#0f172a"
-    context.font = options.font ?? "16px Arial, sans-serif"
+    drawingContext.textAlign = options.align ?? "left"
+    drawingContext.fillStyle = options.color ?? "#0f172a"
+    drawingContext.font = options.font ?? "16px Arial, sans-serif"
 
     if (options.maxWidth) {
       let nextValue = value
 
       while (
         nextValue.length > 1 &&
-        context.measureText(nextValue).width > options.maxWidth
+        drawingContext.measureText(nextValue).width > options.maxWidth
       ) {
         nextValue = `${nextValue.slice(0, -2)}…`
       }
 
-      context.fillText(nextValue, x, y)
+      drawingContext.fillText(nextValue, x, y)
       return
     }
 
-    context.fillText(value, x, y)
+    drawingContext.fillText(value, x, y)
   }
 
   const total = items.reduce(
@@ -2836,15 +2751,6 @@ function RecipesView({ store }: { store: Store }) {
     )
   }
 
-  async function handleDeleteRecipe(recipeId: string) {
-    const result = await store.deleteRecipe(recipeId)
-    setCookMessage(
-      result.ok
-        ? "ลบสูตรอาหารและปลดจองวัตถุดิบที่เกี่ยวข้องแล้ว"
-        : (result.error ?? "ไม่สามารถลบสูตรอาหารได้")
-    )
-  }
-
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-3">
@@ -2912,7 +2818,6 @@ function RecipesView({ store }: { store: Store }) {
             key={recipe.id}
             recipe={recipe}
             store={store}
-            editHref={`/portal/recipes/${recipe.id}/edit`}
             onUnpin={handleUnpinRecipe}
             onCook={handleCookRecipe}
             isSaving={store.isRecipeSaving}
@@ -3442,14 +3347,12 @@ function RecipeFormView({
 function RecipeCard({
   recipe,
   store,
-  editHref,
   onUnpin,
   onCook,
   isSaving,
 }: {
   recipe: RecipeImpact
   store: Store
-  editHref: string
   onUnpin: (recipeId: string) => void
   onCook: (recipeId: string) => void
   isSaving: boolean
