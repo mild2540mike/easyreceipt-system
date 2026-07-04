@@ -2412,15 +2412,83 @@ function StockView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="grid gap-3 md:grid-cols-2 xl:hidden">
-        {visibleInventoryRows.map((item) => (
-          <StockMobileCard
-            key={item.ingredientId}
-            item={item}
-            onEdit={startStockEdit}
-            canEdit={store.canEditInventory}
-          />
-        ))}
+      <section className="overflow-hidden rounded-lg border border-border bg-background xl:hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-48">วัตถุดิบ</TableHead>
+                <TableHead className="min-w-32">หมวดหมู่</TableHead>
+                <TableHead className="min-w-28 text-right">คงเหลือ</TableHead>
+                <TableHead className="min-w-28 text-right">จองใช้</TableHead>
+                <TableHead className="min-w-28 text-right">รับเข้า</TableHead>
+                <TableHead className="min-w-32">สถานะ</TableHead>
+                <TableHead className="w-20 text-right">แก้ไข</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleInventoryRows.map((item) => (
+                <TableRow
+                  key={item.ingredientId}
+                  className={cn(
+                    editingIngredientId === item.ingredientId && "bg-muted/60"
+                  )}
+                >
+                  <TableCell>
+                    <div className="font-medium">{item.ingredient.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      อัปเดต {item.lastUpdated}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-6",
+                        item.ingredient.category === newIngredientCategory
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : "border-border bg-muted/50 text-muted-foreground"
+                      )}
+                    >
+                      {item.ingredient.category}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(item.onHand)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(item.reserved)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell className="text-right text-emerald-700">
+                    +{formatNumber(item.incoming)} {item.ingredient.unit}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={cn("h-6", statusClassName(item.status))}
+                    >
+                      {statusLabel(item.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="icon-lg"
+                      className="size-11"
+                      onClick={() => startStockEdit(item)}
+                      disabled={!store.canEditInventory}
+                    >
+                      <Pencil className="size-4" />
+                      <span className="sr-only">
+                        แก้ไข {item.ingredient.name}
+                      </span>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </section>
 
       <section className="hidden overflow-hidden rounded-lg border border-border bg-background xl:block">
@@ -2707,96 +2775,6 @@ function StockEditForm({
         </Button>
       </div>
     </form>
-  )
-}
-
-function StockMobileCard({
-  item,
-  onEdit,
-  canEdit,
-}: {
-  item: InventoryRow
-  onEdit: (item: InventoryRow) => void
-  canEdit: boolean
-}) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader>
-        <CardAction>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant="outline"
-              className={cn("h-6", statusClassName(item.status))}
-            >
-              {statusLabel(item.status)}
-            </Badge>
-            <Button
-              variant="outline"
-              size="icon-lg"
-              className="size-11"
-              onClick={() => onEdit(item)}
-              disabled={!canEdit}
-            >
-              <Pencil className="size-4" />
-              <span className="sr-only">แก้ไข {item.ingredient.name}</span>
-            </Button>
-          </div>
-        </CardAction>
-        <CardDescription>
-          <Badge
-            variant="outline"
-            className={cn(
-              "h-6",
-              item.ingredient.category === newIngredientCategory
-                ? "border-amber-200 bg-amber-50 text-amber-800"
-                : "border-border bg-muted/50 text-muted-foreground"
-            )}
-          >
-            {item.ingredient.category}
-          </Badge>
-        </CardDescription>
-        <CardTitle>{item.ingredient.name}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Progress value={item.stockPercent} />
-        <div className="grid grid-cols-3 gap-2 text-sm">
-          <StockValue
-            label="คงเหลือ"
-            value={item.onHand}
-            unit={item.ingredient.unit}
-          />
-          <StockValue
-            label="จองใช้"
-            value={item.reserved}
-            unit={item.ingredient.unit}
-          />
-          <StockValue
-            label="รับเข้า"
-            value={item.incoming}
-            unit={item.ingredient.unit}
-          />
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function StockValue({
-  label,
-  value,
-  unit,
-}: {
-  label: string
-  value: number
-  unit: string
-}) {
-  return (
-    <div className="rounded-lg bg-muted px-2 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-semibold">
-        {formatNumber(value)} <span className="text-xs">{unit}</span>
-      </p>
-    </div>
   )
 }
 
