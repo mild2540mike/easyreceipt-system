@@ -1841,7 +1841,7 @@ function PurchaseTableRow({
         <Input
           type="number"
           min="0"
-          step="0.01"
+          step="1"
           value={item.quantity}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
@@ -1864,7 +1864,7 @@ function PurchaseTableRow({
         <Input
           type="number"
           min="0"
-          step="0.01"
+          step="1"
           value={item.unitPrice}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
@@ -2070,7 +2070,7 @@ function FieldNumber({
       <Input
         type="number"
         min="0"
-        step="0.01"
+        step="1"
         value={value}
         onChange={(event) => onChange(toNumber(event.target.value))}
         disabled={disabled}
@@ -2763,6 +2763,107 @@ function normalizeRecipeDraft(draft: RecipeFormInput): RecipeFormInput {
   }
 }
 
+function recipeQuantitySummary(
+  recipe: RecipeImpact,
+  store: Store,
+  divisor = 1
+) {
+  const quantityByUnit = new Map<string, number>()
+
+  for (const item of recipe.ingredients) {
+    const ingredient = store.ingredientById.get(item.ingredientId)
+    const unit = ingredient?.unit ?? "หน่วย"
+    quantityByUnit.set(
+      unit,
+      (quantityByUnit.get(unit) ?? 0) + item.quantity / Math.max(divisor, 1)
+    )
+  }
+
+  const parts = Array.from(quantityByUnit.entries()).map(
+    ([unit, quantity]) => `${formatNumber(quantity)} ${unit}`
+  )
+
+  if (parts.length <= 2) {
+    return parts.join(" + ") || "-"
+  }
+
+  return `${parts.slice(0, 2).join(" + ")} +${parts.length - 2}`
+}
+
+function unitWeightInKg(unit: string) {
+  const normalizedUnit = normalizeSearch(unit).replaceAll(".", "")
+
+  if (
+    normalizedUnit === "kg" ||
+    normalizedUnit === "kgs" ||
+    normalizedUnit === "กก" ||
+    normalizedUnit === "กิโล" ||
+    normalizedUnit === "กิโลกรัม"
+  ) {
+    return 1
+  }
+
+  if (
+    normalizedUnit === "g" ||
+    normalizedUnit === "gram" ||
+    normalizedUnit === "grams" ||
+    normalizedUnit === "กรัม"
+  ) {
+    return 0.001
+  }
+
+  if (normalizedUnit === "ขีด") {
+    return 0.1
+  }
+
+  return null
+}
+
+function formatWeightKg(weightKg: number, suffix = "") {
+  if (weightKg <= 0) {
+    return "-"
+  }
+
+  if (weightKg < 1) {
+    return `${formatNumber(weightKg * 1000)} กรัม${suffix}`
+  }
+
+  return `${formatNumber(weightKg)} กก.${suffix}`
+}
+
+function recipeApproxWeightKg(recipe: RecipeImpact, store: Store) {
+  return recipe.ingredients.reduce((total, item) => {
+    const ingredient = store.ingredientById.get(item.ingredientId)
+    const multiplier = ingredient ? unitWeightInKg(ingredient.unit) : null
+
+    return multiplier ? total + item.quantity * multiplier : total
+  }, 0)
+}
+
+function recipeCookedWeightSummary(recipe: RecipeImpact, store: Store) {
+  const weightKg = recipeApproxWeightKg(recipe, store)
+
+  return weightKg > 0 ? formatWeightKg(weightKg) : recipeQuantitySummary(recipe, store)
+}
+
+function recipePerServingSummary(recipe: RecipeImpact, store: Store) {
+  const weightKg = recipeApproxWeightKg(recipe, store)
+
+  if (weightKg > 0) {
+    return formatWeightKg(weightKg / Math.max(recipe.yield, 1), " / จาน")
+  }
+
+  return `${recipe.ingredients.length} รายการ / จาน`
+}
+
+function recipeMarginLabel(margin: number) {
+  if (Math.abs(margin) < 0.01) {
+    return "คุ้มทุน"
+  }
+
+  return margin > 0 ? "กำไร" : "ขาดทุน"
+}
+
 function RecipesView({ store }: { store: Store }) {
   const [cookMessage, setCookMessage] = useState("")
 
@@ -2938,10 +3039,20 @@ function RecipePinSelection({
                 </Badge>
               </div>
 
-              <div className="mb-4 grid grid-cols-3 gap-2 text-sm">
+              <div className="mb-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
                 <SummaryPill label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
+                <SummaryPill
+                  label="ปริมาณทั้งหมด"
+                  value={recipeCookedWeightSummary(recipe, store)}
+                />
+                <SummaryPill
+                  label="ปริมาณต่อจาน"
+                  value={recipePerServingSummary(recipe, store)}
+                />
                 <SummaryPill label="ต้นทุน" value={formatCurrency(recipe.cost)} />
-                <SummaryPill label="กำไร" value={formatCurrency(recipe.margin)} />
+                <SummaryPill label="ราคาขาย/จาน" value={formatCurrency(recipe.pricePerServing)} />
+                <SummaryPill label="รายได้" value={formatCurrency(recipe.revenue)} />
+                <SummaryPill label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
               </div>
 
               <div className="mb-4 flex flex-wrap gap-2">
@@ -3331,7 +3442,7 @@ function RecipeFormView({
                       <Input
                         type="number"
                         min="0"
-                        step="0.01"
+                        step="1"
                         className="h-11"
                         value={item.quantity}
                         onChange={(event) =>
@@ -3448,10 +3559,20 @@ function RecipeCard({
         <CardTitle>{recipe.name}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
           <SummaryPill label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
+          <SummaryPill
+            label="ปริมาณทั้งหมด"
+            value={recipeCookedWeightSummary(recipe, store)}
+          />
+          <SummaryPill
+            label="ปริมาณต่อจาน"
+            value={recipePerServingSummary(recipe, store)}
+          />
           <SummaryPill label="ต้นทุน" value={formatCurrency(recipe.cost)} />
-          <SummaryPill label="กำไร" value={formatCurrency(recipe.margin)} />
+          <SummaryPill label="ราคาขาย/จาน" value={formatCurrency(recipe.pricePerServing)} />
+          <SummaryPill label="รายได้" value={formatCurrency(recipe.revenue)} />
+          <SummaryPill label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
         </div>
 
         <div className="space-y-2">
@@ -3617,9 +3738,9 @@ function RecipeIngredientSelect({
 
 function SummaryPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-muted px-2 py-2">
+    <div className="min-w-0 rounded-lg bg-muted px-2 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-semibold">{value}</p>
+      <p className="break-words font-semibold leading-tight">{value}</p>
     </div>
   )
 }
