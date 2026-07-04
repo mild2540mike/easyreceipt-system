@@ -977,6 +977,9 @@ function StockAlertRow({ item }: { item: InventoryRow }) {
 
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseMessage, setPurchaseMessage] = useState("")
+  const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
+    purchase.items.map((item) => ({ purchase, item }))
+  )
 
   async function handleSubmitPurchase() {
     setPurchaseMessage("")
@@ -1022,6 +1025,15 @@ function PurchaseView({ store }: { store: Store }) {
             <p className="text-sm text-muted-foreground">
               กรอกวัตถุดิบ ปริมาณ และราคาต่อหน่วย ระบบจะรวมยอดให้ทันที
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge variant="secondary" className="h-7 px-3">
+                ร่าง {store.purchaseItems.length} รายการ
+              </Badge>
+              <Badge variant="outline" className="h-7 px-3">
+                บันทึกแล้ว {store.savedPurchasesForDate.length} ใบ /{" "}
+                {formatCurrency(store.savedPurchaseTotalForDate)}
+              </Badge>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -1065,6 +1077,20 @@ function PurchaseView({ store }: { store: Store }) {
               store={store}
             />
           ))}
+          {savedPurchaseRows.map(({ purchase, item }, itemIndex) => (
+            <SavedPurchaseMobileRow
+              key={`${purchase.id}-${item.id}`}
+              purchase={purchase}
+              item={item}
+              index={store.purchaseItems.length + itemIndex}
+              store={store}
+            />
+          ))}
+          {store.savedPurchasesForDate.length === 0 && (
+            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
+            </div>
+          )}
         </div>
 
         <div className="hidden rounded-lg border border-border lg:block">
@@ -1089,6 +1115,25 @@ function PurchaseView({ store }: { store: Store }) {
                   store={store}
                 />
               ))}
+              {savedPurchaseRows.map(({ purchase, item }, itemIndex) => (
+                <SavedPurchaseTableRow
+                  key={`${purchase.id}-${item.id}`}
+                  purchase={purchase}
+                  item={item}
+                  index={store.purchaseItems.length + itemIndex}
+                  store={store}
+                />
+              ))}
+              {store.savedPurchasesForDate.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="h-16 text-center text-sm text-muted-foreground"
+                  >
+                    ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -1120,9 +1165,17 @@ function PurchaseView({ store }: { store: Store }) {
 
           <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sky-950 sm:min-w-80">
             <div className="flex items-center justify-between gap-4">
-              <span className="font-semibold">ราคารวม</span>
-              <span className="text-2xl font-bold">
+              <span className="font-semibold">ราคาร่างใบซื้อ</span>
+              <span className="text-xl font-bold">
                 {formatCurrency(store.currentPurchaseTotal)}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-4 border-t border-sky-200 pt-2">
+              <span className="text-sm font-medium text-sky-800">
+                บันทึกแล้วของวันที่เลือก
+              </span>
+              <span className="font-semibold">
+                {formatCurrency(store.savedPurchaseTotalForDate)}
               </span>
             </div>
             <p className="mt-1 text-sm text-sky-700">
@@ -1131,8 +1184,6 @@ function PurchaseView({ store }: { store: Store }) {
           </div>
         </div>
       </section>
-
-      <SavedPurchasesSection store={store} />
 
       <section className="grid gap-4 xl:grid-cols-3">
         {store.inventoryRows
@@ -1157,96 +1208,86 @@ function PurchaseView({ store }: { store: Store }) {
   )
 }
 
-function SavedPurchasesSection({ store }: { store: Store }) {
-  const purchases = store.savedPurchasesForDate
-
-  return (
-    <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <ReceiptText className="size-5 text-sky-700" />
-            <h2 className="text-lg font-semibold">
-              ใบซื้อที่บันทึกแล้วของวันที่เลือก
-            </h2>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            แสดงเฉพาะรายการวันที่ {formatThaiDate(store.purchaseDate)}
-          </p>
-        </div>
-        <Badge variant="secondary" className="h-8 w-fit px-3">
-          {purchases.length} ใบ / {formatCurrency(store.savedPurchaseTotalForDate)}
-        </Badge>
-      </div>
-
-      {purchases.length > 0 ? (
-        <div className="grid gap-3">
-          {purchases.map((purchase) => (
-            <SavedPurchaseCard
-              key={purchase.id}
-              purchase={purchase}
-              store={store}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-          ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
-        </div>
-      )}
-    </section>
-  )
-}
-
-function SavedPurchaseCard({
+function SavedPurchaseMobileRow({
   purchase,
+  item,
+  index,
   store,
 }: {
   purchase: Store["savedPurchasesForDate"][number]
+  item: Store["savedPurchasesForDate"][number]["items"][number]
+  index: number
   store: Store
 }) {
+  const ingredient = item.ingredient ?? store.ingredientById.get(item.ingredientId)
+
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="font-semibold">{purchase.vendor || "ไม่ระบุผู้ขาย"}</p>
-          <p className="text-sm text-muted-foreground">
-            เวลา {formatThaiTime(purchase.purchasedAt)} · {purchase.items.length} รายการ
+    <div className="rounded-lg border border-border bg-muted/40 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Badge variant="outline" className="h-7">
+          รายการที่ {index + 1}
+        </Badge>
+        <Badge variant="secondary" className="h-7">
+          บันทึกแล้ว
+        </Badge>
+      </div>
+      <div className="grid gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">วัตถุดิบ</p>
+          <p className="font-semibold">{ingredient?.name ?? "วัตถุดิบ"}</p>
+          <p className="text-xs text-muted-foreground">
+            {purchase.vendor || "ไม่ระบุผู้ขาย"} · {formatThaiTime(purchase.purchasedAt)}
           </p>
         </div>
-        <div className="text-left sm:text-right">
-          <p className="text-sm text-muted-foreground">ยอดรวม</p>
-          <p className="text-xl font-bold">{formatCurrency(purchase.total)}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <SummaryPill label="ปริมาณ" value={`${formatNumber(item.quantity)} ${item.unit}`} />
+          <SummaryPill label="ราคาต่อหน่วย" value={formatCurrency(item.unitPrice)} />
         </div>
-      </div>
-
-      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {purchase.items.map((item) => {
-          const ingredient =
-            item.ingredient ?? store.ingredientById.get(item.ingredientId)
-
-          return (
-            <div
-              key={item.id}
-              className="rounded-lg bg-muted/60 px-3 py-2 text-sm"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate font-medium">
-                  {ingredient?.name ?? "วัตถุดิบ"}
-                </span>
-                <span className="shrink-0 font-semibold">
-                  {formatCurrency(item.lineTotal)}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {formatNumber(item.quantity)} {item.unit} ×{" "}
-                {formatCurrency(item.unitPrice)}
-              </p>
-            </div>
-          )
-        })}
+        <SummaryPill label="ราคารวม" value={formatCurrency(item.lineTotal)} />
       </div>
     </div>
+  )
+}
+
+function SavedPurchaseTableRow({
+  purchase,
+  item,
+  index,
+  store,
+}: {
+  purchase: Store["savedPurchasesForDate"][number]
+  item: Store["savedPurchasesForDate"][number]["items"][number]
+  index: number
+  store: Store
+}) {
+  const ingredient = item.ingredient ?? store.ingredientById.get(item.ingredientId)
+
+  return (
+    <TableRow className="bg-muted/30">
+      <TableCell className="text-center align-top">
+        <div className="font-medium">{index + 1}</div>
+        <div className="text-xs text-muted-foreground">
+          {formatThaiTime(purchase.purchasedAt)}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="font-medium">{ingredient?.name ?? "วัตถุดิบ"}</div>
+        <div className="text-xs text-muted-foreground">
+          {purchase.vendor || "ไม่ระบุผู้ขาย"}
+        </div>
+      </TableCell>
+      <TableCell>{formatNumber(item.quantity)}</TableCell>
+      <TableCell>{item.unit}</TableCell>
+      <TableCell>{formatCurrency(item.unitPrice)}</TableCell>
+      <TableCell className="text-right font-semibold">
+        {formatCurrency(item.lineTotal)}
+      </TableCell>
+      <TableCell>
+        <Badge variant="secondary" className="h-7">
+          บันทึกแล้ว
+        </Badge>
+      </TableCell>
+    </TableRow>
   )
 }
 
