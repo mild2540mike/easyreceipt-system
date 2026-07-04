@@ -993,6 +993,17 @@ function PurchaseView({ store }: { store: Store }) {
     setPurchaseMessage("บันทึกใบซื้อเข้าฐานข้อมูลและอัปเดตคลังวัตถุดิบแล้ว")
   }
 
+  function handleAutoSuggestedPurchase() {
+    setPurchaseMessage("")
+    const ok = store.addSuggestedPurchaseItems()
+
+    setPurchaseMessage(
+      ok
+        ? "เพิ่มรายการที่ควรซื้อเข้าร่างใบซื้อแล้ว"
+        : "ยังไม่มีรายการที่ควรซื้อเพิ่ม"
+    )
+  }
+
   return (
     <div className="space-y-5">
       {store.isPurchasesLoading && (
@@ -1139,7 +1150,16 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
 
         <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={handleAutoSuggestedPurchase}
+              disabled={store.lowStockItems.length === 0}
+            >
+              <Sparkles className="size-4" />
+              Auto รายการควรซื้อ
+            </Button>
             <Button className="h-11" onClick={store.addPurchaseItem}>
               <Plus className="size-4" />
               เพิ่มรายการ
@@ -1729,6 +1749,10 @@ function StockView({ store }: { store: Store }) {
   }
 
   function startStockEdit(item: InventoryRow) {
+    if (!store.canEditInventory) {
+      return
+    }
+
     setEditingIngredientId(item.ingredientId)
     setStockDraft(createStockEditDraft(item))
     setStockMessage("")
@@ -1876,6 +1900,7 @@ function StockView({ store }: { store: Store }) {
             key={item.ingredientId}
             item={item}
             onEdit={startStockEdit}
+            canEdit={store.canEditInventory}
           />
         ))}
       </section>
@@ -1942,6 +1967,7 @@ function StockView({ store }: { store: Store }) {
                     size="icon-lg"
                     className="size-11"
                     onClick={() => startStockEdit(item)}
+                    disabled={!store.canEditInventory}
                   >
                     <Pencil className="size-4" />
                     <span className="sr-only">
@@ -2169,9 +2195,11 @@ function StockEditForm({
 function StockMobileCard({
   item,
   onEdit,
+  canEdit,
 }: {
   item: InventoryRow
   onEdit: (item: InventoryRow) => void
+  canEdit: boolean
 }) {
   return (
     <Card className="rounded-lg">
@@ -2189,6 +2217,7 @@ function StockMobileCard({
               size="icon-lg"
               className="size-11"
               onClick={() => onEdit(item)}
+              disabled={!canEdit}
             >
               <Pencil className="size-4" />
               <span className="sr-only">แก้ไข {item.ingredient.name}</span>

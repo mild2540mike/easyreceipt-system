@@ -5,7 +5,7 @@ import { z } from "zod"
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
-import { badRequest, notFound } from "../../utils/http-error"
+import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
 import { assertBranchAccess } from "../common/permissions"
@@ -140,7 +140,11 @@ inventoryRouter.patch(
     const input = updateInventorySchema.parse(req.body)
 
     const inventory = await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (access.member.role !== "owner" && access.member.role !== "manager") {
+        throw forbidden("Member does not have permission to edit inventory.")
+      }
 
       const currentIngredient = await tx.ingredient.findUnique({
         where: { id: ingredientId },

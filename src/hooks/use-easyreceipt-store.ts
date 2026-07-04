@@ -1187,6 +1187,8 @@ export function useEasyReceiptStore() {
 
   const canManageMembers =
     currentMember?.role === "owner" || currentMember?.role === "manager"
+  const canEditInventory =
+    currentMember?.role === "owner" || currentMember?.role === "manager"
 
   const reportPurchaseSeries = useMemo<PurchaseSeriesItem[]>(() => {
     if (purchaseHistory.length > 0) {
@@ -1376,6 +1378,56 @@ export function useEasyReceiptStore() {
     })
   }
 
+  function addSuggestedPurchaseItems() {
+    if (lowStockItems.length === 0) {
+      return false
+    }
+
+    updateActiveWorkspace((workspace) => {
+      const purchaseItems = [...workspace.purchaseItems]
+      const firstItemIndexByIngredientId = new Map<string, number>()
+
+      purchaseItems.forEach((item, index) => {
+        if (!firstItemIndexByIngredientId.has(item.ingredientId)) {
+          firstItemIndexByIngredientId.set(item.ingredientId, index)
+        }
+      })
+
+      lowStockItems.forEach((row, index) => {
+        const existingIndex = firstItemIndexByIngredientId.get(row.ingredientId)
+
+        if (existingIndex === undefined) {
+          purchaseItems.push({
+            id: `${workspace.branchId}-suggested-${Date.now()}-${index}`,
+            ingredientId: row.ingredientId,
+            quantity: row.suggestedPurchaseQuantity,
+            unit: row.ingredient.unit,
+            unitPrice: row.ingredient.defaultPrice,
+          })
+          return
+        }
+
+        const currentItem = purchaseItems[existingIndex]
+        purchaseItems[existingIndex] = {
+          ...currentItem,
+          quantity: Math.max(
+            currentItem.quantity,
+            row.suggestedPurchaseQuantity
+          ),
+          unit: currentItem.unit || row.ingredient.unit,
+          unitPrice: currentItem.unitPrice || row.ingredient.defaultPrice,
+        }
+      })
+
+      return {
+        ...workspace,
+        purchaseItems,
+      }
+    })
+
+    return true
+  }
+
   function removePurchaseItem(itemId: string) {
     updateActiveWorkspace((workspace) => ({
       ...workspace,
@@ -1488,6 +1540,13 @@ export function useEasyReceiptStore() {
       return {
         ok: false,
         error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditInventory) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์แก้ไขคลังวัตถุดิบ",
       }
     }
 
@@ -1846,6 +1905,7 @@ export function useEasyReceiptStore() {
     savedPurchaseTotalForDate,
     updatePurchaseItem,
     addPurchaseItem,
+    addSuggestedPurchaseItems,
     removePurchaseItem,
     submitPurchase,
     isPurchasesLoading,
@@ -1859,6 +1919,7 @@ export function useEasyReceiptStore() {
     isInventorySaving: updateInventoryMutation.isPending,
     isIngredientSaving: createIngredientMutation.isPending,
     inventoryError,
+    canEditInventory,
     addIngredientFromPurchase,
     updateInventoryItem,
     lowStockItems,
