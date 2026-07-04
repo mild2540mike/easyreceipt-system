@@ -720,6 +720,18 @@ export const openApiDocument = {
                       items: { type: "string" },
                     },
                     purchaseTotal: { type: "number" },
+                    dailyPurchases: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          date: { type: "string", example: "2026-07-05" },
+                          branchId: { type: "string" },
+                          branchName: { type: "string" },
+                          total: { type: "number" },
+                        },
+                      },
+                    },
                     cookingCount: { type: "integer" },
                     stockMovementCount: { type: "integer" },
                   },

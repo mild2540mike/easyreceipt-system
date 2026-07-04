@@ -4445,10 +4445,9 @@ function ReportsView({ store }: { store: Store }) {
           </div>
 
           <TabsContent value="purchase">
-            <BarSeries
-              data={store.reportPurchaseSeries}
+            <BranchPurchaseBarSeries
+              data={store.reportBranchPurchaseSeries}
               label="ยอดซื้อรายวัน"
-              tone="bg-amber-500"
             />
           </TabsContent>
           <TabsContent value="cashflow">
@@ -4460,31 +4459,99 @@ function ReportsView({ store }: { store: Store }) {
   )
 }
 
-function BarSeries({
+const branchChartColors = [
+  "#0ea5e9",
+  "#f59e0b",
+  "#10b981",
+  "#ef4444",
+  "#8b5cf6",
+  "#14b8a6",
+  "#f97316",
+  "#64748b",
+]
+
+function BranchPurchaseBarSeries({
   data,
   label,
-  tone,
 }: {
-  data: { label: string; total: number }[]
+  data: Store["reportBranchPurchaseSeries"]
   label: string
-  tone: string
 }) {
-  const max = Math.max(...data.map((item) => item.total), 1)
+  const branches = Array.from(
+    new Map(
+      data
+        .flatMap((item) => item.branches)
+        .map((branch) => [branch.branchId, branch] as const)
+    ).values()
+  )
+  const branchColorById = new Map(
+    branches.map((branch, index) => [
+      branch.branchId,
+      branchChartColors[index % branchChartColors.length],
+    ])
+  )
+  const max = Math.max(
+    ...data.flatMap((item) => item.branches.map((branch) => branch.total)),
+    1
+  )
+
+  if (data.length === 0) {
+    return (
+      <div className="mt-5 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        ยังไม่มียอดซื้อสำหรับแสดงในกราฟ
+      </div>
+    )
+  }
 
   return (
     <div className="mt-5">
-      <p className="mb-4 text-sm font-semibold">{label}</p>
-      <div className="flex h-64 items-end gap-3 overflow-x-auto rounded-lg border border-border bg-muted/40 p-4">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-semibold">{label}</p>
+        <div className="flex flex-wrap gap-2">
+          {branches.map((branch) => (
+            <span
+              key={branch.branchId}
+              className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-xs"
+            >
+              <span
+                className="size-2 rounded-full"
+                style={{ backgroundColor: branchColorById.get(branch.branchId) }}
+              />
+              {branch.branchName}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex h-72 items-end gap-4 overflow-x-auto rounded-lg border border-border bg-muted/40 p-4">
         {data.map((item) => (
           <div
-            key={item.label}
-            className="flex min-w-16 flex-1 flex-col items-center gap-2"
+            key={item.date}
+            className="flex min-w-28 flex-1 flex-col items-center gap-2"
           >
-            <div className="flex h-44 w-full items-end">
-              <div
-                className={cn("w-full rounded-t-lg", tone)}
-                style={{ height: `${Math.max((item.total / max) * 100, 8)}%` }}
-              />
+            <div className="flex h-48 w-full items-end justify-center gap-1.5">
+              {branches.map((branch) => {
+                const total =
+                  item.branches.find((entry) => entry.branchId === branch.branchId)
+                    ?.total ?? 0
+                const height = total > 0 ? Math.max((total / max) * 100, 8) : 0
+
+                return (
+                  <div
+                    key={branch.branchId}
+                    className="flex h-full flex-1 items-end rounded-t-md bg-background/70"
+                    title={`${branch.branchName}: ${formatCurrency(total)}`}
+                  >
+                    <div
+                      className="w-full rounded-t-md transition-all"
+                      style={{
+                        height: `${height}%`,
+                        backgroundColor: branchColorById.get(branch.branchId),
+                      }}
+                    />
+                  </div>
+                )
+              })}
             </div>
             <div className="text-center text-xs">
               <p className="font-medium">{item.label}</p>

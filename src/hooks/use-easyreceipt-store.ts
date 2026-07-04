@@ -74,6 +74,17 @@ export type PurchaseSeriesItem = {
   total: number
 }
 
+export type BranchPurchaseSeriesItem = {
+  date: string
+  label: string
+  total: number
+  branches: {
+    branchId: string
+    branchName: string
+    total: number
+  }[]
+}
+
 export type MemberFormInput = {
   name: string
   email: string
@@ -156,6 +167,7 @@ const emptyReport: ReportSummary = {
   purchaseTotal: 0,
   cookingCount: 0,
   stockMovementCount: 0,
+  dailyPurchases: [],
 }
 
 function readSessionValue(key: string) {
@@ -377,7 +389,9 @@ function preferredBranchId(member: Member, requestedBranchId?: string | null) {
   return accessibleBranchIds[0] ?? ""
 }
 
-function buildReportMetrics(report: ReportSummary) {
+function buildReportMetrics(
+  report: Pick<ReportSummary, "purchaseTotal" | "cookingCount" | "stockMovementCount">
+) {
   return [
     {
       id: "purchase-total",
@@ -1212,19 +1226,57 @@ export function useEasyReceiptStore() {
       : []
   }, [purchaseHistory, reportSummary.purchaseTotal])
 
+  const reportBranchPurchaseSeries = useMemo<BranchPurchaseSeriesItem[]>(() => {
+    if (reportSummary.dailyPurchases.length === 0) {
+      return reportPurchaseSeries.map((item) => ({
+        date: item.label,
+        label: item.label,
+        total: item.total,
+        branches: [
+          {
+            branchId: "total",
+            branchName: "รวม",
+            total: item.total,
+          },
+        ],
+      }))
+    }
+
+    const byDate = new Map<string, BranchPurchaseSeriesItem>()
+
+    for (const item of reportSummary.dailyPurchases) {
+      const current = byDate.get(item.date) ?? {
+        date: item.date,
+        label: dayLabel(item.date),
+        total: 0,
+        branches: [],
+      }
+
+      current.total += item.total
+      current.branches.push({
+        branchId: item.branchId,
+        branchName: item.branchName,
+        total: item.total,
+      })
+      byDate.set(item.date, current)
+    }
+
+    return Array.from(byDate.values()).sort((first, second) =>
+      first.date.localeCompare(second.date)
+    )
+  }, [reportPurchaseSeries, reportSummary.dailyPurchases])
+
   const reportCashFlowMetrics = useMemo(
     () => buildReportMetrics(reportSummary),
     [reportSummary]
   )
   const activeCashFlowMetrics = useMemo(
     () => buildReportMetrics({
-      branchCount: activeBranch ? 1 : 0,
-      branchNames: activeBranch ? [activeBranch.name] : [],
       purchaseTotal: dashboardSummary.purchaseTotal,
       cookingCount: dashboardSummary.cookingCount,
       stockMovementCount: 0,
     }),
-    [activeBranch, dashboardSummary]
+    [dashboardSummary]
   )
   const reportBranchSummary = useMemo<BranchReportSummary>(
     () => ({
@@ -1928,6 +1980,7 @@ export function useEasyReceiptStore() {
     purchaseSeries: reportPurchaseSeries,
     cashFlowMetrics: activeCashFlowMetrics,
     reportPurchaseSeries,
+    reportBranchPurchaseSeries,
     reportCashFlowMetrics,
     reportBranchSummary,
     isReportsLoading,

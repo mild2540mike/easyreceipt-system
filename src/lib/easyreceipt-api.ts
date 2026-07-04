@@ -80,6 +80,14 @@ export type ReportSummary = {
   purchaseTotal: number
   cookingCount: number
   stockMovementCount: number
+  dailyPurchases: ReportDailyPurchase[]
+}
+
+export type ReportDailyPurchase = {
+  date: string
+  branchId: string
+  branchName: string
+  total: number
 }
 
 export type PurchaseApiInput = {
@@ -751,6 +759,12 @@ export async function apiGetReportSummary(): Promise<ReportSummary> {
     purchaseTotal: toNumber(data.purchaseTotal),
     cookingCount: toNumber(data.cookingCount),
     stockMovementCount: toNumber(data.stockMovementCount),
+    dailyPurchases: (data.dailyPurchases ?? []).map((item) => ({
+      date: item.date,
+      branchId: item.branchId,
+      branchName: item.branchName,
+      total: toNumber(item.total),
+    })),
   }
 }
 
