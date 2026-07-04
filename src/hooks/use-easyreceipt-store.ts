@@ -221,7 +221,7 @@ function purchaseTotal(items: PurchaseItem[]) {
 }
 
 function stockStatus(item: InventoryItem) {
-  if (item.onHand <= item.reorderPoint) {
+  if (item.onHand < item.reorderPoint || item.onHand < item.reserved) {
     return "low" as const
   }
 
@@ -593,9 +593,11 @@ export function useEasyReceiptStore() {
 
   const loginMutation = useMutation({
     mutationFn: apiLogin,
-    onSuccess: (member) => {
+    onSuccess: ({ member, branches }) => {
       queryClient.setQueryData(authSessionQueryKey, member)
+      queryClient.setQueryData(branchesQueryKey, branches)
       syncAuthenticatedMember(member)
+      setBranches(branches)
       setIsAuthReady(true)
     },
   })
@@ -1278,14 +1280,14 @@ export function useEasyReceiptStore() {
   }
 
   async function login(email: string, password: string) {
-    const member = await loginMutation
+    const session = await loginMutation
       .mutateAsync({
         email: email.trim().toLowerCase(),
         password,
       })
       .catch(() => null)
 
-    return Boolean(member && member.status === "active")
+    return Boolean(session?.member.status === "active")
   }
 
   function logout() {

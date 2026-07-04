@@ -47,6 +47,11 @@ type ApiAuthResponse = {
   branches?: Branch[]
 }
 
+export type AuthSession = {
+  member: Member
+  branches: Branch[]
+}
+
 export type LoginInput = {
   email: string
   password: string
@@ -290,6 +295,13 @@ function authBranchIds(data: ApiAuthResponse) {
   return data.branchIds ?? data.branches?.map((branch) => branch.id) ?? []
 }
 
+function normalizeAuthSession(data: ApiAuthResponse): AuthSession {
+  return {
+    member: normalizeMember(data.member, authBranchIds(data)),
+    branches: data.branches ?? [],
+  }
+}
+
 function toNumber(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0)
 
@@ -437,7 +449,7 @@ export async function apiLogin(input: LoginInput) {
   })
   const data = await parseJsonResponse<ApiAuthResponse>(response)
 
-  return normalizeMember(data.member, authBranchIds(data))
+  return normalizeAuthSession(data)
 }
 
 export async function apiGetBranches(): Promise<Branch[]> {
@@ -722,7 +734,7 @@ export async function apiGetCurrentMember() {
 
   const data = await parseJsonResponse<ApiAuthResponse>(response)
 
-  return normalizeMember(data.member, authBranchIds(data))
+  return normalizeAuthSession(data).member
 }
 
 export async function apiGetReportSummary(): Promise<ReportSummary> {

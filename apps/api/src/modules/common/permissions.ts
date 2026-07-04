@@ -29,6 +29,25 @@ export async function getAccessibleBranchIds(
   return rows.map((row) => row.branchId)
 }
 
+export async function getAccessibleBranches(
+  tx: PrismaExecutor,
+  memberId: string
+) {
+  return tx.branch.findMany({
+    where: {
+      memberAccess: {
+        some: {
+          memberId,
+        },
+      },
+      isActive: true,
+    },
+    orderBy: {
+      code: "asc",
+    },
+  })
+}
+
 export async function assertBranchAccess(
   tx: PrismaExecutor,
   memberId: string,

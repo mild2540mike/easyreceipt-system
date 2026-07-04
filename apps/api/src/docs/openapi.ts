@@ -345,6 +345,10 @@ export const openApiDocument = {
                       type: "array",
                       items: { type: "string" },
                     },
+                    branches: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/Branch" },
+                    },
                   },
                 },
               },
@@ -378,6 +382,10 @@ export const openApiDocument = {
                   type: "object",
                   properties: {
                     member: { $ref: "#/components/schemas/Member" },
+                    branchIds: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
                     branches: {
                       type: "array",
                       items: { $ref: "#/components/schemas/Branch" },

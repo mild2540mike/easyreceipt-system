@@ -18,92 +18,83 @@ const organization = {
 
 const branches = [
   {
-    id: "branch-korat",
-    code: "NRS",
-    name: "โรงเรียนนครราชสีมาวิทยา",
-    location: "นครราชสีมา",
+    id: "branch-wat-sakaeo",
+    code: "WSK",
+    name: "โรงเรียนวัดสระแก้ว",
+    location: "อำเภอเมืองนครราชสีมา",
   },
   {
-    id: "branch-korat-2",
-    code: "NRK",
-    name: "โรงเรียนโคราชพิทยาคม",
-    location: "เมือง นครราชสีมา",
+    id: "branch-keha",
+    code: "KHA",
+    name: "โรงเรียนเคหะ",
+    location: "อำเภอเมืองนครราชสีมา",
   },
   {
-    id: "branch-pakchong",
-    code: "PKC",
-    name: "โรงเรียนปากช่องวิทยา",
-    location: "ปากช่อง นครราชสีมา",
+    id: "branch-ban-khok-sung",
+    code: "BKS",
+    name: "โรงเรียนบ้านโคกสูง",
+    location: "อำเภอโคกสูง",
   },
   {
-    id: "branch-suranari",
-    code: "SNR",
-    name: "โรงเรียนสุรนารีศึกษา",
-    location: "เมือง นครราชสีมา",
+    id: "branch-chokchai",
+    code: "CKC",
+    name: "โรงเรียนโชคชัย",
+    location: "อำเภอโชคชัย",
   },
   {
-    id: "branch-bualuang",
-    code: "BLN",
-    name: "โรงเรียนบัวใหญ่นิยมศาสตร์",
-    location: "บัวใหญ่ นครราชสีมา",
+    id: "branch-chakkarat",
+    code: "CKR",
+    name: "โรงเรียนจักราช",
+    location: "อำเภอจักราช",
   },
   {
-    id: "branch-chokechai",
-    code: "CCN",
-    name: "โรงเรียนโชคชัยพรหมบุตรบริหาร",
-    location: "โชคชัย นครราชสีมา",
+    id: "branch-kham-thale-so",
+    code: "KTS",
+    name: "โรงเรียนขามทะเลสอ",
+    location: "อำเภอขามทะเลสอ",
   },
   {
-    id: "branch-sikhio",
-    code: "SKN",
-    name: "โรงเรียนสีคิ้วสวัสดิ์ผดุงวิทยา",
-    location: "สีคิ้ว นครราชสีมา",
+    id: "branch-huai-thalaeng",
+    code: "HTL",
+    name: "โรงเรียนห้วยแถลง",
+    location: "อำเภอห้วยแถลง",
   },
   {
-    id: "branch-khamthale",
-    code: "KTN",
-    name: "โรงเรียนคำเตยวิทยา",
-    location: "ห้วยแถลง นครราชสีมา",
+    id: "branch-school-total",
+    code: "ALL",
+    name: "งานโรงเรียนรวม",
+    location: "รวมทุกโรงเรียน",
   },
 ]
 
 const members = [
   {
     id: "member-owner",
-    name: "คุณยานาร์",
+    name: "Owner",
     email: "owner@easyreceipt.local",
     role: "owner",
     status: "active",
-    primaryBranchId: "branch-korat",
+    primaryBranchId: "branch-wat-sakaeo",
     branchIds: branches.map((branch) => branch.id),
   },
   {
     id: "member-manager",
-    name: "พิมพ์ชนก",
+    name: "Manager",
     email: "manager@easyreceipt.local",
     role: "manager",
     status: "active",
-    primaryBranchId: "branch-korat",
-    branchIds: ["branch-korat"],
+    primaryBranchId: "branch-wat-sakaeo",
+    branchIds: ["branch-wat-sakaeo"],
   },
   {
     id: "member-staff",
-    name: "นที",
+    name: "Staff",
     email: "staff@easyreceipt.local",
     role: "staff",
     status: "active",
-    primaryBranchId: "branch-korat",
-    branchIds: ["branch-korat"],
-  },
-  {
-    id: "member-viewer",
-    name: "ฝ่ายบัญชี",
-    email: "accounting@easyreceipt.local",
-    role: "viewer",
-    status: "invited",
-    primaryBranchId: "branch-korat",
-    branchIds: ["branch-korat"],
-  },
+    primaryBranchId: "branch-wat-sakaeo",
+    branchIds: ["branch-wat-sakaeo"],
+  }
 ]
 
 const stockItemById = new Map(
@@ -122,7 +113,7 @@ const purchaseDraft = [
 ]
 
 const recipeTemplatesByBranch = {
-  "branch-korat": [
+  "branch-wat-sakaeo": [
     {
       slug: "basil-chicken",
       name: "ข้าวกะเพราไก่",
@@ -211,7 +202,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-korat-2": [
+  "branch-keha": [
     {
       slug: "fried-rice-pork",
       name: "ข้าวผัดหมู",
@@ -294,7 +285,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-pakchong": [
+  "branch-ban-khok-sung": [
     {
       slug: "sour-shrimp-curry",
       name: "แกงส้มกุ้ง",
@@ -381,7 +372,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-suranari": [
+  "branch-chokchai": [
     {
       slug: "seafood-tom-yum",
       name: "ต้มยำทะเล",
@@ -467,7 +458,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-bualuang": [
+  "branch-chakkarat": [
     {
       slug: "drunken-noodles",
       name: "ผัดขี้เมา",
@@ -552,7 +543,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-chokechai": [
+  "branch-kham-thale-so": [
     {
       slug: "khao-soi",
       name: "ข้าวซอย",
@@ -639,7 +630,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-sikhio": [
+  "branch-huai-thalaeng": [
     {
       slug: "sour-curry",
       name: "แกงส้ม",
@@ -726,7 +717,7 @@ const recipeTemplatesByBranch = {
       ],
     },
   ],
-  "branch-khamthale": [
+  "branch-school-total": [
     {
       slug: "vegetarian-noodles",
       name: "ก๋วยเตี๋ยวลุยสวน",
@@ -1008,6 +999,16 @@ async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
       },
     })
   }
+
+  await tx.branchInventory.updateMany({
+    where: {
+      branchId: branch.id,
+    },
+    data: {
+      onHand: 0,
+      lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
+    },
+  })
 }
 
 async function main() {

@@ -8,7 +8,7 @@ import { prisma } from "../../db/prisma"
 import { getAuthMember, requireAuth } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
 import { unauthorized } from "../../utils/http-error"
-import { getAccessibleBranchIds, serializeMember } from "../common/permissions"
+import { getAccessibleBranches, serializeMember } from "../common/permissions"
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -68,11 +68,12 @@ authRouter.post(
     const token = createSessionToken(member.id)
     setSessionCookie(res, token)
 
-    const branches = await getAccessibleBranchIds(prisma, member.id)
+    const branches = await getAccessibleBranches(prisma, member.id)
 
     res.json({
       member: serializeMember(member),
-      branchIds: branches,
+      branchIds: branches.map((branch) => branch.id),
+      branches,
     })
   })
 )
@@ -92,22 +93,11 @@ authRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
-    const branches = await prisma.branch.findMany({
-      where: {
-        memberAccess: {
-          some: {
-            memberId: member.id,
-          },
-        },
-        isActive: true,
-      },
-      orderBy: {
-        code: "asc",
-      },
-    })
+    const branches = await getAccessibleBranches(prisma, member.id)
 
     res.json({
       member: serializeMember(member),
+      branchIds: branches.map((branch) => branch.id),
       branches,
     })
   })

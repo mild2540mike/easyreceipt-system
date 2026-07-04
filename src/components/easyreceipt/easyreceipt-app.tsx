@@ -857,7 +857,7 @@ function DashboardView({ store }: { store: Store }) {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="ยอดซื้อร่างล่าสุด"
+          label="ยอดซื้อรวมล่าสุด"
           value={formatCurrency(store.currentPurchaseTotal)}
           helper="คำนวณอัตโนมัติจากใบซื้อ"
           icon={ShoppingCart}
