@@ -1050,10 +1050,6 @@ function StockOutChatWidget({ store }: { store: Store }) {
     })
     .slice(0, 20)
 
-  if (!store.canEditInventory) {
-    return null
-  }
-
   function getClampedWidgetPosition(
     clientX: number,
     clientY: number,
