@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-05T23:34:11.3369026+07:00",
+  "title": "Design System: EasyReceipt System",
+  "extensions": {
+    "colorMeta": {
+      "app-bg": {
+        "role": "neutral",
+        "displayName": "App Workspace",
+        "canonical": "#f6f8fb",
+        "tonalRamp": ["oklch(0.18 0.01 255)", "oklch(0.30 0.012 255)", "oklch(0.42 0.014 255)", "oklch(0.56 0.016 255)", "oklch(0.70 0.014 255)", "oklch(0.84 0.012 255)", "oklch(0.93 0.008 255)", "#f6f8fb"]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Control Blue",
+        "canonical": "oklch(0.42 0.13 232)",
+        "tonalRamp": ["oklch(0.18 0.09 232)", "oklch(0.28 0.11 232)", "oklch(0.42 0.13 232)", "oklch(0.54 0.12 232)", "oklch(0.66 0.10 232)", "oklch(0.78 0.07 232)", "oklch(0.89 0.04 232)", "oklch(0.96 0.02 232)"]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Cool Panel Mist",
+        "canonical": "oklch(0.96 0.015 245)",
+        "tonalRamp": ["oklch(0.20 0.018 245)", "oklch(0.34 0.018 245)", "oklch(0.48 0.018 245)", "oklch(0.62 0.017 245)", "oklch(0.76 0.016 245)", "oklch(0.88 0.015 245)", "oklch(0.96 0.015 245)", "oklch(0.99 0.006 245)"]
+      },
+      "accent": {
+        "role": "tertiary",
+        "displayName": "Mint Readiness",
+        "canonical": "oklch(0.95 0.035 170)",
+        "tonalRamp": ["oklch(0.18 0.045 170)", "oklch(0.30 0.05 170)", "oklch(0.44 0.055 170)", "oklch(0.58 0.055 170)", "oklch(0.72 0.05 170)", "oklch(0.84 0.045 170)", "oklch(0.95 0.035 170)", "oklch(0.99 0.014 170)"]
+      },
+      "destructive": {
+        "role": "danger",
+        "displayName": "Operational Red",
+        "canonical": "oklch(0.577 0.245 27.325)",
+        "tonalRamp": ["oklch(0.20 0.13 27.325)", "oklch(0.32 0.17 27.325)", "oklch(0.45 0.21 27.325)", "oklch(0.577 0.245 27.325)", "oklch(0.70 0.19 27.325)", "oklch(0.82 0.12 27.325)", "oklch(0.92 0.06 27.325)", "oklch(0.97 0.03 27.325)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Work Surface",
+        "canonical": "oklch(0.96 0.012 250)",
+        "tonalRamp": ["oklch(0.18 0.012 250)", "oklch(0.32 0.012 250)", "oklch(0.46 0.012 250)", "oklch(0.60 0.012 250)", "oklch(0.74 0.012 250)", "oklch(0.86 0.012 250)", "oklch(0.96 0.012 250)", "oklch(0.99 0.004 250)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Rare app-level emphasis only; not for marketing-style hero sections."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Screen titles and primary section headers."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Cards, modals, row names, and compact panel headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Thai operational copy, helper text, and table secondary data."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, badges, form labels, tabs, and compact controls."
+      }
+    },
+    "shadows": [
+      {
+        "name": "surface-ring",
+        "value": "ring: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent)",
+        "purpose": "Default card and container boundary without decorative elevation."
+      },
+      {
+        "name": "overlay-medium",
+        "value": "box-shadow: var(--shadow-md); ring: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent)",
+        "purpose": "Popover, select, and dropdown layers."
+      },
+      {
+        "name": "overlay-high",
+        "value": "box-shadow: var(--shadow-lg); border: 1px solid var(--border)",
+        "purpose": "Dialogs and sheets that temporarily own attention."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms ease-in-out",
+        "purpose": "Dialog opacity, overlay changes, and fast state transitions."
+      },
+      {
+        "name": "panel-standard",
+        "value": "200ms ease-in-out",
+        "purpose": "Sheet movement and larger panel transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action button for save, add, and commit workflows.",
+      "html": "<button class=\"ds-btn-primary\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M17 21v-8H7v8M7 3v5h8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>บันทึก</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--primary); color: var(--primary-foreground); font: 500 14px/1 'Noto Sans Thai', system-ui, sans-serif; white-space: nowrap; transition: background-color 150ms ease-in-out, transform 150ms ease-in-out, box-shadow 150ms ease-in-out; } .ds-btn-primary svg { width: 16px; height: 16px; flex: none; } .ds-btn-primary:hover { background: color-mix(in oklch, var(--primary), transparent 20%); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 50%); } .ds-btn-primary:disabled { opacity: .5; pointer-events: none; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action button for cancel, export, and alternate controls.",
+      "html": "<button class=\"ds-btn-outline\">ยกเลิก</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); font: 500 14px/1 'Noto Sans Thai', system-ui, sans-serif; white-space: nowrap; transition: background-color 150ms ease-in-out, color 150ms ease-in-out, box-shadow 150ms ease-in-out; } .ds-btn-outline:hover { background: var(--muted); color: var(--foreground); } .ds-btn-outline:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 50%); } .ds-btn-outline:disabled { opacity: .5; pointer-events: none; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Compact text input used for purchase rows, search, budget, and member forms.",
+      "html": "<label class=\"ds-field\"><span>ชื่อวัตถุดิบ</span><input class=\"ds-input\" placeholder=\"ค้นหาชื่อวัตถุดิบ\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: var(--foreground); font: 500 14px/1 'Noto Sans Thai', system-ui, sans-serif; } .ds-input { width: 100%; min-width: 0; height: 32px; padding: 4px 10px; border: 1px solid var(--input); border-radius: 8px; background: transparent; color: var(--foreground); font: 400 14px/1.5 'Noto Sans Thai', system-ui, sans-serif; transition: border-color 150ms ease-in-out, box-shadow 150ms ease-in-out; } .ds-input::placeholder { color: var(--muted-foreground); } .ds-input:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 50%); } .ds-input:disabled { opacity: .5; background: color-mix(in oklch, var(--input), transparent 50%); cursor: not-allowed; }"
+    },
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "A compact information card for dashboard, reports, budgets, and member summaries.",
+      "html": "<article class=\"ds-card\"><div><p class=\"ds-card-label\">ยอดซื้อรวม</p><strong class=\"ds-card-value\">฿4,105</strong><p class=\"ds-card-helper\">รวมจากใบซื้อที่บันทึกในฐานข้อมูล</p></div><span class=\"ds-card-icon\">฿</span></article>",
+      "css": ".ds-card { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 16px; border-radius: 8px; background: var(--card); color: var(--foreground); box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground), transparent 90%); font-family: 'Noto Sans Thai', system-ui, sans-serif; } .ds-card-label { margin: 0 0 6px; color: var(--muted-foreground); font-size: 14px; line-height: 1.35; } .ds-card-value { display: block; font-size: 24px; line-height: 1.2; font-weight: 700; } .ds-card-helper { margin: 10px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.35; } .ds-card-icon { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid color-mix(in oklch, var(--primary), transparent 70%); background: color-mix(in oklch, var(--primary), white 88%); color: var(--primary); font-weight: 700; }"
+    },
+    {
+      "name": "Secondary Badge",
+      "kind": "chip",
+      "refersTo": "badge-secondary",
+      "description": "Neutral metadata badge for status, source, and category labels.",
+      "html": "<span class=\"ds-badge\">ฉบับร่าง</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; width: fit-content; height: 20px; padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; background: var(--secondary); color: var(--secondary-foreground); font: 500 12px/1 'Noto Sans Thai', system-ui, sans-serif; white-space: nowrap; } .ds-badge:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 50%); }"
+    },
+    {
+      "name": "Operational Table",
+      "kind": "custom",
+      "refersTo": "table",
+      "description": "Desktop comparison pattern for purchase summaries, stock, and budgets.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>#</th><th>ชื่อวัตถุดิบ</th><th class=\"num\">ปริมาณ</th><th class=\"num\">ราคารวม</th></tr></thead><tbody><tr><td>1</td><td>ไข่ไก่เบอร์ 5</td><td class=\"num\">38 ฟอง</td><td class=\"num\">฿76</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; caption-side: bottom; color: var(--foreground); font: 400 14px/1.5 'Noto Sans Thai', system-ui, sans-serif; } .ds-table th { height: 40px; padding: 8px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; white-space: nowrap; } .ds-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; } .ds-table tr:hover td { background: color-mix(in oklch, var(--muted), transparent 50%); } .ds-table .num { text-align: right; }"
+    },
+    {
+      "name": "Bottom Navigation Item",
+      "kind": "nav",
+      "refersTo": "mobile-nav",
+      "description": "Mobile-first module navigation with icon and short Thai label.",
+      "html": "<button class=\"ds-bottom-nav\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg><span>สรุป</span></button>",
+      "css": ".ds-bottom-nav { display: inline-flex; min-width: 64px; min-height: 64px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); font: 500 12px/1.2 'Noto Sans Thai', system-ui, sans-serif; transition: background-color 150ms ease-in-out, color 150ms ease-in-out; } .ds-bottom-nav svg { width: 24px; height: 24px; } .ds-bottom-nav[aria-current='page'] { background: color-mix(in oklch, var(--primary), white 90%); color: var(--foreground); } .ds-bottom-nav:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring), transparent 50%); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Kitchen Control Desk",
+    "overview": "EasyReceipt is a restrained product UI for people doing real operational work: recording purchases, checking stock, planning recipes, controlling branch budgets, and managing access. The system should feel like a calm control desk beside the kitchen workflow: clear enough for staff, precise enough for managers, and light enough to use on a phone without thinking about the interface.\n\nThe visual language is practical and compact. It uses a cool near-white workspace, white surfaces, a deep muted blue primary action color, and semantic status tints for stock, purchase, warning, budget, and role states. It explicitly rejects the PRODUCT.md anti-references: complex UI, corporate-heavy dashboards, overloaded dashboard decoration, dense admin clutter, excessive color, unnecessary cards, ornamental effects, and interactions that slow down kitchen or purchasing workflows.",
+    "keyCharacteristics": [
+      "Mobile-first operational density with readable Thai text and large enough touch targets.",
+      "Restrained color: one primary blue for action and current selection, semantic tints only when they carry state.",
+      "Familiar product patterns: tables, cards, tabs, modals, bottom navigation, badges, and search fields.",
+      "Flat-by-default surfaces with borders/rings for structure and shadows only for overlays.",
+      "Role-aware clarity: controls should match Owner, Manager, staff, and viewer responsibilities."
+    ],
+    "rules": [
+      {
+        "name": "The State Color Earns Its Place Rule",
+        "body": "Color must explain a state, category, role, or action. Never add color merely to decorate a dashboard card.",
+        "section": "colors"
+      },
+      {
+        "name": "The Primary Is Rare Rule",
+        "body": "Control Blue should stay uncommon on a screen. Use it for the one next action, not every clickable element.",
+        "section": "colors"
+      },
+      {
+        "name": "The Thai Readability Rule",
+        "body": "Do not shrink Thai helper text below 12px, and do not use negative letter spacing. Dense screens are acceptable; cramped Thai is not.",
+        "section": "typography"
+      },
+      {
+        "name": "The Product Scale Rule",
+        "body": "Use fixed product UI sizes, not fluid hero type. The interface is a tool, not a landing page.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-Until-Floating Rule",
+        "body": "If an element sits in the normal page flow, use a border or tonal layer. If it floats above content, use a shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The No Ghost Cards Rule",
+        "body": "Do not pair decorative wide shadows with thin borders on ordinary cards. It makes the product feel heavier than the work.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the interface simple, professional, and easy to use; this is the brand personality from PRODUCT.md.",
+      "Do make budget and stock consequences visible at the moment of action.",
+      "Do use Control Blue for primary actions and current selection.",
+      "Do use semantic tints for warning, low stock, ready, saved, draft, and role states.",
+      "Do keep mobile purchase and stock workflows touch-friendly and compact.",
+      "Do use existing shadcn/Base UI primitives and lucide icons before inventing controls.",
+      "Do prefer tables for desktop comparison and compact rows for mobile scanning."
+    ],
+    "donts": [
+      "Don't make the UI feel complex, corporate-heavy, or overloaded with dashboard decoration.",
+      "Don't create dense admin clutter, excessive color, unnecessary cards, ornamental effects, or interactions that slow down kitchen or purchasing workflows.",
+      "Don't use marketing-page tropes: oversized hero type, decorative gradients, glass panels, or repeated icon-card grids.",
+      "Don't use color as decoration. If it does not communicate state, action, role, or category, remove it.",
+      "Don't hide important Owner/Manager controls behind ambiguous icons without tooltips or labels.",
+      "Don't let mobile text overflow buttons, table cells, or cards; Thai labels must wrap or resize cleanly.",
+      "Don't make ordinary cards float with large shadows. Use borders and tonal layers first."
+    ]
+  }
+}

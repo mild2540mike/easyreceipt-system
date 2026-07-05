@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react"
+import { createPortal } from "react-dom"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import ExcelJS from "exceljs"
@@ -1377,7 +1378,7 @@ function StockOutChatWidget({ store }: { store: Store }) {
                   <Input
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
                     className="h-11"
                     value={quantity}
                     onChange={(event) => setQuantity(toNumber(event.target.value))}
@@ -1483,7 +1484,7 @@ function StockOutChatWidget({ store }: { store: Store }) {
         <Button
           type="button"
           className={cn(
-            "h-12 touch-none rounded-full px-4 shadow-lg",
+            "h-11 w-11 touch-none rounded-full px-0 shadow-lg sm:h-12 sm:w-auto sm:px-4",
             isDragging ? "cursor-grabbing" : "cursor-grab"
           )}
           onPointerDown={handleWidgetDragStart}
@@ -1882,7 +1883,7 @@ function BranchSwitcher({ store }: { store: Store }) {
                 <Input
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.01"
                   className="h-11"
                   value={budgetInput}
                   disabled={isUnlimitedBudget}
@@ -1929,7 +1930,7 @@ function BranchSwitcher({ store }: { store: Store }) {
 
 function DashboardView({ store }: { store: Store }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
       {store.isDashboardLoading && (
         <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
           <LoaderCircle className="size-4 animate-spin" />
@@ -1985,15 +1986,17 @@ function MetricCard({
   helper,
   icon: Icon,
   tone,
+  className,
 }: {
   label: string
   value: string
   helper: string
   icon: LucideIcon
   tone: string
+  className?: string
 }) {
   return (
-    <Card size="sm" className="rounded-lg">
+    <Card size="sm" className={cn("rounded-lg", className)}>
       <CardHeader className="gap-2">
         <CardAction>
           <span
@@ -2263,24 +2266,24 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-        <div className="mb-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+      <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
-            <div className="mb-2 flex items-center gap-2">
-              <ShoppingCart className="size-5 text-amber-600" />
-              <h2 className="text-lg font-semibold">ใบสรุปการซื้อของ</h2>
+            <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+              <ShoppingCart className="size-4 text-amber-600 sm:size-5" />
+              <h2 className="text-base font-semibold sm:text-lg">ใบสรุปการซื้อของ</h2>
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
               กรอกวัตถุดิบ ปริมาณ และราคาต่อหน่วย ระบบจะรวมยอดให้ทันที
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Badge variant="secondary" className="h-7 px-3">
+            <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+              <Badge variant="secondary" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
                 ร่าง {store.purchaseItems.length} รายการ
               </Badge>
-              <Badge variant="outline" className="h-7 px-3">
+              <Badge variant="outline" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
                 ฉบับร่าง {store.draftPurchasesForDate.length} ใบ
               </Badge>
-              <Badge variant="outline" className="h-7 px-3">
+              <Badge variant="outline" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
                 บันทึกแล้ว {store.savedPurchasesForDate.length} ใบ /{" "}
                 {formatCurrency(store.savedPurchaseTotalForDate)}
               </Badge>
@@ -2376,7 +2379,7 @@ function PurchaseView({ store }: { store: Store }) {
           </Table>
         </div>
 
-        <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button
               variant="outline"
@@ -2443,7 +2446,7 @@ function PurchaseView({ store }: { store: Store }) {
                 : "border-sky-200 bg-sky-50 text-sky-950"
             )}
           >
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <span className="font-semibold">ราคาร่างใบซื้อ</span>
               <span className="text-xl font-bold">
                 {formatCurrency(store.currentPurchaseTotal)}
@@ -2719,7 +2722,7 @@ function PurchaseTableRow({
         <Input
           type="number"
           min="0"
-          step="1"
+          step="0.01"
           value={item.quantity}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
@@ -2742,7 +2745,7 @@ function PurchaseTableRow({
         <Input
           type="number"
           min="0"
-          step="1"
+          step="0.01"
           value={item.unitPrice}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
@@ -2773,14 +2776,25 @@ function PurchaseTableRow({
 function IngredientSelect({
   item,
   store,
+  className,
+  hideMobileLabel = false,
 }: {
   item: PurchaseItem
   store: Store
+  className?: string
+  hideMobileLabel?: boolean
 }) {
   const selectedIngredient = store.ingredientById.get(item.ingredientId)
+  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
   const [query, setQuery] = useState(selectedIngredient?.name ?? "")
   const [isOpen, setIsOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 288,
+    maxHeight: 320,
+  })
   const searchTerm = normalizeSearch(query)
   const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
   const exactIngredient = store.ingredients.find(
@@ -2812,6 +2826,50 @@ function IngredientSelect({
     })
     .slice(0, 7)
   const canAddIngredient = Boolean(query.trim()) && !exactIngredient
+
+  function updateDropdownPosition() {
+    const anchor = inputAnchorRef.current
+
+    if (!anchor) {
+      return
+    }
+
+    const rect = anchor.getBoundingClientRect()
+    const viewportPadding = 8
+    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
+    const availableAbove = rect.top - viewportPadding
+    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
+    const maxHeight = Math.max(
+      160,
+      Math.min(320, shouldOpenAbove ? availableAbove : availableBelow)
+    )
+
+    setDropdownPosition({
+      left: Math.min(
+        Math.max(viewportPadding, rect.left),
+        window.innerWidth - dropdownWidth - viewportPadding
+      ),
+      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
+      width: dropdownWidth,
+      maxHeight,
+    })
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    updateDropdownPosition()
+    window.addEventListener("resize", updateDropdownPosition)
+    window.addEventListener("scroll", updateDropdownPosition, true)
+
+    return () => {
+      window.removeEventListener("resize", updateDropdownPosition)
+      window.removeEventListener("scroll", updateDropdownPosition, true)
+    }
+  }, [isOpen])
 
   function handleSelectIngredient(ingredientId: string) {
     const ingredient = store.ingredientById.get(ingredientId)
@@ -2848,27 +2906,41 @@ function IngredientSelect({
   }
 
   return (
-    <div className="relative min-w-72 sm:min-w-80">
-      <Label className="mb-2 block lg:hidden">ชื่อวัตถุดิบ</Label>
-      <div className="relative">
+    <div className={cn("relative min-w-72 sm:min-w-80", className)}>
+      {!hideMobileLabel && (
+        <Label className="mb-1 block text-[0.68rem] leading-tight lg:hidden">ชื่อวัตถุดิบ</Label>
+      )}
+      <div ref={inputAnchorRef} className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          className="h-9 pl-9 text-sm sm:h-11"
+          className="h-11 pl-9 text-sm"
           value={query}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            setIsOpen(true)
+            window.requestAnimationFrame(updateDropdownPosition)
+          }}
           onBlur={() => {
             window.setTimeout(() => setIsOpen(false), 120)
           }}
           onChange={(event) => {
             setQuery(event.target.value)
             setIsOpen(true)
+            window.requestAnimationFrame(updateDropdownPosition)
           }}
         />
       </div>
 
-      {isOpen && (
-        <div className="left-0 top-[calc(100%+0.25rem)] z-50 max-h-80 w-full min-w-72 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg sm:min-w-80">
+      {isOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-50 max-h-80 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
+          style={{
+            left: dropdownPosition.left,
+            top: dropdownPosition.top,
+            width: dropdownPosition.width,
+            maxHeight: dropdownPosition.maxHeight,
+          }}
+        >
           {suggestionRows.map((row) => (
             <button
               key={row.ingredientId}
@@ -2924,7 +2996,8 @@ function IngredientSelect({
               พิมพ์ชื่อวัตถุดิบเพื่อค้นหาหรือเพิ่มรายการใหม่
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -2947,7 +3020,7 @@ function FieldNumber({
       <Input
         type="number"
         min="0"
-        step="1"
+        step="0.01"
         value={value}
         onChange={(event) => onChange(toNumber(event.target.value))}
         disabled={disabled}
@@ -3837,6 +3910,7 @@ function RecipesView({ store }: { store: Store }) {
           helper="รวมทุกเมนู"
           icon={Package}
           tone="border-sky-200 bg-sky-50 text-sky-800"
+          className="col-span-2 sm:col-span-1"
         />
       </section>
 
@@ -3875,7 +3949,7 @@ function RecipesView({ store }: { store: Store }) {
         )}
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      <section className="grid gap-2 sm:gap-3 lg:grid-cols-2">
         {store.pinnedRecipeImpacts.map((recipe: RecipeImpact) => (
           <RecipeCard
             key={recipe.id}
@@ -3896,14 +3970,16 @@ function RecipeAddCard() {
   return (
     <Link
       href="/portal/recipes/new"
-      className="flex min-h-44 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-sky-300 bg-sky-50/40 px-4 py-6 text-center text-sky-700 transition-colors hover:border-sky-500 hover:bg-sky-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:min-h-56"
+      className="flex min-h-0 items-center justify-start gap-3 rounded-lg border border-dashed border-sky-300 bg-sky-50/40 px-3 py-3 text-left text-sky-700 transition-colors hover:border-sky-500 hover:bg-sky-50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:min-h-56 sm:flex-col sm:justify-center sm:px-4 sm:py-6 sm:text-center"
     >
-      <span className="flex size-20 items-center justify-center rounded-full border border-sky-200 bg-background shadow-sm">
-        <Plus className="size-10" />
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-background sm:size-20 sm:rounded-full">
+        <Plus className="size-5 sm:size-10" />
       </span>
-      <span className="font-semibold">เพิ่มสูตรอาหารใหม่</span>
-      <span className="max-w-56 text-sm text-sky-700/80">
+      <span className="min-w-0 space-y-0.5 sm:space-y-2">
+        <span className="block font-semibold">เพิ่มสูตรอาหารใหม่</span>
+        <span className="block max-w-56 text-sm leading-snug text-sky-700/80">
         สร้างสูตรพร้อมวัตถุดิบและปักหมุดใช้งาน
+        </span>
       </span>
     </Link>
   )
@@ -3923,41 +3999,41 @@ function RecipePinSelection({
   isSaving: boolean
 }) {
   return (
-    <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
+      <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Pin className="size-5 text-rose-600" />
-            <h2 className="text-lg font-semibold">
+          <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+            <Pin className="size-4 text-rose-600 sm:size-5" />
+            <h2 className="text-base font-semibold sm:text-lg">
               ปักหมุดสูตรอาหารที่เคยสร้างไว้
             </h2>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
             เลือกสูตรจากคลังสูตรเพื่อเพิ่มเป็นเมนูที่ใช้งานในหน้าสูตรอาหาร
           </p>
         </div>
-        <Badge variant="outline" className="h-7 w-fit">
+        <Badge variant="outline" className="h-6 w-fit text-xs sm:h-7">
           {recipes.length} สูตรในคลัง
         </Badge>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-2 sm:gap-3 md:grid-cols-2">
         {recipes.map((recipe) => {
           const pinned = recipe.isPinned
 
           return (
-            <div key={recipe.id} className="rounded-lg border border-border p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
+            <div key={recipe.id} className="rounded-lg border border-border p-3 sm:p-4">
+              <div className="mb-3 flex items-start justify-between gap-2 sm:gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm text-muted-foreground">
+                  <p className="truncate text-xs text-muted-foreground sm:text-sm">
                     {recipe.menuCategory}
                   </p>
-                  <h3 className="truncate font-semibold">{recipe.name}</h3>
+                  <h3 className="truncate text-sm font-semibold sm:text-base">{recipe.name}</h3>
                 </div>
                 <Badge
                   variant="outline"
                   className={cn(
-                    "h-6 shrink-0",
+                    "h-6 shrink-0 text-xs",
                     pinned
                       ? "border-rose-200 bg-rose-50 text-rose-700"
                       : "border-sky-200 bg-sky-50 text-sky-700"
@@ -3967,7 +4043,7 @@ function RecipePinSelection({
                 </Badge>
               </div>
 
-              <div className="mb-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              <div className="mb-3 grid grid-cols-2 gap-2 text-sm sm:mb-4 sm:grid-cols-3">
                 <SummaryPill label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
                 <SummaryPill
                   label="ปริมาณทั้งหมด"
@@ -3983,7 +4059,7 @@ function RecipePinSelection({
                 <SummaryPill label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
               </div>
 
-              <div className="mb-4 flex flex-wrap gap-2">
+              <div className="mb-3 flex max-h-28 flex-wrap gap-1.5 overflow-auto rounded-lg border border-border bg-muted/30 p-2 sm:mb-4 sm:max-h-none sm:gap-2">
                 {recipe.ingredients.slice(0, 4).map((item) => {
                   const ingredient = store.ingredientById.get(item.ingredientId)
 
@@ -3991,7 +4067,7 @@ function RecipePinSelection({
                     <Badge
                       key={item.ingredientId}
                       variant="secondary"
-                      className="h-7"
+                      className="h-6 max-w-full text-xs sm:h-7"
                     >
                       {ingredient?.name} {formatNumber(item.quantity)}
                       {ingredient?.unit}
@@ -4000,9 +4076,9 @@ function RecipePinSelection({
                 })}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <Button
-                  className="h-11 w-full sm:col-span-1"
+                  className="col-span-2 h-11 w-full sm:col-span-1"
                   onClick={() => onPin(recipe.id)}
                   disabled={pinned || isSaving}
                 >
@@ -4223,7 +4299,7 @@ function RecipeFormView({
   }
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
+    <div className="w-full max-w-4xl space-y-4 pb-20 sm:pb-0">
       <Link
         href="/portal/recipes"
         className={buttonVariants({
@@ -4245,18 +4321,18 @@ function RecipeFormView({
         />
       )}
 
-      <Card className="rounded-lg">
-        <CardHeader>
-          <CardTitle>
+      <Card className="overflow-visible rounded-lg">
+        <CardHeader className="px-3 sm:px-(--card-spacing)">
+          <CardTitle className="text-base sm:text-lg">
             {mode === "edit"
               ? "แก้ไขเมนูสูตรอาหาร"
               : "สร้างสูตรใหม่และปักหมุด"}
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs leading-snug sm:text-sm">
             จัดการชื่อเมนู ราคา จำนวนเสิร์ฟ และวัตถุดิบในสูตร
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 sm:px-(--card-spacing)">
           <form className="space-y-4" onSubmit={handleSubmitRecipe}>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -4312,7 +4388,7 @@ function RecipeFormView({
               />
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Label>วัตถุดิบในสูตร</Label>
                 <Button
@@ -4332,10 +4408,10 @@ function RecipeFormView({
                 return (
                   <div
                     key={`${item.ingredientId}-${index}`}
-                    className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end md:bg-background"
+                    className="grid gap-2.5 rounded-lg border border-border bg-muted/20 p-3 md:grid-cols-[1fr_8rem_2.75rem] md:items-end md:bg-background"
                   >
                     <div className="flex items-center justify-between gap-3 md:hidden">
-                      <Badge variant="secondary" className="h-7 px-3">
+                      <Badge variant="secondary" className="h-6 px-2.5 text-xs">
                         รายการที่ {index + 1}
                       </Badge>
                       <Button
@@ -4351,7 +4427,7 @@ function RecipeFormView({
                       </Button>
                     </div>
                     <div>
-                      <Label className="mb-2 block">วัตถุดิบ</Label>
+                      <Label className="mb-1.5 block sm:mb-2">วัตถุดิบ</Label>
                       <RecipeIngredientSelect
                         value={item.ingredientId}
                         store={store}
@@ -4363,14 +4439,14 @@ function RecipeFormView({
                       />
                     </div>
                     <div>
-                      <Label className="mb-2 block">
+                      <Label className="mb-1.5 block sm:mb-2">
                         ปริมาณ
                         {ingredient ? ` (${ingredient.unit})` : ""}
                       </Label>
                       <Input
                         type="number"
                         min="0"
-                        step="1"
+                        step="0.01"
                         className="h-11"
                         value={item.quantity}
                         onChange={(event) =>
@@ -4405,7 +4481,7 @@ function RecipeFormView({
             <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2">
               <Button
                 type="submit"
-                className="h-12 w-full text-base sm:text-sm"
+                className="h-11 w-full text-base sm:h-12 sm:text-sm"
                 disabled={store.isRecipeSaving}
               >
                 {store.isRecipeSaving ? (
@@ -4419,7 +4495,7 @@ function RecipeFormView({
                 href="/portal/recipes"
                 className={buttonVariants({
                   variant: "outline",
-                  className: "h-12 w-full text-base sm:text-sm",
+                  className: "h-11 w-full text-base sm:h-12 sm:text-sm",
                 })}
               >
                 <Minus className="size-4" />
@@ -4459,8 +4535,8 @@ function RecipeCard({
 
   return (
     <Card size="sm" className="rounded-lg">
-      <CardHeader className="gap-2 max-sm:grid-cols-1">
-        <CardAction className="max-sm:col-start-1 max-sm:row-start-3 max-sm:mt-2 max-sm:w-full max-sm:justify-self-stretch">
+      <CardHeader className="gap-2 px-3 sm:px-(--card-spacing) max-sm:grid-cols-1">
+        <CardAction className="max-sm:col-start-1 max-sm:row-start-1 max-sm:mb-1 max-sm:w-full max-sm:justify-self-stretch">
           <div className="flex items-center justify-between gap-2 sm:justify-end">
             <Badge
               variant="outline"
@@ -4483,14 +4559,14 @@ function RecipeCard({
             </Button>
           </div>
         </CardAction>
-        <CardDescription className="text-sm leading-snug">
+        <CardDescription className="truncate text-xs leading-snug sm:text-sm">
           {recipe.menuCategory}
         </CardDescription>
         <CardTitle className="text-base leading-snug sm:text-lg">
           {recipe.name}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 px-3 sm:px-(--card-spacing)">
         <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
           <SummaryPill compact label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
           <SummaryPill
@@ -4509,14 +4585,14 @@ function RecipeCard({
           <SummaryPill compact label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
           <p className="text-sm font-semibold">วัตถุดิบที่ใช้</p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex max-h-28 flex-wrap gap-1.5 overflow-auto sm:max-h-none">
             {recipe.ingredients.map((item) => {
               const ingredient = store.ingredientById.get(item.ingredientId)
 
               return (
-                <Badge key={item.ingredientId} variant="secondary" className="h-6 text-xs">
+                <Badge key={item.ingredientId} variant="secondary" className="h-6 max-w-full text-xs">
                   {ingredient?.name} {formatNumber(item.quantity)}
                   {ingredient?.unit}
                 </Badge>
@@ -4537,7 +4613,7 @@ function RecipeCard({
           </div>
         ) : recipe.canProduce ? (
           <Button
-            className="h-10 w-full"
+            className="h-11 w-full"
             onClick={() => onCook(recipe.id)}
             disabled={isSaving}
           >
@@ -4727,13 +4803,160 @@ function BranchBadgeList({
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5 lg:max-h-24 lg:overflow-y-auto lg:pr-1">
       {branches.map((branch) => (
         <Badge key={branch.id} variant="secondary" className="h-7">
           {branch.name}
         </Badge>
       ))}
     </div>
+  )
+}
+
+function BranchAccessCell({
+  member,
+  store,
+}: {
+  member: Store["members"][number]
+  store: Store
+}) {
+  const forceAll = member.role === "owner"
+  const selectionMode = member.role === "manager" ? "multiple" : "single"
+  const memberBranchIds =
+    member.role === "manager" ? member.branchIds : member.branchIds.slice(0, 1)
+  const selectedBranchIds = forceAll
+    ? store.branches.map((branch) => branch.id)
+    : memberBranchIds
+  const selectedBranches = selectedBranchIds
+    .map((branchId) =>
+      store.branches.find((branch) => branch.id === branchId)
+    )
+    .filter((branch): branch is Store["branches"][number] => Boolean(branch))
+  const editable = store.canManageMembers && !forceAll
+  const branchOptions = store.accessibleBranches
+  const previewBranches = selectedBranches.slice(0, 2)
+  const hiddenCount = Math.max(0, selectedBranches.length - previewBranches.length)
+  const summary =
+    selectedBranches.length > 0
+      ? `${selectedBranches.length} สาขา`
+      : "ยังไม่กำหนด"
+
+  function updateBranches(nextBranchIds: string[]) {
+    store.updateMemberBranches(member.id, nextBranchIds)
+  }
+
+  function toggleBranch(branchId: string) {
+    if (!editable) {
+      return
+    }
+
+    const selectedIds = new Set(selectedBranchIds)
+
+    if (selectedIds.has(branchId)) {
+      if (selectionMode === "single" || selectedBranchIds.length === 1) {
+        return
+      }
+
+      updateBranches(selectedBranchIds.filter((item) => item !== branchId))
+      return
+    }
+
+    if (selectionMode === "single") {
+      updateBranches([branchId])
+      return
+    }
+
+    updateBranches([...selectedBranchIds, branchId])
+  }
+
+  const summaryContent = (
+    <div className="min-w-0">
+      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+        {previewBranches.length > 0 ? (
+          previewBranches.map((branch) => (
+            <Badge key={branch.id} variant="secondary" className="h-6 max-w-32 truncate px-2 text-xs">
+              {branch.name}
+            </Badge>
+          ))
+        ) : (
+          <Badge variant="outline" className="h-6 border-amber-200 px-2 text-xs text-amber-700">
+            ยังไม่กำหนด
+          </Badge>
+        )}
+        {hiddenCount > 0 && (
+          <Badge variant="outline" className="h-6 px-2 text-xs">
+            +{hiddenCount}
+          </Badge>
+        )}
+      </div>
+      <p className="truncate text-xs text-muted-foreground">
+        {forceAll
+          ? "เห็นทุกสาขาอัตโนมัติ"
+          : selectedBranches[0]
+            ? `${selectedBranches[0].code} · ${summary}`
+            : summary}
+      </p>
+    </div>
+  )
+
+  if (!editable) {
+    return <div className="max-w-72">{summaryContent}</div>
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            className="h-auto min-h-11 w-full max-w-72 justify-between gap-3 px-3 py-2 text-left"
+          />
+        }
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <Building2 className="size-4 shrink-0 text-muted-foreground" />
+          {summaryContent}
+        </div>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <div>
+          <p className="font-semibold">สาขาที่เข้าถึง</p>
+          <p className="text-xs text-muted-foreground">
+            {selectionMode === "multiple"
+              ? "เลือกได้หลายสาขาสำหรับ Manager"
+              : "เลือกได้ 1 สาขาสำหรับพนักงาน"}
+          </p>
+        </div>
+        <div className="max-h-72 overflow-y-auto pr-1">
+          <div className="grid gap-1.5">
+            {branchOptions.map((branch) => {
+              const selected = selectedBranchIds.includes(branch.id)
+
+              return (
+                <button
+                  key={branch.id}
+                  type="button"
+                  className={cn(
+                    "flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition hover:bg-muted",
+                    selected && "border-sky-200 bg-sky-50 text-sky-950"
+                  )}
+                  onClick={() => toggleBranch(branch.id)}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{branch.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {branch.code} · {branch.location}
+                    </span>
+                  </span>
+                  {selected && <CircleCheck className="size-4 shrink-0 text-sky-700" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -4782,7 +5005,7 @@ function BranchAccessPicker({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-2 lg:max-h-32 lg:overflow-y-auto lg:pr-1 lg:gap-1.5">
       {branchOptions.map((branch) => {
         const selected = selectedIds.has(branch.id)
 
@@ -4791,7 +5014,7 @@ function BranchAccessPicker({
             key={branch.id}
             type="button"
             className={cn(
-              "flex min-h-11 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition",
+              "flex min-h-11 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition lg:min-h-9 lg:gap-2 lg:px-2.5 lg:py-1.5 lg:text-xs",
               selected && "border-sky-200 bg-sky-50 text-sky-950",
               !disabled && !forceAll && "hover:bg-muted",
               (disabled || forceAll) && "cursor-default opacity-90"
@@ -4800,11 +5023,11 @@ function BranchAccessPicker({
           >
             <span className="min-w-0">
               <span className="block truncate font-medium">{branch.name}</span>
-              <span className="block truncate text-xs text-muted-foreground">
+              <span className="block truncate text-xs text-muted-foreground lg:text-[0.68rem]">
                 {branch.code} · {branch.location}
               </span>
             </span>
-            {selected && <CircleCheck className="size-4 shrink-0 text-sky-700" />}
+            {selected && <CircleCheck className="size-4 shrink-0 text-sky-700 lg:size-3.5" />}
           </button>
         )
       })}
@@ -5001,7 +5224,7 @@ function BudgetsView({ store }: { store: Store }) {
                         <Input
                           type="number"
                           min="0"
-                          step="1"
+                          step="0.01"
                           className="h-10"
                           disabled={isUnlimited}
                           value={budgetValue}
@@ -5059,8 +5282,8 @@ function MembersView({ store }: { store: Store }) {
   )
 
   return (
-    <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <MetricCard
           label="สมาชิกทั้งหมด"
           value={`${store.memberStats.total} คน`}
@@ -5092,11 +5315,11 @@ function MembersView({ store }: { store: Store }) {
       </section>
 
       <section className="space-y-3">
-        <div className="rounded-lg border border-border bg-background p-4">
+        <div className="rounded-lg border border-border bg-background p-3 sm:p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold">การจัดการสมาชิก</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-base font-semibold sm:text-lg">การจัดการสมาชิก</h2>
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 ปรับสิทธิ์และสถานะการเข้าใช้งานระบบ
               </p>
             </div>
@@ -5117,36 +5340,36 @@ function MembersView({ store }: { store: Store }) {
           </div>
         </div>
 
-        <div className="grid gap-3 lg:hidden">
+        <div className="grid gap-2 sm:gap-3 lg:hidden">
           {store.members.map((member) => (
             <MemberMobileCard key={member.id} member={member} store={store} />
           ))}
         </div>
 
-        <div className="hidden overflow-hidden rounded-lg border border-border bg-background lg:block">
-          <Table>
-            <TableHeader>
+        <div className="hidden overflow-x-auto rounded-lg border border-border bg-background lg:block">
+          <Table className="min-w-[64rem] text-sm">
+            <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead>สมาชิก</TableHead>
-                <TableHead>สิทธิ์</TableHead>
-                <TableHead>สถานะ</TableHead>
-                <TableHead>สาขา</TableHead>
-                <TableHead>ใช้งานล่าสุด</TableHead>
-                <TableHead>วันที่เพิ่ม</TableHead>
+                <TableHead className="w-[24rem]">สมาชิก</TableHead>
+                <TableHead className="w-40">สิทธิ์</TableHead>
+                <TableHead className="w-40">สถานะ</TableHead>
+                <TableHead className="min-w-72">สาขา</TableHead>
+                <TableHead className="w-36">ใช้งานล่าสุด</TableHead>
+                <TableHead className="w-32">วันที่เพิ่ม</TableHead>
                 <TableHead className="w-32 text-right">จัดการ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {store.members.map((member) => (
-                <TableRow key={member.id}>
+                <TableRow key={member.id} className="hover:bg-muted/30">
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="flex size-9 items-center justify-center rounded-lg bg-muted">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
                         <UserRound className="size-4 text-muted-foreground" />
                       </div>
-                      <div>
-                        <p className="font-semibold">{member.name}</p>
-                        <p className="text-sm text-muted-foreground">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{member.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
                           {member.email}
                         </p>
                       </div>
@@ -5186,36 +5409,11 @@ function MembersView({ store }: { store: Store }) {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="min-w-56">
-                    {store.canManageMembers && member.role !== "owner" ? (
-                      <BranchAccessPicker
-                        value={
-                          member.role === "manager"
-                            ? member.branchIds
-                            : member.branchIds.slice(0, 1)
-                        }
-                        store={store}
-                        onChange={(nextBranchIds) =>
-                          store.updateMemberBranches(member.id, nextBranchIds)
-                        }
-                        selectionMode={
-                          member.role === "manager" ? "multiple" : "single"
-                        }
-                      />
-                    ) : (
-                      <BranchBadgeList
-                        branchIds={
-                          member.role === "manager"
-                            ? member.branchIds
-                            : member.branchIds.slice(0, 1)
-                        }
-                        store={store}
-                        forceAll={member.role === "owner"}
-                      />
-                    )}
+                  <TableCell className="min-w-72">
+                    <BranchAccessCell member={member} store={store} />
                   </TableCell>
-                  <TableCell>{member.lastActive}</TableCell>
-                  <TableCell>{member.joinedAt}</TableCell>
+                  <TableCell className="text-muted-foreground">{member.lastActive}</TableCell>
+                  <TableCell className="text-muted-foreground">{member.joinedAt}</TableCell>
                   <TableCell className="text-right">
                     <MemberEditDialog member={member} store={store} />
                   </TableCell>
@@ -5424,25 +5622,31 @@ function MemberMobileCard({
 }) {
   return (
     <Card className="rounded-lg">
-      <CardHeader>
-        <CardAction>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant="outline"
-              className={cn("h-6", memberStatusClassName(member.status))}
-            >
-              {memberStatusLabel(member.status)}
-            </Badge>
-            <MemberEditDialog member={member} store={store} compact />
+      <CardContent className="space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+            <UserRound className="size-5 text-muted-foreground" />
           </div>
-        </CardAction>
-        <CardDescription>{member.email}</CardDescription>
-        <CardTitle>{member.name}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="min-w-0 truncate text-base font-semibold leading-tight">
+                {member.name}
+              </p>
+              <Badge
+                variant="outline"
+                className={cn("h-6 shrink-0", memberStatusClassName(member.status))}
+              >
+                {memberStatusLabel(member.status)}
+              </Badge>
+            </div>
+            <p className="mt-1 break-all text-sm leading-snug text-muted-foreground">
+              {member.email}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2">
           <div>
-            <Label className="mb-2 block">สิทธิ์</Label>
+            <Label className="mb-2 block text-xs text-muted-foreground">สิทธิ์</Label>
             {store.canManageMembers ? (
               <RoleSelect
                 value={member.role}
@@ -5457,7 +5661,7 @@ function MemberMobileCard({
             )}
           </div>
           <div>
-            <Label className="mb-2 block">สถานะ</Label>
+            <Label className="mb-2 block text-xs text-muted-foreground">สถานะ</Label>
             {store.canManageMembers ? (
               <StatusSelect
                 value={member.status}
@@ -5472,8 +5676,8 @@ function MemberMobileCard({
             )}
           </div>
         </div>
-        <div>
-          <Label className="mb-2 block">สาขาที่เข้าถึง</Label>
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <Label className="mb-2 block text-xs text-muted-foreground">สาขาที่เข้าถึง</Label>
           {store.canManageMembers && member.role !== "owner" ? (
             <BranchAccessPicker
               value={
@@ -5502,9 +5706,14 @@ function MemberMobileCard({
           )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <SummaryPill label="ใช้งานล่าสุด" value={member.lastActive} />
-          <SummaryPill label="วันที่เพิ่ม" value={member.joinedAt} />
+          <SummaryPill compact label="ใช้งานล่าสุด" value={member.lastActive} />
+          <SummaryPill compact label="วันที่เพิ่ม" value={member.joinedAt} />
         </div>
+        <MemberEditDialog
+          member={member}
+          store={store}
+          className="h-11 w-full"
+        />
       </CardContent>
     </Card>
   )
@@ -5514,10 +5723,12 @@ function MemberEditDialog({
   member,
   store,
   compact = false,
+  className,
 }: {
   member: Store["members"][number]
   store: Store
   compact?: boolean
+  className?: string
 }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(member.name)
@@ -5567,7 +5778,8 @@ function MemberEditDialog({
         variant="outline"
         className={cn(
           "h-9",
-          compact ? "w-9 px-0" : "px-3"
+          compact ? "w-9 px-0" : "px-3",
+          className
         )}
         disabled={!store.canManageMembers}
         onClick={openEditor}
@@ -5700,7 +5912,7 @@ function RoleSelect({
       value={value}
       onValueChange={(nextValue) => onChange(String(nextValue) as MemberRole)}
     >
-      <SelectTrigger className="h-11 w-full">
+      <SelectTrigger className="h-11 w-full lg:h-9">
         <SelectValue>{(nextValue) => memberRoleLabel(String(nextValue) as MemberRole)}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
@@ -5730,7 +5942,7 @@ function StatusSelect({
         onChange(String(nextValue) as MemberStatus)
       }
     >
-      <SelectTrigger className="h-11 w-full">
+      <SelectTrigger className="h-11 w-full lg:h-9">
         <SelectValue>
           {(nextValue) => memberStatusLabel(String(nextValue) as MemberStatus)}
         </SelectValue>
