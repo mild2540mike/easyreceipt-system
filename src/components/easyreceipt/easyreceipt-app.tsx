@@ -1208,7 +1208,7 @@ function DashboardView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard
           label="ยอดซื้อรวมล่าสุด"
           value={formatCurrency(store.currentPurchaseTotal)}
@@ -1258,23 +1258,29 @@ function MetricCard({
   tone: string
 }) {
   return (
-    <Card className="rounded-lg">
-      <CardHeader>
+    <Card size="sm" className="rounded-lg">
+      <CardHeader className="gap-2">
         <CardAction>
           <span
             className={cn(
-              "flex size-10 items-center justify-center rounded-lg border",
+              "flex size-9 items-center justify-center rounded-lg border sm:size-10",
               tone
             )}
           >
-            <Icon className="size-5" />
+            <Icon className="size-4 sm:size-5" />
           </span>
         </CardAction>
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
+        <CardDescription className="pr-10 text-sm leading-snug sm:text-base">
+          {label}
+        </CardDescription>
+        <CardTitle className="text-xl leading-tight sm:text-2xl">
+          {value}
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground">{helper}</p>
+        <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
+          {helper}
+        </p>
       </CardContent>
     </Card>
   )
@@ -1321,24 +1327,24 @@ function PurchaseOrderSection({ store }: { store: Store }) {
             </Badge>
           </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-row">
           <Button
             variant="outline"
-            className="h-11 w-full sm:w-auto"
+            className="h-9 min-w-0 px-2 text-sm sm:h-11 sm:w-auto sm:px-4 sm:text-base"
             onClick={handleExportPurchaseOrderImage}
             disabled={store.lowStockItems.length === 0}
           >
             <Download className="size-4" />
-            Export PNG
+            <span className="truncate">Export PNG</span>
           </Button>
           <Button
             variant="outline"
-            className="h-11 w-full sm:w-auto"
+            className="h-9 min-w-0 px-2 text-sm sm:h-11 sm:w-auto sm:px-4 sm:text-base"
             onClick={handleExportPurchaseOrder}
             disabled={store.lowStockItems.length === 0}
           >
             <Download className="size-4" />
-            Export XLSX
+            <span className="truncate">Export XLSX</span>
           </Button>
         </div>
       </div>
@@ -2217,7 +2223,7 @@ function StockView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label="วัตถุดิบทั้งหมด"
           value={`${store.inventoryRows.length} รายการ`}
@@ -2888,7 +2894,7 @@ function RecipesView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label="เมนูที่ปักหมุด"
           value={`${store.recipeStats.total} สูตร`}
@@ -2912,20 +2918,20 @@ function RecipesView({ store }: { store: Store }) {
         />
       </section>
 
-      <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-lg border border-border bg-background p-3 sm:p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="mb-2 flex items-center gap-2">
-              <ChefHat className="size-5 text-rose-600" />
-              <h2 className="text-lg font-semibold">
+            <div className="mb-1.5 flex items-center gap-2">
+              <ChefHat className="size-4 text-rose-600 sm:size-5" />
+              <h2 className="text-base font-semibold sm:text-lg">
                 สูตรอาหารและผลกระทบสต็อก
               </h2>
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
               ตรวจความพร้อมของวัตถุดิบก่อนตัดสต็อกตามสูตร
             </p>
           </div>
-          <Badge variant="outline" className="h-7 w-fit">
+          <Badge variant="outline" className="h-6 w-fit text-xs sm:h-7">
             {store.pinnedRecipeImpacts.length} สูตรที่ปักหมุด
           </Badge>
         </div>
@@ -2947,7 +2953,7 @@ function RecipesView({ store }: { store: Store }) {
         )}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-3 lg:grid-cols-2">
         {store.pinnedRecipeImpacts.map((recipe: RecipeImpact) => (
           <RecipeCard
             key={recipe.id}
@@ -3530,19 +3536,19 @@ function RecipeCard({
       : "border-red-200 bg-red-50 text-red-700"
 
   return (
-    <Card className="rounded-lg">
-      <CardHeader className="max-sm:grid-cols-1">
-        <CardAction className="max-sm:col-start-1 max-sm:row-start-3 max-sm:mt-3 max-sm:w-full max-sm:justify-self-stretch">
+    <Card size="sm" className="rounded-lg">
+      <CardHeader className="gap-2 max-sm:grid-cols-1">
+        <CardAction className="max-sm:col-start-1 max-sm:row-start-3 max-sm:mt-2 max-sm:w-full max-sm:justify-self-stretch">
           <div className="flex items-center justify-between gap-2 sm:justify-end">
             <Badge
               variant="outline"
-              className={cn("h-6", recipeStatusClassName)}
+              className={cn("h-6 text-xs", recipeStatusClassName)}
             >
               {recipeStatusLabel}
             </Badge>
             <Button
               variant="outline"
-              className="h-10 border-rose-200 px-3 text-rose-700 hover:bg-rose-50 hover:text-rose-800 sm:w-10 sm:px-0"
+              className="h-9 border-rose-200 px-3 text-sm text-rose-700 hover:bg-rose-50 hover:text-rose-800 sm:w-9 sm:px-0"
               onClick={() => onUnpin(recipe.id)}
               disabled={isSaving || recipe.isCooked}
             >
@@ -3555,34 +3561,40 @@ function RecipeCard({
             </Button>
           </div>
         </CardAction>
-        <CardDescription>{recipe.menuCategory}</CardDescription>
-        <CardTitle>{recipe.name}</CardTitle>
+        <CardDescription className="text-sm leading-snug">
+          {recipe.menuCategory}
+        </CardDescription>
+        <CardTitle className="text-base leading-snug sm:text-lg">
+          {recipe.name}
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-          <SummaryPill label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
+          <SummaryPill compact label="จำนวน" value={`${recipe.yield} เสิร์ฟ`} />
           <SummaryPill
+            compact
             label="ปริมาณทั้งหมด"
             value={recipeCookedWeightSummary(recipe, store)}
           />
           <SummaryPill
+            compact
             label="ปริมาณต่อจาน"
             value={recipePerServingSummary(recipe, store)}
           />
-          <SummaryPill label="ต้นทุน" value={formatCurrency(recipe.cost)} />
-          <SummaryPill label="ราคาขาย/จาน" value={formatCurrency(recipe.pricePerServing)} />
-          <SummaryPill label="รายได้" value={formatCurrency(recipe.revenue)} />
-          <SummaryPill label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
+          <SummaryPill compact label="ต้นทุน" value={formatCurrency(recipe.cost)} />
+          <SummaryPill compact label="ราคาขาย/จาน" value={formatCurrency(recipe.pricePerServing)} />
+          <SummaryPill compact label="รายได้" value={formatCurrency(recipe.revenue)} />
+          <SummaryPill compact label={recipeMarginLabel(recipe.margin)} value={formatCurrency(recipe.margin)} />
         </div>
 
         <div className="space-y-2">
           <p className="text-sm font-semibold">วัตถุดิบที่ใช้</p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {recipe.ingredients.map((item) => {
               const ingredient = store.ingredientById.get(item.ingredientId)
 
               return (
-                <Badge key={item.ingredientId} variant="secondary" className="h-7">
+                <Badge key={item.ingredientId} variant="secondary" className="h-6 text-xs">
                   {ingredient?.name} {formatNumber(item.quantity)}
                   {ingredient?.unit}
                 </Badge>
@@ -3592,18 +3604,18 @@ function RecipeCard({
         </div>
 
         {!recipe.canProduce && !recipe.isCooked && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-sm text-red-800">
             ขาด: {recipe.missingNames.join(", ")}
           </div>
         )}
 
         {recipe.isCooked ? (
-          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+          <div className="rounded-lg border border-sky-200 bg-sky-50 p-2.5 text-sm text-sky-800">
             ปรุงแล้วและตัดสต็อกวัตถุดิบเรียบร้อย
           </div>
         ) : recipe.canProduce ? (
           <Button
-            className="h-12 w-full"
+            className="h-10 w-full"
             onClick={() => onCook(recipe.id)}
             disabled={isSaving}
           >
@@ -3736,11 +3748,31 @@ function RecipeIngredientSelect({
   )
 }
 
-function SummaryPill({ label, value }: { label: string; value: string }) {
+function SummaryPill({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string
+  value: string
+  compact?: boolean
+}) {
   return (
-    <div className="min-w-0 rounded-lg bg-muted px-2 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="break-words font-semibold leading-tight">{value}</p>
+    <div
+      className={cn(
+        "min-w-0 rounded-lg bg-muted px-2 py-2",
+        compact && "py-1.5"
+      )}
+    >
+      <p className="text-xs leading-snug text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "break-words font-semibold leading-tight",
+          compact && "text-sm"
+        )}
+      >
+        {value}
+      </p>
     </div>
   )
 }
@@ -3891,7 +3923,7 @@ function MembersView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard
           label="สมาชิกทั้งหมด"
           value={`${store.memberStats.total} คน`}
@@ -4408,7 +4440,7 @@ function ReportsView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {store.reportCashFlowMetrics.map((metric) => (
           <MetricCard
             key={metric.id}
