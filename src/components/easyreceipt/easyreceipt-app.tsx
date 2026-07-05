@@ -271,6 +271,7 @@ function formatThaiTime(value: string) {
   }
 
   return new Intl.DateTimeFormat("th-TH", {
+    timeZone: "Asia/Bangkok",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
@@ -2760,7 +2761,6 @@ function PurchaseTableRow({
           size="icon-lg"
           className="h-9 w-9 sm:h-11 sm:w-11"
           onClick={() => store.removePurchaseItem(item.id)}
-          disabled={store.purchaseItems.length === 1}
         >
           <Trash2 className="size-4" />
           <span className="sr-only">ลบรายการ</span>

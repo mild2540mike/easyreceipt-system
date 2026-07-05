@@ -288,6 +288,20 @@ function bangkokDateKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
+function purchaseTimestampForSelectedDate(date: Date) {
+  const now = new Date()
+  const timestamp = new Date(date)
+
+  timestamp.setHours(
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    now.getMilliseconds()
+  )
+
+  return timestamp
+}
+
 function normalizeLookup(value: string) {
   return value.trim().toLocaleLowerCase("th-TH")
 }
@@ -1746,10 +1760,7 @@ export function useEasyReceiptStore() {
   function removePurchaseItem(itemId: string) {
     updateActiveWorkspace((workspace) => ({
       ...workspace,
-      purchaseItems:
-        workspace.purchaseItems.length <= 1
-          ? workspace.purchaseItems
-          : workspace.purchaseItems.filter((item) => item.id !== itemId),
+      purchaseItems: workspace.purchaseItems.filter((item) => item.id !== itemId),
     }))
   }
 
@@ -1772,10 +1783,12 @@ export function useEasyReceiptStore() {
     }
 
     try {
+      const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
+
       await createPurchaseMutation.mutateAsync({
         branchId: activeBranchId,
         input: {
-          purchaseDate: purchaseDate.toISOString(),
+          purchaseDate: purchaseTimestamp.toISOString(),
           vendor: "ฉบับร่างจาก EasyReceipt",
           status: "draft",
           items,
@@ -1892,10 +1905,12 @@ export function useEasyReceiptStore() {
     }
 
     try {
+      const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
+
       await createPurchaseMutation.mutateAsync({
         branchId: activeBranchId,
         input: {
-          purchaseDate: purchaseDate.toISOString(),
+          purchaseDate: purchaseTimestamp.toISOString(),
           vendor: "บันทึกจาก EasyReceipt",
           status: "saved",
           draftPurchaseIds,
