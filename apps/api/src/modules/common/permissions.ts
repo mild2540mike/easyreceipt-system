@@ -1,4 +1,4 @@
-import type { Member, Prisma, PrismaClient } from "@prisma/client"
+import type { Branch, Member, Prisma, PrismaClient } from "@prisma/client"
 
 import { forbidden, notFound } from "../../utils/http-error"
 
@@ -108,5 +108,22 @@ export function serializeMember(member: Member) {
     status: member.status,
     lastActiveAt: member.lastActiveAt,
     joinedAt: member.joinedAt,
+  }
+}
+
+export function serializeBranch(branch: Branch) {
+  return {
+    id: branch.id,
+    organizationId: branch.organizationId,
+    code: branch.code,
+    name: branch.name,
+    location: branch.location,
+    dailyPurchaseBudget:
+      branch.dailyPurchaseBudget === null
+        ? null
+        : Number(branch.dailyPurchaseBudget),
+    isActive: branch.isActive,
+    createdAt: branch.createdAt,
+    updatedAt: branch.updatedAt,
   }
 }

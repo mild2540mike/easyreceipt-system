@@ -97,6 +97,7 @@ export const openApiDocument = {
           code: { type: "string", example: "HQ" },
           name: { type: "string", example: "สำนักงานใหญ่" },
           location: { type: "string", example: "กรุงเทพฯ" },
+          dailyPurchaseBudget: { type: ["number", "null"], example: 1000 },
           isActive: { type: "boolean", example: true },
           createdAt: { type: "string", format: "date-time" },
         },
@@ -167,6 +168,11 @@ export const openApiDocument = {
         properties: {
           purchaseDate: { type: "string", format: "date-time" },
           vendor: { type: "string", example: "ตลาดสด" },
+          status: {
+            type: "string",
+            enum: ["draft", "saved"],
+            default: "saved",
+          },
           items: {
             type: "array",
             minItems: 1,
@@ -423,6 +429,38 @@ export const openApiDocument = {
             },
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/branches/{branchId}/budget": {
+      patch: {
+        tags: ["Branches"],
+        summary: "Update a branch daily purchase budget.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["dailyPurchaseBudget"],
+                properties: {
+                  dailyPurchaseBudget: {
+                    type: ["number", "null"],
+                    minimum: 0,
+                    description: "Daily purchase budget. Null means unlimited.",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated branch budget." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
         },
       },
     },

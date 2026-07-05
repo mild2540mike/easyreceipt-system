@@ -18,6 +18,7 @@ import {
   Building2,
   CalendarIcon,
   ChefHat,
+  CircleDollarSign,
   CircleCheck,
   Clock3,
   Database,
@@ -70,13 +71,13 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import {
   Select,
@@ -181,6 +182,15 @@ const navItems: NavItem[] = [
     color: "text-violet-700 bg-violet-50 border-violet-200",
   },
   {
+    id: "budgets",
+    label: "งบรายวัน",
+    shortLabel: "งบ",
+    description: "กำหนด budget รายวันของแต่ละสาขา",
+    href: "/portal/budgets",
+    icon: CircleDollarSign,
+    color: "text-lime-700 bg-lime-50 border-lime-200",
+  },
+  {
     id: "members",
     label: "สมาชิก",
     shortLabel: "สมาชิก",
@@ -195,9 +205,15 @@ function canAccessMemberManagement(member: Store["currentMember"]) {
   return member?.role === "owner" || member?.role === "manager"
 }
 
+function canAccessBudgetManagement(member: Store["currentMember"]) {
+  return member?.role === "owner" || member?.role === "manager"
+}
+
 function visibleNavItems(member: Store["currentMember"]) {
   return navItems.filter(
-    (item) => item.id !== "members" || canAccessMemberManagement(member)
+    (item) =>
+      (item.id !== "members" || canAccessMemberManagement(member)) &&
+      (item.id !== "budgets" || canAccessBudgetManagement(member))
   )
 }
 
@@ -740,8 +756,10 @@ export function EasyReceiptPortalPage({
     if (
       store.isAuthReady &&
       store.currentMember &&
-      activeView === "members" &&
-      !canAccessMemberManagement(store.currentMember)
+      ((activeView === "members" &&
+        !canAccessMemberManagement(store.currentMember)) ||
+        (activeView === "budgets" &&
+          !canAccessBudgetManagement(store.currentMember)))
     ) {
       router.replace("/portal")
     }
@@ -757,6 +775,7 @@ export function EasyReceiptPortalPage({
   }
 
   const memberCanAccessMembers = canAccessMemberManagement(store.currentMember)
+  const memberCanAccessBudgets = canAccessBudgetManagement(store.currentMember)
   const currentNavItems = visibleNavItems(store.currentMember)
   const activeItem =
     currentNavItems.find((item) => item.id === activeView) ?? currentNavItems[0]
@@ -829,7 +848,8 @@ export function EasyReceiptPortalPage({
           </header>
 
           <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
-            {activeView === "members" && !memberCanAccessMembers ? (
+            {(activeView === "members" && !memberCanAccessMembers) ||
+            (activeView === "budgets" && !memberCanAccessBudgets) ? (
               <DashboardView store={store} />
             ) : (
               children ?? (
@@ -839,6 +859,9 @@ export function EasyReceiptPortalPage({
                 {activeView === "stock" && <StockView store={store} />}
                 {activeView === "recipes" && <RecipesView store={store} />}
                 {activeView === "reports" && <ReportsView store={store} />}
+                {activeView === "budgets" && memberCanAccessBudgets && (
+                  <BudgetsView store={store} />
+                )}
                 {activeView === "members" && memberCanAccessMembers && (
                   <MembersView store={store} />
                 )}
@@ -1580,7 +1603,11 @@ function MobileBottomNav({
       <div
         className={cn(
           "mx-auto grid max-w-lg gap-1",
-          items.length === 5 ? "grid-cols-5" : "grid-cols-6"
+          items.length === 5
+            ? "grid-cols-5"
+            : items.length === 6
+              ? "grid-cols-6"
+              : "grid-cols-7"
         )}
       >
         {items.map((item) => {
@@ -1634,37 +1661,25 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
         <SheetHeader>
           <SheetTitle>แจ้งเตือนวัตถุดิบ</SheetTitle>
           <SheetDescription>
-            รายการที่คงเหลือไม่พอต่อการจองใช้จากสูตรอาหาร
+            รายการแจ้งเตือนถูกรวมไว้ในใบสั่งซื้อวัตถุดิบบนแดชบอร์ดแล้ว
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-3 px-4 pb-4">
-          {lowStockItems.map((item) => (
-            <div
-              key={item.ingredientId}
-              className="rounded-lg border border-border bg-background p-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{item.ingredient.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    ควรซื้อเพิ่ม {formatNumber(item.suggestedPurchaseQuantity)}{" "}
-                    {item.ingredient.unit}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    คงเหลือ {formatNumber(item.onHand)}{" "}
-                    {item.ingredient.unit}
-                  </p>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={cn("h-6", statusClassName(item.status))}
-                >
-                  {statusLabel(item.status)}
-                </Badge>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-semibold">
+                  {lowStockItems.length > 0
+                    ? `${lowStockItems.length} รายการรอรวมในใบสั่งซื้อ`
+                    : "ไม่มีรายการแจ้งเตือนวัตถุดิบ"}
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  ดูจำนวนที่ควรซื้อ ราคา และ export ได้จากส่วนใบสั่งซื้อวัตถุดิบ
+                </p>
               </div>
-              <Progress value={item.stockPercent} className="mt-3" />
             </div>
-          ))}
+          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -1672,69 +1687,224 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
 }
 
 function BranchSwitcher({ store }: { store: Store }) {
-  return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <Button
-            variant="outline"
-            className="h-11 w-11 px-0 sm:w-auto sm:px-3"
-          />
-        }
-      >
-        <Building2 className="size-5 text-sky-700" />
-        <span className="hidden max-w-32 truncate text-sm sm:inline">
-          {store.activeBranch?.code}
-        </span>
-        <span className="sr-only">เลือกโรงเรียนหรือสาขา</span>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-2">
-        <div className="border-b border-border px-2 pb-2">
-          <p className="font-semibold">เลือกโรงเรียน/สาขา</p>
-          <p className="text-xs text-muted-foreground">
-            แสดงเฉพาะสาขาที่บัญชีนี้มีสิทธิ์
-          </p>
-        </div>
-        <div className="mt-2 space-y-1">
-          {store.accessibleBranches.map((branch) => {
-            const isActive = branch.id === store.activeBranchId
+  const [budgetBranchId, setBudgetBranchId] = useState("")
+  const [budgetInput, setBudgetInput] = useState("")
+  const [isUnlimitedBudget, setIsUnlimitedBudget] = useState(true)
+  const [budgetMessage, setBudgetMessage] = useState("")
+  const budgetBranch = store.branches.find((branch) => branch.id === budgetBranchId)
 
-            return (
-              <button
-                key={branch.id}
-                type="button"
-                className={cn(
-                  "flex min-h-12 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-muted",
-                  isActive && "bg-sky-50 text-sky-950"
-                )}
-                onClick={() => store.setActiveBranch(branch.id)}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold">
-                    {branch.name}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {branch.code} · {branch.location}
-                  </span>
-                </span>
-                {isActive ? (
-                  <Badge
-                    variant="outline"
-                    className="h-7 shrink-0 border-sky-200 bg-sky-50 text-sky-700"
+  function openBudgetDialog(branch: Store["branches"][number]) {
+    setBudgetBranchId(branch.id)
+    setIsUnlimitedBudget(branch.dailyPurchaseBudget === null)
+    setBudgetInput(
+      branch.dailyPurchaseBudget === null ? "" : String(branch.dailyPurchaseBudget)
+    )
+    setBudgetMessage("")
+  }
+
+  async function handleSaveBudget() {
+    if (!budgetBranch) {
+      return
+    }
+
+    const result = await store.updateBranchBudget(
+      budgetBranch.id,
+      isUnlimitedBudget ? null : toNumber(budgetInput)
+    )
+
+    if (!result.ok) {
+      setBudgetMessage(result.error ?? "ไม่สามารถบันทึกงบประมาณสาขาได้")
+      return
+    }
+
+    setBudgetMessage("")
+    setBudgetBranchId("")
+  }
+
+  return (
+    <>
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="outline"
+              className="h-11 w-11 px-0 sm:w-auto sm:px-3"
+            />
+          }
+        >
+          <Building2 className="size-5 text-sky-700" />
+          <span className="hidden max-w-32 truncate text-sm sm:inline">
+            {store.activeBranch?.code}
+          </span>
+          <span className="sr-only">เลือกโรงเรียนหรือสาขา</span>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] p-2">
+          <div className="border-b border-border px-2 pb-2">
+            <p className="font-semibold">เลือกโรงเรียน/สาขา</p>
+            <p className="text-xs text-muted-foreground">
+              แสดงเฉพาะสาขาที่บัญชีนี้มีสิทธิ์
+            </p>
+          </div>
+          <div className="mt-2 space-y-1">
+            {store.accessibleBranches.map((branch) => {
+              const isActive = branch.id === store.activeBranchId
+
+              return (
+                <div
+                  key={branch.id}
+                  className={cn(
+                    "flex min-h-14 items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-muted",
+                    isActive && "bg-sky-50 text-sky-950"
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => store.setActiveBranch(branch.id)}
                   >
-                    ใช้งาน
-                  </Badge>
-                ) : (
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-xs text-muted-foreground">
-                    {branch.code}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
+                    <span className="block truncate font-semibold">
+                      {branch.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {branch.code} · {branch.location}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      งบรายวัน:{" "}
+                      {branch.dailyPurchaseBudget === null
+                        ? "ไม่จำกัด"
+                        : formatCurrency(branch.dailyPurchaseBudget)}
+                    </span>
+                  </button>
+                  {isActive ? (
+                    <Badge
+                      variant="outline"
+                      className="h-7 shrink-0 border-sky-200 bg-sky-50 text-sky-700"
+                    >
+                      ใช้งาน
+                    </Badge>
+                  ) : (
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-xs text-muted-foreground">
+                      {branch.code}
+                    </span>
+                  )}
+                  {store.canManageBranchBudget && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0"
+                      onClick={() => openBudgetDialog(branch)}
+                    >
+                      <Pencil className="size-4" />
+                      <span className="sr-only">ตั้งงบสาขา</span>
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Dialog
+        open={Boolean(budgetBranch)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBudgetBranchId("")
+            setBudgetMessage("")
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>ตั้งงบประมาณสาขา</DialogTitle>
+            <DialogDescription>
+              กำหนดเพดานยอดใบสั่งซื้อวัตถุดิบรายวันของสาขา
+            </DialogDescription>
+          </DialogHeader>
+          {budgetBranch && (
+            <div className="space-y-4 px-4">
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <p className="font-semibold">{budgetBranch.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {budgetBranch.code} · {budgetBranch.location}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                    !isUnlimitedBudget
+                      ? "border-sky-300 bg-sky-50 text-sky-800"
+                      : "border-border text-muted-foreground"
+                  )}
+                  onClick={() => setIsUnlimitedBudget(false)}
+                >
+                  จำกัดงบ
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                    isUnlimitedBudget
+                      ? "border-sky-300 bg-sky-50 text-sky-800"
+                      : "border-border text-muted-foreground"
+                  )}
+                  onClick={() => setIsUnlimitedBudget(true)}
+                >
+                  ไม่จำกัดงบ
+                </button>
+              </div>
+
+              <div>
+                <Label className="mb-2 block">งบรายวัน</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="h-11"
+                  value={budgetInput}
+                  disabled={isUnlimitedBudget}
+                  onChange={(event) => setBudgetInput(event.target.value)}
+                  placeholder="เช่น 1000"
+                />
+              </div>
+
+              {budgetMessage && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {budgetMessage}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 flex-1"
+              onClick={() => setBudgetBranchId("")}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="button"
+              className="h-11 flex-1"
+              disabled={store.isBranchBudgetSaving}
+              onClick={handleSaveBudget}
+            >
+              {store.isBranchBudgetSaving ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              บันทึกงบ
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -1833,7 +2003,11 @@ function MetricCard({
 }
 
 function PurchaseOrderSection({ store }: { store: Store }) {
-  const purchaseOrderTotal = store.lowStockItems.reduce(
+  const purchaseOrderItems = store.purchaseOrderRows
+  const isDraftPurchaseOrder = store.purchaseOrderSource === "draft"
+  const isCombinedPurchaseOrder = store.purchaseOrderSource === "combined"
+  const branchName = store.activeBranch?.name ?? "สาขาที่เลือก"
+  const purchaseOrderTotal = purchaseOrderItems.reduce(
     (total, item) =>
       total + item.suggestedPurchaseQuantity * item.ingredient.defaultPrice,
     0
@@ -1842,14 +2016,14 @@ function PurchaseOrderSection({ store }: { store: Store }) {
   function handleExportPurchaseOrder() {
     exportPurchaseOrderXlsx({
       branchName: store.activeBranch?.name ?? "",
-      items: store.lowStockItems,
+      items: purchaseOrderItems,
     })
   }
 
   function handleExportPurchaseOrderImage() {
     exportPurchaseOrderPng({
       branchName: store.activeBranch?.name ?? "",
-      items: store.lowStockItems,
+      items: purchaseOrderItems,
     })
   }
 
@@ -1862,11 +2036,29 @@ function PurchaseOrderSection({ store }: { store: Store }) {
             <h2 className="text-lg font-semibold">ใบสั่งซื้อวัตถุดิบ</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            สร้างจากรายการที่ควรซื้อเพิ่มของ {store.activeBranch?.name ?? "สาขาที่เลือก"}
+            {isCombinedPurchaseOrder
+              ? `รวมฉบับร่างและแจ้งเตือนสต็อกของ ${branchName}`
+              : isDraftPurchaseOrder
+                ? `ฉบับร่างจากหน้าบันทึกการซื้อของ ${branchName}`
+                : `สร้างจากรายการที่ควรซื้อเพิ่มของ ${branchName}`}
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-sm">
             <Badge variant="secondary" className="h-7 px-3">
-              {store.lowStockItems.length} รายการ
+              {purchaseOrderItems.length} รายการ
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn(
+                "h-7 px-3",
+                (isDraftPurchaseOrder || isCombinedPurchaseOrder) &&
+                  "border-amber-200 bg-amber-50 text-amber-700"
+              )}
+            >
+              {isCombinedPurchaseOrder
+                ? `ฉบับร่าง + แจ้งเตือนสต็อก${store.purchaseOrderDraftSavedAt ? ` · ${formatThaiTime(store.purchaseOrderDraftSavedAt)}` : ""}`
+                : isDraftPurchaseOrder
+                  ? `ฉบับร่าง${store.purchaseOrderDraftSavedAt ? ` · ${formatThaiTime(store.purchaseOrderDraftSavedAt)}` : ""}`
+                  : "Auto จากสต็อก"}
             </Badge>
             <Badge variant="outline" className="h-7 px-3">
               รวมประมาณการ {formatCurrency(purchaseOrderTotal)}
@@ -1878,7 +2070,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
             variant="outline"
             className="h-9 min-w-0 px-2 text-sm sm:h-11 sm:w-auto sm:px-4 sm:text-base"
             onClick={handleExportPurchaseOrderImage}
-            disabled={store.lowStockItems.length === 0}
+            disabled={purchaseOrderItems.length === 0}
           >
             <Download className="size-4" />
             <span className="truncate">Export PNG</span>
@@ -1887,7 +2079,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
             variant="outline"
             className="h-9 min-w-0 px-2 text-sm sm:h-11 sm:w-auto sm:px-4 sm:text-base"
             onClick={handleExportPurchaseOrder}
-            disabled={store.lowStockItems.length === 0}
+            disabled={purchaseOrderItems.length === 0}
           >
             <Download className="size-4" />
             <span className="truncate">Export XLSX</span>
@@ -1895,7 +2087,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
         </div>
       </div>
 
-      {store.lowStockItems.length > 0 ? (
+      {purchaseOrderItems.length > 0 ? (
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -1910,7 +2102,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {store.lowStockItems.map((item, index) => (
+              {purchaseOrderItems.map((item, index) => (
                 <TableRow key={item.ingredientId}>
                   <TableCell className="text-center">{index + 1}</TableCell>
                   <TableCell>
@@ -1965,7 +2157,15 @@ function PurchaseView({ store }: { store: Store }) {
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
-  const draftItemIndexOffset = savedPurchaseRows.length
+  const draftPurchaseRows = store.draftPurchasesForDate.flatMap((purchase) =>
+    purchase.items.map((item) => ({ purchase, item }))
+  )
+  const newItemIndexOffset = savedPurchaseRows.length + draftPurchaseRows.length
+  const budgetStatus = store.purchaseBudgetStatus
+  const purchaseMessageIsError =
+    Boolean(store.purchaseError) ||
+    purchaseMessage.includes("ไม่สามารถ") ||
+    purchaseMessage.includes("กรุณา")
 
   async function handleSubmitPurchase() {
     setPurchaseMessage("")
@@ -1990,6 +2190,31 @@ function PurchaseView({ store }: { store: Store }) {
     )
   }
 
+  async function handleSavePurchaseDraft() {
+    setPurchaseMessage("")
+    const result = await store.savePurchaseDraft()
+
+    setPurchaseMessage(
+      result.ok
+        ? "บันทึกฉบับร่างลงฐานข้อมูลแล้ว และแสดงในหน้าแดชบอร์ดส่วนใบสั่งซื้อวัตถุดิบ"
+        : (result.error ?? "ไม่สามารถบันทึกฉบับร่างได้")
+    )
+  }
+
+  async function handleDeletePurchaseDraftItem(
+    purchaseId: string,
+    itemId: string
+  ) {
+    setPurchaseMessage("")
+    const result = await store.deletePurchaseDraftItem(purchaseId, itemId)
+
+    setPurchaseMessage(
+      result.ok
+        ? "ลบรายการฉบับร่างแล้ว"
+        : (result.error ?? "ไม่สามารถลบรายการฉบับร่างได้")
+    )
+  }
+
   return (
     <div className="space-y-5">
       {store.isPurchasesLoading && (
@@ -1999,11 +2224,17 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
+      {budgetStatus.isOverBudget && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          ร่างใบซื้อนี้ทำให้ยอดรวมรายวันเกินงบประมาณสาขา กรุณาลดรายการหรือปรับงบก่อนบันทึก
+        </div>
+      )}
+
       {(store.purchaseError || purchaseMessage) && (
         <div
           className={cn(
             "rounded-lg border px-4 py-3 text-sm",
-            store.purchaseError
+            purchaseMessageIsError
               ? "border-red-200 bg-red-50 text-red-800"
               : "border-emerald-200 bg-emerald-50 text-emerald-800",
           )}
@@ -2025,6 +2256,9 @@ function PurchaseView({ store }: { store: Store }) {
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge variant="secondary" className="h-7 px-3">
                 ร่าง {store.purchaseItems.length} รายการ
+              </Badge>
+              <Badge variant="outline" className="h-7 px-3">
+                ฉบับร่าง {store.draftPurchasesForDate.length} ใบ
               </Badge>
               <Badge variant="outline" className="h-7 px-3">
                 บันทึกแล้ว {store.savedPurchasesForDate.length} ใบ /{" "}
@@ -2088,15 +2322,27 @@ function PurchaseView({ store }: { store: Store }) {
                   store={store}
                 />
               ))}
+              {draftPurchaseRows.map(({ purchase, item }, itemIndex) => (
+                <DraftPurchaseTableRow
+                  key={`${purchase.id}-${item.id}`}
+                  purchase={purchase}
+                  item={item}
+                  index={savedPurchaseRows.length + itemIndex}
+                  store={store}
+                  onDelete={handleDeletePurchaseDraftItem}
+                />
+              ))}
               {store.purchaseItems.map((item, index) => (
                 <PurchaseTableRow
                   key={item.id}
-                  index={draftItemIndexOffset + index}
+                  index={newItemIndexOffset + index}
                   item={item}
                   store={store}
                 />
               ))}
-              {store.savedPurchasesForDate.length === 0 && (
+              {savedPurchaseRows.length === 0 &&
+                draftPurchaseRows.length === 0 &&
+                store.purchaseItems.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={7}
@@ -2126,9 +2372,22 @@ function PurchaseView({ store }: { store: Store }) {
               เพิ่มรายการ
             </Button>
             <Button
+              variant="outline"
+              className="h-11"
+              onClick={handleSavePurchaseDraft}
+              disabled={store.purchaseItems.length === 0 || store.isPurchaseSaving}
+            >
+              {store.isPurchaseSaving ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <ReceiptText className="size-4" />
+              )}
+              บันทึกฉบับร่าง
+            </Button>
+            <Button
               className="h-11"
               onClick={handleSubmitPurchase}
-              disabled={store.isPurchaseSaving}
+              disabled={store.isPurchaseSaving || budgetStatus.isOverBudget}
             >
               {store.isPurchaseSaving ? (
                 <>
@@ -2144,23 +2403,64 @@ function PurchaseView({ store }: { store: Store }) {
             </Button>
           </div>
 
-          <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sky-950 sm:min-w-80">
+          <div
+            className={cn(
+              "rounded-lg border p-4 sm:min-w-80",
+              budgetStatus.isOverBudget
+                ? "border-red-200 bg-red-50 text-red-950"
+                : "border-sky-200 bg-sky-50 text-sky-950"
+            )}
+          >
             <div className="flex items-center justify-between gap-4">
               <span className="font-semibold">ราคาร่างใบซื้อ</span>
               <span className="text-xl font-bold">
                 {formatCurrency(store.currentPurchaseTotal)}
               </span>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-4 border-t border-sky-200 pt-2">
-              <span className="text-sm font-medium text-sky-800">
-                บันทึกแล้วของวันที่เลือก
-              </span>
-              <span className="font-semibold">
-                {formatCurrency(store.savedPurchaseTotalForDate)}
-              </span>
+            <div
+              className={cn(
+                "mt-2 space-y-2 border-t pt-2 text-sm",
+                budgetStatus.isOverBudget ? "border-red-200" : "border-sky-200"
+              )}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">งบรายวัน</span>
+                <span className="font-semibold">
+                  {budgetStatus.isLimited
+                    ? formatCurrency(budgetStatus.budget ?? 0)
+                    : "ไม่จำกัด"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">ใช้ไปแล้วของวันที่เลือก</span>
+                <span className="font-semibold">
+                  {formatCurrency(budgetStatus.used)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">ร่างใบซื้อปัจจุบัน</span>
+                <span className="font-semibold">
+                  {formatCurrency(budgetStatus.draft)}
+                </span>
+              </div>
+              {budgetStatus.isLimited && (
+                <div className="flex items-center justify-between gap-4">
+                  <span className="font-medium">คงเหลือหลังบันทึก</span>
+                  <span className="font-semibold">
+                    {formatCurrency(budgetStatus.remaining ?? 0)}
+                  </span>
+                </div>
+              )}
             </div>
-            <p className="mt-1 text-sm text-sky-700">
-              ระบบใช้ยอดนี้ไปคำนวณรายงานและอัปเดตคงเหลือในคลัง
+            <p
+              className={cn(
+                "mt-2 text-sm",
+                budgetStatus.isOverBudget ? "text-red-700" : "text-sky-700"
+              )}
+            >
+              {budgetStatus.isOverBudget
+                ? "ระบบจะไม่บันทึกใบซื้อที่เกินงบประมาณรายวันของสาขา"
+                : "ระบบใช้ยอดนี้ไปคำนวณรายงานและอัปเดตคงเหลือในคลัง"}
             </p>
           </div>
         </div>
@@ -2226,6 +2526,66 @@ function SavedPurchaseTableRow({
         <Badge variant="secondary" className="h-7">
           บันทึกแล้ว
         </Badge>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+function DraftPurchaseTableRow({
+  purchase,
+  item,
+  index,
+  store,
+  onDelete,
+}: {
+  purchase: Store["draftPurchasesForDate"][number]
+  item: Store["draftPurchasesForDate"][number]["items"][number]
+  index: number
+  store: Store
+  onDelete: (purchaseId: string, itemId: string) => void
+}) {
+  const ingredient = item.ingredient ?? store.ingredientById.get(item.ingredientId)
+
+  return (
+    <TableRow className="bg-amber-50/60">
+      <TableCell className="text-center align-top">
+        <div className="font-medium">{index + 1}</div>
+        <div className="text-xs text-muted-foreground">
+          {formatThaiTime(purchase.purchasedAt)}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="font-medium">{ingredient?.name ?? "วัตถุดิบ"}</div>
+        <div className="text-xs text-muted-foreground">
+          {purchase.vendor || "ฉบับร่างจาก EasyReceipt"}
+        </div>
+      </TableCell>
+      <TableCell>{formatNumber(item.quantity)}</TableCell>
+      <TableCell>{item.unit}</TableCell>
+      <TableCell>{formatCurrency(item.unitPrice)}</TableCell>
+      <TableCell className="text-right font-semibold">
+        {formatCurrency(item.lineTotal)}
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-end gap-2">
+          <Badge variant="outline" className="h-7 border-amber-200 bg-amber-50 text-amber-800">
+            ฉบับร่าง
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="h-9 w-9 text-red-600 hover:bg-red-50 hover:text-red-700 sm:h-11 sm:w-11"
+            onClick={() => onDelete(purchase.id, item.id)}
+            disabled={store.isPurchaseDraftDeleting}
+          >
+            {store.isPurchaseDraftDeleting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            <span className="sr-only">ลบฉบับร่าง</span>
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   )
@@ -4358,6 +4718,221 @@ export function EasyReceiptMemberFormPage() {
     <EasyReceiptPortalPage activeView="members">
       <MemberFormView />
     </EasyReceiptPortalPage>
+  )
+}
+
+function BudgetsView({ store }: { store: Store }) {
+  const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({})
+  const [unlimitedDrafts, setUnlimitedDrafts] = useState<Record<string, boolean>>(
+    {}
+  )
+  const [messages, setMessages] = useState<Record<string, string>>({})
+  const branches = store.accessibleBranches
+  const limitedBranches = branches.filter(
+    (branch) => branch.dailyPurchaseBudget !== null
+  )
+  const totalDailyBudget = limitedBranches.reduce(
+    (total, branch) => total + (branch.dailyPurchaseBudget ?? 0),
+    0
+  )
+  const overBudgetCount = branches.filter((branch) => {
+    const budget = branch.dailyPurchaseBudget
+
+    return budget !== null && (store.dailyBudgetUsageByBranch[branch.id] ?? 0) > budget
+  }).length
+
+  async function handleSaveBudget(branchId: string) {
+    const branch = branches.find((item) => item.id === branchId)
+
+    if (!branch) {
+      return
+    }
+
+    const isUnlimited =
+      unlimitedDrafts[branchId] ?? (branch.dailyPurchaseBudget === null)
+    const budgetValue =
+      budgetDrafts[branchId] ??
+      (branch.dailyPurchaseBudget === null ? "" : String(branch.dailyPurchaseBudget))
+    const result = await store.updateBranchBudget(
+      branchId,
+      isUnlimited ? null : toNumber(budgetValue)
+    )
+
+    setMessages((current) => ({
+      ...current,
+      [branchId]: result.ok
+        ? "บันทึกงบรายวันแล้ว"
+        : (result.error ?? "ไม่สามารถบันทึกงบรายวันได้"),
+    }))
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <MetricCard
+          label="สาขาที่จัดการได้"
+          value={`${branches.length} สาขา`}
+          helper="ตามสิทธิ์ของบัญชีนี้"
+          icon={Building2}
+          tone="border-sky-200 bg-sky-50 text-sky-800"
+        />
+        <MetricCard
+          label="ตั้งงบแล้ว"
+          value={`${limitedBranches.length} สาขา`}
+          helper="สาขาที่มีเพดานรายวัน"
+          icon={CircleCheck}
+          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
+        />
+        <MetricCard
+          label="งบรวมรายวัน"
+          value={formatCurrency(totalDailyBudget)}
+          helper="รวมเฉพาะสาขาที่จำกัดงบ"
+          icon={CircleDollarSign}
+          tone="border-lime-200 bg-lime-50 text-lime-800"
+        />
+        <MetricCard
+          label="เกินงบวันนี้"
+          value={`${overBudgetCount} สาขา`}
+          helper="คำนวณจากใบซื้อที่บันทึกวันนี้"
+          icon={AlertTriangle}
+          tone="border-red-200 bg-red-50 text-red-800"
+        />
+      </section>
+
+      <section className="rounded-lg border border-border bg-background">
+        <div className="border-b border-border p-4 sm:p-5">
+          <div className="flex items-center gap-2">
+            <CircleDollarSign className="size-5 text-lime-700" />
+            <h2 className="text-lg font-semibold">จัดการงบรายวันของสาขา</h2>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            กำหนด budget ต่อวันเพื่อควบคุม cost ของใบสั่งซื้อวัตถุดิบแต่ละสาขา
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <Table className="min-w-[58rem]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-72">สาขา</TableHead>
+                <TableHead className="w-36 text-right">ใช้วันนี้</TableHead>
+                <TableHead className="w-36 text-right">งบปัจจุบัน</TableHead>
+                <TableHead className="w-36 text-right">คงเหลือวันนี้</TableHead>
+                <TableHead className="w-56">ตั้งค่า</TableHead>
+                <TableHead className="w-40 text-right">บันทึก</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {branches.map((branch) => {
+                const isUnlimited =
+                  unlimitedDrafts[branch.id] ?? (branch.dailyPurchaseBudget === null)
+                const budgetValue =
+                  budgetDrafts[branch.id] ??
+                  (branch.dailyPurchaseBudget === null
+                    ? ""
+                    : String(branch.dailyPurchaseBudget))
+                const usedToday = store.dailyBudgetUsageByBranch[branch.id] ?? 0
+                const currentBudget = branch.dailyPurchaseBudget
+                const remaining =
+                  currentBudget === null ? null : Math.max(currentBudget - usedToday, 0)
+                const isOverBudget =
+                  currentBudget !== null && usedToday > currentBudget
+                const message = messages[branch.id]
+
+                return (
+                  <TableRow key={branch.id}>
+                    <TableCell>
+                      <p className="font-semibold">{branch.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {branch.code} · {branch.location}
+                      </p>
+                      {message && (
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            message.includes("แล้ว")
+                              ? "text-emerald-700"
+                              : "text-red-700"
+                          )}
+                        >
+                          {message}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(usedToday)}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {currentBudget === null
+                        ? "ไม่จำกัด"
+                        : formatCurrency(currentBudget)}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right font-semibold",
+                        isOverBudget && "text-red-700"
+                      )}
+                    >
+                      {remaining === null ? "ไม่จำกัด" : formatCurrency(remaining)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="grid grid-cols-[auto_1fr] gap-2">
+                        <button
+                          type="button"
+                          className={cn(
+                            "h-10 rounded-lg border px-3 text-sm font-medium",
+                            isUnlimited
+                              ? "border-sky-300 bg-sky-50 text-sky-800"
+                              : "border-border text-muted-foreground"
+                          )}
+                          onClick={() =>
+                            setUnlimitedDrafts((current) => ({
+                              ...current,
+                              [branch.id]: !isUnlimited,
+                            }))
+                          }
+                        >
+                          {isUnlimited ? "ไม่จำกัด" : "จำกัด"}
+                        </button>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="1"
+                          className="h-10"
+                          disabled={isUnlimited}
+                          value={budgetValue}
+                          onChange={(event) =>
+                            setBudgetDrafts((current) => ({
+                              ...current,
+                              [branch.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        className="h-10"
+                        disabled={store.isBranchBudgetSaving}
+                        onClick={() => handleSaveBudget(branch.id)}
+                      >
+                        {store.isBranchBudgetSaving ? (
+                          <LoaderCircle className="size-4 animate-spin" />
+                        ) : (
+                          <Save className="size-4" />
+                        )}
+                        บันทึก
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </section>
+    </div>
   )
 }
 

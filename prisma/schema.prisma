@@ -27,6 +27,7 @@ model Branch {
   code           String   @db.NVarChar(20)
   name           String   @db.NVarChar(160)
   location       String   @db.NVarChar(180)
+  dailyPurchaseBudget Decimal? @db.Decimal(18, 2)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now()) @db.DateTime2
   updatedAt      DateTime @updatedAt @db.DateTime2

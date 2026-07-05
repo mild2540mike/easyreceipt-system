@@ -4,6 +4,7 @@ export type ViewId =
   | "stock"
   | "recipes"
   | "reports"
+  | "budgets"
   | "members"
 
 export type MemberRole = "owner" | "manager" | "staff" | "viewer"
@@ -15,6 +16,7 @@ export type Branch = {
   code: string
   name: string
   location: string
+  dailyPurchaseBudget: number | null
 }
 
 export type Member = {

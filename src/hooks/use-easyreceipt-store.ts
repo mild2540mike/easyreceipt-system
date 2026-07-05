@@ -22,6 +22,8 @@ import {
   apiCreateBranchStockOut,
   apiCreateBranchPurchase,
   apiCreateBranchRecipe,
+  apiDeleteBranchPurchaseDraft,
+  apiDeleteBranchPurchaseDraftItem,
   apiDeleteBranchRecipe,
   apiGetBranchDashboard,
   apiGetBranches,
@@ -35,6 +37,7 @@ import {
   apiLogout,
   apiPinBranchRecipe,
   apiUnpinBranchRecipe,
+  apiUpdateBranchBudget,
   apiUpdateBranchInventory,
   apiUpdateBranchRecipe,
   apiUpdateMember,
@@ -129,6 +132,16 @@ type ActionResult = {
   error?: string
 }
 
+export type PurchaseBudgetStatus = {
+  budget: number | null
+  used: number
+  draft: number
+  projected: number
+  remaining: number | null
+  isLimited: boolean
+  isOverBudget: boolean
+}
+
 export type BranchWorkspace = {
   branchId: string
   ingredients: Ingredient[]
@@ -139,6 +152,8 @@ export type BranchWorkspace = {
   recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
   purchaseDate: Date
   purchaseItems: PurchaseItem[]
+  purchaseOrderDraftItems: PurchaseItem[]
+  purchaseOrderDraftSavedAt: string | null
 }
 
 export type BranchReportSummary = {
@@ -281,6 +296,10 @@ function roundQuantity(value: number) {
   return Math.round(value * 100) / 100
 }
 
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
+}
+
 function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
   return {
     branchId,
@@ -292,6 +311,8 @@ function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
     recipePlanByRecipeId: {},
     purchaseDate: new Date(),
     purchaseItems: [],
+    purchaseOrderDraftItems: [],
+    purchaseOrderDraftSavedAt: null,
   }
 }
 
@@ -653,6 +674,31 @@ export function useEasyReceiptStore() {
     },
   })
 
+  const updateBranchBudgetMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      dailyPurchaseBudget,
+    }: {
+      branchId: string
+      dailyPurchaseBudget: number | null
+    }) => apiUpdateBranchBudget(branchId, { dailyPurchaseBudget }),
+    onSuccess: (branch) => {
+      setBranches((items) =>
+        items.map((item) => (item.id === branch.id ? branch : item))
+      )
+      queryClient.setQueryData<Branch[]>(branchesQueryKey, (items) =>
+        items?.map((item) => (item.id === branch.id ? branch : item))
+      )
+      void queryClient.invalidateQueries({ queryKey: branchesQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: dashboardQueryKey(branch.id),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ["easyreceipt", "purchases", branch.id],
+      })
+    },
+  })
+
   const createIngredientMutation = useMutation({
     mutationFn: ({
       branchId,
@@ -743,12 +789,14 @@ export function useEasyReceiptStore() {
       input: {
         purchaseDate: string
         vendor?: string
+        status?: "draft" | "saved"
         items: PurchaseItem[]
       }
     }) =>
       apiCreateBranchPurchase(branchId, {
         purchaseDate: input.purchaseDate,
         vendor: input.vendor,
+        status: input.status,
         items: input.items.map((item) => ({
           ingredientId: item.ingredientId,
           quantity: item.quantity,
@@ -762,6 +810,44 @@ export function useEasyReceiptStore() {
     onError: (error) => {
       setPurchaseMutationError(
         errorMessage(error, "ไม่สามารถบันทึกใบซื้อได้")
+      )
+    },
+  })
+
+  const deletePurchaseDraftMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      purchaseId,
+    }: {
+      branchId: string
+      purchaseId: string
+    }) => apiDeleteBranchPurchaseDraft(branchId, purchaseId),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+    onError: (error) => {
+      setPurchaseMutationError(
+        errorMessage(error, "Purchase draft could not be deleted.")
+      )
+    },
+  })
+
+  const deletePurchaseDraftItemMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      purchaseId,
+      itemId,
+    }: {
+      branchId: string
+      purchaseId: string
+      itemId: string
+    }) => apiDeleteBranchPurchaseDraftItem(branchId, purchaseId, itemId),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+    onError: (error) => {
+      setPurchaseMutationError(
+        errorMessage(error, "Purchase draft item could not be deleted.")
       )
     },
   })
@@ -1035,9 +1121,34 @@ export function useEasyReceiptStore() {
     () => purchasesQuery.data ?? [],
     [purchasesQuery.data]
   )
-  const savedPurchaseTotalForDate = useMemo(
-    () => purchaseHistory.reduce((total, purchase) => total + purchase.total, 0),
+  const savedPurchaseHistory = useMemo(
+    () => purchaseHistory.filter((purchase) => purchase.status !== "draft"),
     [purchaseHistory]
+  )
+  const draftPurchaseHistory = useMemo(
+    () => purchaseHistory.filter((purchase) => purchase.status === "draft"),
+    [purchaseHistory]
+  )
+  const latestDraftPurchase = draftPurchaseHistory[0] ?? null
+  const purchaseOrderDraftItems = useMemo<PurchaseItem[]>(
+    () =>
+      latestDraftPurchase?.items.map((item) => ({
+        id: item.id,
+        ingredientId: item.ingredientId,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+      })) ?? [],
+    [latestDraftPurchase]
+  )
+  const purchaseOrderDraftSavedAt = latestDraftPurchase?.purchasedAt ?? null
+  const savedPurchaseTotalForDate = useMemo(
+    () =>
+      savedPurchaseHistory.reduce(
+        (total, purchase) => total + purchase.total,
+        0
+      ),
+    [savedPurchaseHistory]
   )
   const dashboardSummary = dashboardQuery.data ?? emptyDashboard
   const reportSummary = useMemo(
@@ -1068,6 +1179,23 @@ export function useEasyReceiptStore() {
     () => purchaseTotal(purchaseItems),
     [purchaseItems]
   )
+  const purchaseBudgetStatus = useMemo<PurchaseBudgetStatus>(() => {
+    const budget = activeBranch?.dailyPurchaseBudget ?? null
+    const used = roundMoney(savedPurchaseTotalForDate)
+    const draft = roundMoney(currentPurchaseTotal)
+    const projected = roundMoney(used + draft)
+    const isLimited = budget !== null
+
+    return {
+      budget,
+      used,
+      draft,
+      projected,
+      remaining: isLimited ? Math.max(roundMoney(budget - projected), 0) : null,
+      isLimited,
+      isOverBudget: isLimited && projected > budget,
+    }
+  }, [activeBranch?.dailyPurchaseBudget, currentPurchaseTotal, savedPurchaseTotalForDate])
 
   const incomingByIngredient = useMemo(() => {
     const incoming = new Map<string, number>()
@@ -1157,6 +1285,72 @@ export function useEasyReceiptStore() {
     [inventoryRows]
   )
 
+  const purchaseOrderRows = useMemo<InventoryRow[]>(() => {
+    const rowsByIngredientId = new Map<string, InventoryRow>(
+      lowStockItems.map((item) => [item.ingredientId, item])
+    )
+
+    for (const item of purchaseOrderDraftItems) {
+      if (!item.ingredientId || item.quantity <= 0) {
+        continue
+      }
+
+      const inventoryRow = inventoryRowByIngredientId.get(item.ingredientId)
+      const ingredient = ingredientById.get(item.ingredientId)
+
+      if (!ingredient) {
+        continue
+      }
+
+      const existingRow = rowsByIngredientId.get(item.ingredientId)
+      const onHand = inventoryRow?.onHand ?? existingRow?.onHand ?? 0
+      const reserved = inventoryRow?.reserved ?? existingRow?.reserved ?? 0
+      const available =
+        inventoryRow?.available ?? existingRow?.available ?? Math.max(onHand - reserved, 0)
+      const draftQuantity = roundQuantity(item.quantity)
+
+      rowsByIngredientId.set(item.ingredientId, {
+        ingredientId: item.ingredientId,
+        onHand,
+        reserved,
+        reorderPoint:
+          inventoryRow?.reorderPoint ?? existingRow?.reorderPoint ?? 0,
+        costPerUnit: item.unitPrice,
+        lastUpdated:
+          inventoryRow?.lastUpdated ?? existingRow?.lastUpdated ?? "-",
+        ingredient: {
+          ...ingredient,
+          defaultPrice: item.unitPrice,
+          unit: item.unit || ingredient.unit,
+        },
+        incoming: inventoryRow?.incoming ?? existingRow?.incoming ?? 0,
+        projected: inventoryRow?.projected ?? existingRow?.projected ?? onHand,
+        available,
+        suggestedPurchaseQuantity: Math.max(
+          draftQuantity,
+          existingRow?.suggestedPurchaseQuantity ?? 0
+        ),
+        status: inventoryRow?.status ?? existingRow?.status ?? "ok",
+        stockPercent: inventoryRow?.stockPercent ?? existingRow?.stockPercent ?? 100,
+      })
+    }
+
+    return Array.from(rowsByIngredientId.values())
+  }, [
+    ingredientById,
+    inventoryRowByIngredientId,
+    lowStockItems,
+    purchaseOrderDraftItems,
+  ])
+  const hasDraftPurchaseOrder = purchaseOrderDraftItems.length > 0
+  const hasAutoPurchaseOrder = lowStockItems.length > 0
+  const purchaseOrderSource =
+    hasDraftPurchaseOrder && hasAutoPurchaseOrder
+      ? ("combined" as const)
+      : hasDraftPurchaseOrder
+        ? ("draft" as const)
+        : ("auto" as const)
+
   const recipeImpacts = useMemo<RecipeImpact[]>(() => {
     return recipeList.map((recipe) => {
       const isPinned = pinnedRecipeIds.has(recipe.id)
@@ -1241,14 +1435,15 @@ export function useEasyReceiptStore() {
 
   const canManageMembers =
     currentMember?.role === "owner" || currentMember?.role === "manager"
+  const canManageBranchBudget = canManageMembers
   const canEditInventory =
     currentMember?.role === "owner" || currentMember?.role === "manager"
 
   const reportPurchaseSeries = useMemo<PurchaseSeriesItem[]>(() => {
-    if (purchaseHistory.length > 0) {
+    if (savedPurchaseHistory.length > 0) {
       const totalsByLabel = new Map<string, number>()
 
-      for (const purchase of purchaseHistory) {
+      for (const purchase of savedPurchaseHistory) {
         const label = dayLabel(purchase.date)
         totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + purchase.total)
       }
@@ -1262,7 +1457,7 @@ export function useEasyReceiptStore() {
     return reportSummary.purchaseTotal > 0
       ? [{ label: "รวม", total: reportSummary.purchaseTotal }]
       : []
-  }, [purchaseHistory, reportSummary.purchaseTotal])
+  }, [savedPurchaseHistory, reportSummary.purchaseTotal])
 
   const reportBranchPurchaseSeries = useMemo<BranchPurchaseSeriesItem[]>(() => {
     if (reportSummary.dailyPurchases.length === 0) {
@@ -1324,6 +1519,20 @@ export function useEasyReceiptStore() {
     }),
     [reportSummary]
   )
+  const dailyBudgetUsageByBranch = useMemo(() => {
+    const todayKey = bangkokDateKey(new Date())
+    const usage: Record<string, number> = {}
+
+    for (const item of reportSummary.dailyPurchases) {
+      if (item.date !== todayKey) {
+        continue
+      }
+
+      usage[item.branchId] = roundMoney((usage[item.branchId] ?? 0) + item.total)
+    }
+
+    return usage
+  }, [reportSummary.dailyPurchases])
 
   const dashboardError = dashboardQuery.isError
     ? errorMessage(dashboardQuery.error, "ไม่สามารถโหลดข้อมูลแดชบอร์ดได้")
@@ -1529,7 +1738,7 @@ export function useEasyReceiptStore() {
     }))
   }
 
-  async function submitPurchase(): Promise<ActionResult> {
+  async function savePurchaseDraft(): Promise<ActionResult> {
     if (!currentMember || !activeBranchId) {
       return {
         ok: false,
@@ -1553,13 +1762,135 @@ export function useEasyReceiptStore() {
         branchId: activeBranchId,
         input: {
           purchaseDate: purchaseDate.toISOString(),
-          vendor: "บันทึกจาก EasyReceipt",
+          vendor: "ฉบับร่างจาก EasyReceipt",
+          status: "draft",
           items,
         },
       })
       updateActiveWorkspace((workspace) => ({
         ...workspace,
         purchaseItems: [],
+      }))
+      await queryClient.invalidateQueries({
+        queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
+      })
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถบันทึกฉบับร่างได้")
+      setPurchaseMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function deletePurchaseDraft(purchaseId: string): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "à¸¢à¸±à¸‡à¹„à¸¡à¹ˆà¹„à¸”à¹‰à¹€à¸‚à¹‰à¸²à¸ªà¸¹à¹ˆà¸£à¸°à¸šà¸šà¸«à¸£à¸·à¸­à¹€à¸¥à¸·à¸­à¸à¸ªà¸²à¸‚à¸²",
+      }
+    }
+
+    try {
+      await deletePurchaseDraftMutation.mutateAsync({
+        branchId: activeBranchId,
+        purchaseId,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(activeBranchId),
+        }),
+      ])
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "à¹„à¸¡à¹ˆà¸ªà¸²à¸¡à¸²à¸£à¸–à¸¥à¸šà¸‰à¸šà¸±à¸šà¸£à¹ˆà¸²à¸‡à¹„à¸”à¹‰")
+      setPurchaseMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function deletePurchaseDraftItem(
+    purchaseId: string,
+    itemId: string
+  ): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    try {
+      await deletePurchaseDraftItemMutation.mutateAsync({
+        branchId: activeBranchId,
+        purchaseId,
+        itemId,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(activeBranchId),
+        }),
+      ])
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถลบรายการฉบับร่างได้")
+      setPurchaseMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function submitPurchase(): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    const items = purchaseItems.filter(
+      (item) => item.ingredientId && item.quantity > 0
+    )
+
+    if (items.length === 0) {
+      return {
+        ok: false,
+        error: "กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ",
+      }
+    }
+
+    if (purchaseBudgetStatus.isOverBudget) {
+      return {
+        ok: false,
+        error: "งบประมาณรายวันของสาขาไม่เพียงพอ",
+      }
+    }
+
+    try {
+      await createPurchaseMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: {
+          purchaseDate: purchaseDate.toISOString(),
+          vendor: "บันทึกจาก EasyReceipt",
+          status: "saved",
+          items,
+        },
+      })
+      updateActiveWorkspace((workspace) => ({
+        ...workspace,
+        purchaseItems: [],
+        purchaseOrderDraftItems: [],
+        purchaseOrderDraftSavedAt: null,
       }))
       await Promise.all([
         queryClient.invalidateQueries({
@@ -1580,6 +1911,42 @@ export function useEasyReceiptStore() {
       setPurchaseMutationError(message)
 
       return { ok: false, error: message }
+    }
+  }
+
+  async function updateBranchBudget(
+    branchId: string,
+    dailyPurchaseBudget: number | null
+  ): Promise<ActionResult> {
+    if (!currentMember || !branchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canManageBranchBudget) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์ตั้งงบประมาณสาขา",
+      }
+    }
+
+    const normalizedBudget =
+      dailyPurchaseBudget === null ? null : Math.max(roundMoney(dailyPurchaseBudget), 0)
+
+    try {
+      await updateBranchBudgetMutation.mutateAsync({
+        branchId,
+        dailyPurchaseBudget: normalizedBudget,
+      })
+
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถบันทึกงบประมาณสาขาได้"),
+      }
     }
   }
 
@@ -2105,16 +2472,27 @@ export function useEasyReceiptStore() {
     setPurchaseDate,
     purchaseItems,
     purchaseDateKey,
-    savedPurchasesForDate: purchaseHistory,
+    draftPurchasesForDate: draftPurchaseHistory,
+    savedPurchasesForDate: savedPurchaseHistory,
     savedPurchaseTotalForDate,
+    purchaseBudgetStatus,
     updatePurchaseItem,
     addPurchaseItem,
     addSuggestedPurchaseItems,
     removePurchaseItem,
+    savePurchaseDraft,
+    deletePurchaseDraft,
+    deletePurchaseDraftItem,
     submitPurchase,
     isPurchasesLoading,
     isPurchaseSaving: createPurchaseMutation.isPending,
+    isPurchaseDraftDeleting:
+      deletePurchaseDraftMutation.isPending ||
+      deletePurchaseDraftItemMutation.isPending,
     purchaseError,
+    canManageBranchBudget,
+    isBranchBudgetSaving: updateBranchBudgetMutation.isPending,
+    updateBranchBudget,
     ingredients: ingredientList,
     ingredientById,
     inventoryItems: inventoryList,
@@ -2129,11 +2507,16 @@ export function useEasyReceiptStore() {
     updateInventoryItem,
     recordStockOut,
     lowStockItems,
+    purchaseOrderRows,
+    purchaseOrderSource,
+    purchaseOrderDraftItems,
+    purchaseOrderDraftSavedAt,
     currentPurchaseTotal,
     purchaseSeries: reportPurchaseSeries,
     cashFlowMetrics: activeCashFlowMetrics,
     reportPurchaseSeries,
     reportBranchPurchaseSeries,
+    dailyBudgetUsageByBranch,
     reportCashFlowMetrics,
     reportBranchSummary,
     isReportsLoading,

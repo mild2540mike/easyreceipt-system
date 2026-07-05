@@ -34,11 +34,11 @@ reportsRouter.get(
           orderBy: { code: "asc" },
         }),
         prisma.purchase.aggregate({
-          where: { branchId: { in: branchIds }, status: "posted" },
+          where: { branchId: { in: branchIds }, status: { in: ["saved", "posted"] } },
           _sum: { totalAmount: true },
         }),
         prisma.purchase.findMany({
-          where: { branchId: { in: branchIds }, status: "posted" },
+          where: { branchId: { in: branchIds }, status: { in: ["saved", "posted"] } },
           select: {
             branchId: true,
             purchaseDate: true,

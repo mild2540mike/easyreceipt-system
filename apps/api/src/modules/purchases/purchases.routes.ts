@@ -5,7 +5,7 @@ import { z } from "zod"
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
-import { badRequest, notFound } from "../../utils/http-error"
+import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
 import { assertBranchAccess } from "../common/permissions"
@@ -20,6 +20,7 @@ const purchaseItemSchema = z.object({
 const createPurchaseSchema = z.object({
   purchaseDate: z.string().min(1),
   vendor: z.string().optional(),
+  status: z.enum(["draft", "saved"]).optional(),
   items: z.array(purchaseItemSchema).min(1),
 })
 
@@ -32,6 +33,29 @@ export const purchasesRouter = Router({ mergeParams: true })
 type PurchaseWithItems = Prisma.PurchaseGetPayload<{
   include: { items: { include: { ingredient: true } } }
 }>
+
+function bangkokDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970"
+  const month = parts.find((part) => part.type === "month")?.value ?? "01"
+  const day = parts.find((part) => part.type === "day")?.value ?? "01"
+
+  return `${year}-${month}-${day}`
+}
+
+function bangkokDateRange(date: Date) {
+  const key = bangkokDateKey(date)
+
+  return {
+    start: new Date(`${key}T00:00:00.000+07:00`),
+    end: new Date(`${key}T23:59:59.999+07:00`),
+  }
+}
 
 purchasesRouter.get(
   "/",
@@ -60,9 +84,7 @@ purchasesRouter.get(
           },
         },
       },
-      orderBy: {
-        purchaseDate: "desc",
-      },
+      orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
       take: 50,
     })
 
@@ -81,16 +103,152 @@ purchasesRouter.get(
   })
 )
 
+purchasesRouter.delete(
+  "/:purchaseId",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
+
+    await prisma.$transaction(async (tx) => {
+      await assertBranchAccess(tx, member.id, branchId)
+
+      const purchase = await tx.purchase.findFirst({
+        where: {
+          id: purchaseId,
+          branchId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+
+      if (!purchase) {
+        throw notFound("Purchase draft not found.")
+      }
+
+      if (purchase.status !== "draft") {
+        throw forbidden("Only draft purchases can be deleted.")
+      }
+
+      await tx.purchaseItem.deleteMany({
+        where: {
+          purchaseId: purchase.id,
+        },
+      })
+      await tx.purchase.delete({
+        where: {
+          id: purchase.id,
+        },
+      })
+    })
+
+    res.status(204).send()
+  })
+)
+
+purchasesRouter.delete(
+  "/:purchaseId/items/:itemId",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
+    const itemId = routeParam(req.params.itemId, "itemId")
+
+    await prisma.$transaction(async (tx) => {
+      await assertBranchAccess(tx, member.id, branchId)
+
+      const purchase = await tx.purchase.findFirst({
+        where: {
+          id: purchaseId,
+          branchId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+
+      if (!purchase) {
+        throw notFound("Purchase draft not found.")
+      }
+
+      if (purchase.status !== "draft") {
+        throw forbidden("Only draft purchase items can be deleted.")
+      }
+
+      const item = await tx.purchaseItem.findFirst({
+        where: {
+          id: itemId,
+          purchaseId: purchase.id,
+        },
+        select: {
+          id: true,
+        },
+      })
+
+      if (!item) {
+        throw notFound("Purchase draft item not found.")
+      }
+
+      await tx.purchaseItem.delete({
+        where: {
+          id: item.id,
+        },
+      })
+
+      const remaining = await tx.purchaseItem.aggregate({
+        where: {
+          purchaseId: purchase.id,
+        },
+        _count: {
+          id: true,
+        },
+        _sum: {
+          lineTotal: true,
+        },
+      })
+
+      if (remaining._count.id === 0) {
+        await tx.purchase.delete({
+          where: {
+            id: purchase.id,
+          },
+        })
+        return
+      }
+
+      await tx.purchase.update({
+        where: {
+          id: purchase.id,
+        },
+        data: {
+          totalAmount: remaining._sum.lineTotal ?? 0,
+        },
+      })
+    })
+
+    res.status(204).send()
+  })
+)
+
 purchasesRouter.post(
   "/",
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
     const branchId = routeParam(req.params.branchId, "branchId")
     const input = createPurchaseSchema.parse(req.body)
+    const purchaseStatus = input.status ?? "saved"
 
     const purchase = await prisma.$transaction(
       async (tx) => {
-        await assertBranchAccess(tx, member.id, branchId)
+        const access = await assertBranchAccess(tx, member.id, branchId)
+        const purchaseDate = new Date(input.purchaseDate)
+
+        if (Number.isNaN(purchaseDate.getTime())) {
+          throw badRequest("Invalid purchase date.")
+        }
 
         const ingredientIds = input.items.map((item) => item.ingredientId)
         const ingredients = await tx.ingredient.findMany({
@@ -107,14 +265,50 @@ purchasesRouter.post(
             0
           )
         )
+        const dailyPurchaseBudget =
+          access.branch.dailyPurchaseBudget === null
+            ? null
+            : Number(access.branch.dailyPurchaseBudget)
+
+        if (purchaseStatus === "saved" && dailyPurchaseBudget !== null) {
+          const purchaseDateRange = bangkokDateRange(purchaseDate)
+          const purchaseTotalForDate = await tx.purchase.aggregate({
+            where: {
+              branchId,
+              status: { in: ["saved", "posted"] },
+              purchaseDate: {
+                gte: purchaseDateRange.start,
+                lte: purchaseDateRange.end,
+              },
+            },
+            _sum: {
+              totalAmount: true,
+            },
+          })
+          const usedBudget = Number(purchaseTotalForDate._sum.totalAmount ?? 0)
+          const projectedBudget = roundMoney(usedBudget + totalAmount)
+
+          if (projectedBudget > dailyPurchaseBudget) {
+            throw badRequest("งบประมาณรายวันของสาขาไม่เพียงพอ", {
+              dailyPurchaseBudget,
+              usedBudget,
+              purchaseTotal: totalAmount,
+              projectedBudget,
+              remainingBudget: Math.max(
+                roundMoney(dailyPurchaseBudget - usedBudget),
+                0
+              ),
+            })
+          }
+        }
 
         const createdPurchase = await tx.purchase.create({
           data: {
             branchId,
             createdByMemberId: member.id,
-            purchaseDate: new Date(input.purchaseDate),
+            purchaseDate,
             vendor: input.vendor?.trim() || "ไม่ระบุ",
-            status: "posted",
+            status: purchaseStatus,
             totalAmount,
           },
         })
@@ -130,6 +324,20 @@ purchasesRouter.post(
           const unitPrice = roundMoney(item.unitPrice)
           const unit = item.unit?.trim() || ingredient.unit
           const lineTotal = roundMoney(quantity * unitPrice)
+          if (purchaseStatus === "draft") {
+            await tx.purchaseItem.create({
+              data: {
+                purchaseId: createdPurchase.id,
+                ingredientId: item.ingredientId,
+                quantity,
+                unit,
+                unitPrice,
+                lineTotal,
+              },
+            })
+            continue
+          }
+
           const inventory = await tx.branchInventory.findUnique({
             where: {
               branchId_ingredientId: {

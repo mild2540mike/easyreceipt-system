@@ -8,7 +8,11 @@ import { prisma } from "../../db/prisma"
 import { getAuthMember, requireAuth } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
 import { unauthorized } from "../../utils/http-error"
-import { getAccessibleBranches, serializeMember } from "../common/permissions"
+import {
+  getAccessibleBranches,
+  serializeBranch,
+  serializeMember,
+} from "../common/permissions"
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -73,7 +77,7 @@ authRouter.post(
     res.json({
       member: serializeMember(member),
       branchIds: branches.map((branch) => branch.id),
-      branches,
+      branches: branches.map(serializeBranch),
     })
   })
 )
@@ -98,7 +102,7 @@ authRouter.get(
     res.json({
       member: serializeMember(member),
       branchIds: branches.map((branch) => branch.id),
-      branches,
+      branches: branches.map(serializeBranch),
     })
   })
 )

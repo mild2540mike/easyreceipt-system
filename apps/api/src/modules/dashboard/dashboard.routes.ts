@@ -28,7 +28,7 @@ dashboardRouter.get(
         orderBy: { ingredient: { name: "asc" } },
       }),
       prisma.purchase.aggregate({
-        where: { branchId, status: "posted" },
+        where: { branchId, status: { in: ["saved", "posted"] } },
         _sum: { totalAmount: true },
       }),
       prisma.cookingRun.count({

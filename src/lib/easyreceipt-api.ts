@@ -24,8 +24,12 @@ type ApiMember = {
   joinedAt: string
 }
 
+type ApiBranch = Omit<Branch, "dailyPurchaseBudget"> & {
+  dailyPurchaseBudget?: number | string | null
+}
+
 type ApiMemberWithBranches = ApiMember & {
-  branches: Branch[]
+  branches: ApiBranch[]
 }
 
 export type AddMemberApiInput = {
@@ -48,7 +52,7 @@ export type UpdateMemberApiInput = {
 type ApiAuthResponse = {
   member: ApiMember
   branchIds?: string[]
-  branches?: Branch[]
+  branches?: ApiBranch[]
 }
 
 export type AuthSession = {
@@ -96,6 +100,7 @@ export type ReportDailyPurchase = {
 export type PurchaseApiInput = {
   purchaseDate: string
   vendor?: string
+  status?: "draft" | "saved"
   items: {
     ingredientId: string
     quantity: number
@@ -118,6 +123,7 @@ type ApiPurchase = {
   id: string
   purchaseDate: string
   vendor: string
+  status?: string
   totalAmount: number | string
   items: ApiPurchaseItem[]
 }
@@ -127,6 +133,7 @@ export type NormalizedPurchase = {
   date: string
   purchasedAt: string
   vendor: string
+  status: "draft" | "saved" | "posted"
   total: number
   items: {
     id: string
@@ -193,6 +200,10 @@ export type StockOutApiInput = {
     type: string
     size: number
   }
+}
+
+export type UpdateBranchBudgetApiInput = {
+  dailyPurchaseBudget: number | null
 }
 
 export type NormalizedInventorySnapshot = {
@@ -299,6 +310,20 @@ function normalizeMember(member: ApiMember, branchIds: string[]): Member {
   }
 }
 
+function normalizeBranch(branch: ApiBranch): Branch {
+  return {
+    id: branch.id,
+    code: branch.code,
+    name: branch.name,
+    location: branch.location,
+    dailyPurchaseBudget:
+      branch.dailyPurchaseBudget === null ||
+      branch.dailyPurchaseBudget === undefined
+        ? null
+        : toNumber(branch.dailyPurchaseBudget),
+  }
+}
+
 async function parseJsonResponse<T>(response: Response) {
   const data = (await response.json().catch(() => null)) as
     | (T & { error?: { message?: string } })
@@ -322,7 +347,7 @@ function authBranchIds(data: ApiAuthResponse) {
 function normalizeAuthSession(data: ApiAuthResponse): AuthSession {
   return {
     member: normalizeMember(data.member, authBranchIds(data)),
-    branches: data.branches ?? [],
+    branches: (data.branches ?? []).map(normalizeBranch),
   }
 }
 
@@ -372,11 +397,17 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
 }
 
 function normalizePurchase(purchase: ApiPurchase): NormalizedPurchase {
+  const status =
+    purchase.status === "draft" || purchase.status === "posted"
+      ? purchase.status
+      : "saved"
+
   return {
     id: purchase.id,
     date: formatApiDate(purchase.purchaseDate),
     purchasedAt: purchase.purchaseDate,
     vendor: purchase.vendor,
+    status,
     total: toNumber(purchase.totalAmount),
     items: purchase.items.map((item) => ({
       id: item.id,
@@ -481,9 +512,29 @@ export async function apiGetBranches(): Promise<Branch[]> {
     method: "GET",
     credentials: "include",
   })
-  const data = await parseJsonResponse<{ branches: Branch[] }>(response)
+  const data = await parseJsonResponse<{ branches: ApiBranch[] }>(response)
 
-  return data.branches
+  return data.branches.map(normalizeBranch)
+}
+
+export async function apiUpdateBranchBudget(
+  branchId: string,
+  input: UpdateBranchBudgetApiInput
+): Promise<Branch> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/budget`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ branch: ApiBranch }>(response)
+
+  return normalizeBranch(data.branch)
 }
 
 export async function apiGetBranchDashboard(
@@ -636,6 +687,37 @@ export async function apiCreateBranchPurchase(
   const data = await parseJsonResponse<{ purchase: ApiPurchase }>(response)
 
   return normalizePurchase(data.purchase)
+}
+
+export async function apiDeleteBranchPurchaseDraft(
+  branchId: string,
+  purchaseId: string
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/${encodeURIComponent(purchaseId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  )
+
+  await ensureEmptyResponse(response)
+}
+
+export async function apiDeleteBranchPurchaseDraftItem(
+  branchId: string,
+  purchaseId: string,
+  itemId: string
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/${encodeURIComponent(purchaseId)}/items/${encodeURIComponent(itemId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  )
+
+  await ensureEmptyResponse(response)
 }
 
 export async function apiGetBranchRecipes(
