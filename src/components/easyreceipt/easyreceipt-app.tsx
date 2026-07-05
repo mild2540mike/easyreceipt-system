@@ -12,6 +12,7 @@ import { createPortal } from "react-dom"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import ExcelJS from "exceljs"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -68,6 +69,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Calendar } from "@/components/ui/calendar"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import {
   Dialog,
   DialogContent,
@@ -230,6 +237,13 @@ const decimalFormatter = new Intl.NumberFormat("th-TH", {
 
 function formatCurrency(value: number) {
   return currencyFormatter.format(Math.max(value, 0))
+}
+
+function formatCompactCurrency(value: number) {
+  return new Intl.NumberFormat("th-TH", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Math.max(value, 0))
 }
 
 function formatNumber(value: number) {
@@ -6026,14 +6040,11 @@ function ReportsView({ store }: { store: Store }) {
 }
 
 const branchChartColors = [
-  "#0ea5e9",
-  "#f59e0b",
-  "#10b981",
-  "#ef4444",
-  "#8b5cf6",
-  "#14b8a6",
-  "#f97316",
-  "#64748b",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
 ]
 
 function BranchPurchaseBarSeries({
@@ -6056,12 +6067,48 @@ function BranchPurchaseBarSeries({
       branchChartColors[index % branchChartColors.length],
     ])
   )
-  const max = Math.max(
-    ...data.flatMap((item) => item.branches.map((branch) => branch.total)),
-    1
+  const branchKeyById = new Map(
+    branches.map((branch, index) => [branch.branchId, `branch_${index}`])
+  )
+  const chartConfig = Object.fromEntries(
+    branches.map((branch, index) => {
+      const key = branchKeyById.get(branch.branchId) ?? `branch_${index}`
+
+      return [
+        key,
+        {
+          label: branch.branchName,
+          color: branchChartColors[index % branchChartColors.length],
+        },
+      ]
+    })
+  ) satisfies ChartConfig
+  const chartData = data.map((item) => {
+    const row: Record<string, string | number> = {
+      label: item.label,
+      total: item.total,
+    }
+
+    for (const branch of branches) {
+      const key = branchKeyById.get(branch.branchId)
+
+      if (!key) {
+        continue
+      }
+
+      row[key] =
+        item.branches.find((entry) => entry.branchId === branch.branchId)
+          ?.total ?? 0
+    }
+
+    return row
+  })
+  const minChartWidth = Math.max(
+    520,
+    data.length * Math.max(branches.length, 1) * 52
   )
 
-  if (data.length === 0) {
+  if (data.length === 0 || branches.length === 0) {
     return (
       <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:mt-5 sm:p-6">
         ยังไม่มียอดซื้อสำหรับแสดงในกราฟ
@@ -6089,42 +6136,63 @@ function BranchPurchaseBarSeries({
         </div>
       </div>
 
-      <div className="flex h-56 items-end gap-2 overflow-x-auto rounded-lg border border-border bg-muted/40 p-3 sm:h-72 sm:gap-4 sm:p-4">
-        {data.map((item) => (
-          <div
-            key={item.date}
-            className="flex min-w-20 flex-1 flex-col items-center gap-2 sm:min-w-28"
+      <div className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-2 sm:p-3">
+        <ChartContainer
+          config={chartConfig}
+          className="h-60 min-h-60 w-full sm:h-72"
+          style={{ minWidth: `${minChartWidth}px` }}
+        >
+          <BarChart
+            accessibilityLayer
+            data={chartData}
+            margin={{ top: 10, right: 12, bottom: 4, left: 4 }}
+            barCategoryGap="22%"
+            barGap={4}
           >
-            <div className="flex h-36 w-full items-end justify-center gap-1 sm:h-48 sm:gap-1.5">
-              {branches.map((branch) => {
-                const total =
-                  item.branches.find((entry) => entry.branchId === branch.branchId)
-                    ?.total ?? 0
-                const height = total > 0 ? Math.max((total / max) * 100, 8) : 0
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={10}
+              interval={0}
+              fontSize={12}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              width={54}
+              fontSize={12}
+              tickFormatter={(value) => `฿${formatCompactCurrency(Number(value))}`}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  valueFormatter={(value) => formatCurrency(value)}
+                />
+              }
+            />
+            {branches.map((branch) => {
+              const key = branchKeyById.get(branch.branchId)
 
-                return (
-                  <div
-                    key={branch.branchId}
-                    className="flex h-full flex-1 items-end rounded-t-md bg-background/70"
-                    title={`${branch.branchName}: ${formatCurrency(total)}`}
-                  >
-                    <div
-                      className="w-full rounded-t-md transition-all"
-                      style={{
-                        height: `${height}%`,
-                        backgroundColor: branchColorById.get(branch.branchId),
-                      }}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-            <div className="text-center text-xs">
-              <p className="font-medium">{item.label}</p>
-              <p className="text-muted-foreground">{formatCurrency(item.total)}</p>
-            </div>
-          </div>
-        ))}
+              if (!key) {
+                return null
+              }
+
+              return (
+                <Bar
+                  key={branch.branchId}
+                  dataKey={key}
+                  fill={`var(--color-${key})`}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={34}
+                />
+              )
+            })}
+          </BarChart>
+        </ChartContainer>
       </div>
     </div>
   )
