@@ -2099,6 +2099,7 @@ function StockView({ store }: { store: Store }) {
   const [stockSearch, setStockSearch] = useState("")
   const [stockCategory, setStockCategory] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
+  const [stockFilterModalOpen, setStockFilterModalOpen] = useState(false)
   const editingItem = store.inventoryRows.find(
     (item) => item.ingredientId === editingIngredientId
   )
@@ -2187,6 +2188,87 @@ function StockView({ store }: { store: Store }) {
     )
   }
 
+  function renderStockFilterControls({ modal = false }: { modal?: boolean } = {}) {
+    return (
+      <>
+        <div
+          className={cn(
+            "grid gap-3",
+            modal ? "grid-cols-1" : "lg:grid-cols-[1fr_15rem_auto] lg:items-end"
+          )}
+        >
+          <div>
+            <Label className="mb-2 block">ค้นหาวัตถุดิบ</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-11 pl-9"
+                value={stockSearch}
+                placeholder="ค้นหาชื่อ หมวดหมู่ หน่วย หรือซัพพลายเออร์"
+                onChange={(event) => setStockSearch(event.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="mb-2 block">หมวดหมู่</Label>
+            <Select
+              value={stockCategory}
+              onValueChange={(value) => setStockCategory(value ?? "all")}
+            >
+              <SelectTrigger className="h-11 w-full">
+                <SelectValue>
+                  {(value) => (value === "all" ? "ทุกหมวดหมู่" : value)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="all" label="ทุกหมวดหมู่">
+                  ทุกหมวดหมู่
+                </SelectItem>
+                {stockCategoryOptions.map((category) => (
+                  <SelectItem key={category} value={category} label={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            className="h-11"
+            onClick={clearStockFilters}
+            disabled={!hasStockFilters}
+          >
+            ล้างตัวกรอง
+          </Button>
+        </div>
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {stockFilterOptions.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className={cn(
+                stockFilterButtonClass(stockFilter === option.id),
+                "shrink-0"
+              )}
+              onClick={() => setStockFilter(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          แสดง {visibleInventoryRows.length} จาก {store.inventoryRows.length} รายการ · วัตถุดิบใหม่ถูกเรียงไว้บนสุด
+        </p>
+        {modal && (
+          <Button className="mt-4 h-11 w-full" onClick={() => setStockFilterModalOpen(false)}>
+            ดูผลลัพธ์
+          </Button>
+        )}
+      </>
+    )
+  }
+
   function startStockEdit(item: InventoryRow) {
     if (!store.canEditInventory) {
       return
@@ -2260,71 +2342,40 @@ function StockView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="rounded-lg border border-border bg-background p-4">
-        <div className="grid gap-3 lg:grid-cols-[1fr_15rem_auto] lg:items-end">
-          <div>
-            <Label className="mb-2 block">ค้นหาวัตถุดิบ</Label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-11 pl-9"
-                value={stockSearch}
-                placeholder="ค้นหาชื่อ หมวดหมู่ หน่วย หรือซัพพลายเออร์"
-                onChange={(event) => setStockSearch(event.target.value)}
-              />
+      <section className="lg:hidden">
+        <Button
+          variant="outline"
+          className="h-11 w-full justify-between px-4"
+          onClick={() => setStockFilterModalOpen(true)}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Search className="size-4" />
+            ค้นหาวัตถุดิบ
+          </span>
+          <Badge variant={hasStockFilters ? "default" : "secondary"} className="h-6">
+            {visibleInventoryRows.length}
+          </Badge>
+        </Button>
+        <Dialog
+          open={stockFilterModalOpen}
+          onOpenChange={setStockFilterModalOpen}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>ค้นหาวัตถุดิบ</DialogTitle>
+              <DialogDescription>
+                ค้นหาและกรองรายการวัตถุดิบในคลัง
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-4 pb-4">
+              {renderStockFilterControls({ modal: true })}
             </div>
-          </div>
-          <div>
-            <Label className="mb-2 block">หมวดหมู่</Label>
-            <Select
-              value={stockCategory}
-              onValueChange={(value) => setStockCategory(value ?? "all")}
-            >
-              <SelectTrigger className="h-11 w-full">
-                <SelectValue>
-                  {(value) => (value === "all" ? "ทุกหมวดหมู่" : value)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent align="start">
-                <SelectItem value="all" label="ทุกหมวดหมู่">
-                  ทุกหมวดหมู่
-                </SelectItem>
-                {stockCategoryOptions.map((category) => (
-                  <SelectItem key={category} value={category} label={category}>
-                    {category}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            variant="outline"
-            className="h-11"
-            onClick={clearStockFilters}
-            disabled={!hasStockFilters}
-          >
-            ล้างตัวกรอง
-          </Button>
-        </div>
+          </DialogContent>
+        </Dialog>
+      </section>
 
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {stockFilterOptions.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              className={cn(
-                stockFilterButtonClass(stockFilter === option.id),
-                "shrink-0"
-              )}
-              onClick={() => setStockFilter(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-3 text-sm text-muted-foreground">
-          แสดง {visibleInventoryRows.length} จาก {store.inventoryRows.length} รายการ · วัตถุดิบใหม่ถูกเรียงไว้บนสุด
-        </p>
+      <section className="hidden rounded-lg border border-border bg-background p-4 lg:block">
+        {renderStockFilterControls()}
       </section>
 
       {visibleInventoryRows.length === 0 && (
