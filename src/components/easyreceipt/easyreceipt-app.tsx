@@ -1419,6 +1419,7 @@ function PurchaseView({ store }: { store: Store }) {
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
+  const draftItemIndexOffset = savedPurchaseRows.length
 
   async function handleSubmitPurchase() {
     setPurchaseMessage("")
@@ -1518,59 +1519,34 @@ function PurchaseView({ store }: { store: Store }) {
           </div>
         </div>
 
-        <div className="space-y-3 lg:hidden">
-          {store.purchaseItems.map((item, index) => (
-            <PurchaseMobileRow
-              key={item.id}
-              index={index}
-              item={item}
-              store={store}
-            />
-          ))}
-          {savedPurchaseRows.map(({ purchase, item }, itemIndex) => (
-            <SavedPurchaseMobileRow
-              key={`${purchase.id}-${item.id}`}
-              purchase={purchase}
-              item={item}
-              index={store.purchaseItems.length + itemIndex}
-              store={store}
-            />
-          ))}
-          {store.savedPurchasesForDate.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
-            </div>
-          )}
-        </div>
-
-        <div className="hidden rounded-lg border border-border lg:block">
-          <Table>
+        <div className="overflow-x-auto overflow-y-visible rounded-lg border border-border">
+          <Table className="min-w-[52rem] text-xs sm:text-sm lg:min-w-0">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-16 text-center">#</TableHead>
-                <TableHead>ชื่อวัตถุดิบ</TableHead>
-                <TableHead className="w-36">ปริมาณ</TableHead>
-                <TableHead className="w-28">หน่วย</TableHead>
-                <TableHead className="w-40">ราคาต่อหน่วย</TableHead>
-                <TableHead className="w-36 text-right">ราคารวม</TableHead>
-                <TableHead className="w-16" />
+                <TableHead className="w-12 text-center sm:w-16">#</TableHead>
+                <TableHead className="w-80 sm:w-96">ชื่อวัตถุดิบ</TableHead>
+                <TableHead className="w-24 sm:w-36">ปริมาณ</TableHead>
+                <TableHead className="w-20 sm:w-28">หน่วย</TableHead>
+                <TableHead className="w-28 sm:w-40">ราคาต่อหน่วย</TableHead>
+                <TableHead className="w-24 text-right sm:w-36">ราคารวม</TableHead>
+                <TableHead className="w-12 sm:w-16" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {store.purchaseItems.map((item, index) => (
-                <PurchaseTableRow
-                  key={item.id}
-                  index={index}
-                  item={item}
-                  store={store}
-                />
-              ))}
               {savedPurchaseRows.map(({ purchase, item }, itemIndex) => (
                 <SavedPurchaseTableRow
                   key={`${purchase.id}-${item.id}`}
                   purchase={purchase}
                   item={item}
-                  index={store.purchaseItems.length + itemIndex}
+                  index={itemIndex}
+                  store={store}
+                />
+              ))}
+              {store.purchaseItems.map((item, index) => (
+                <PurchaseTableRow
+                  key={item.id}
+                  index={draftItemIndexOffset + index}
+                  item={item}
                   store={store}
                 />
               ))}
@@ -1667,47 +1643,6 @@ function PurchaseView({ store }: { store: Store }) {
   )
 }
 
-function SavedPurchaseMobileRow({
-  purchase,
-  item,
-  index,
-  store,
-}: {
-  purchase: Store["savedPurchasesForDate"][number]
-  item: Store["savedPurchasesForDate"][number]["items"][number]
-  index: number
-  store: Store
-}) {
-  const ingredient = item.ingredient ?? store.ingredientById.get(item.ingredientId)
-
-  return (
-    <div className="rounded-lg border border-border bg-muted/40 p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <Badge variant="outline" className="h-7">
-          รายการที่ {index + 1}
-        </Badge>
-        <Badge variant="secondary" className="h-7">
-          บันทึกแล้ว
-        </Badge>
-      </div>
-      <div className="grid gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">วัตถุดิบ</p>
-          <p className="font-semibold">{ingredient?.name ?? "วัตถุดิบ"}</p>
-          <p className="text-xs text-muted-foreground">
-            {purchase.vendor || "ไม่ระบุผู้ขาย"} · {formatThaiTime(purchase.purchasedAt)}
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <SummaryPill label="ปริมาณ" value={`${formatNumber(item.quantity)} ${item.unit}`} />
-          <SummaryPill label="ราคาต่อหน่วย" value={formatCurrency(item.unitPrice)} />
-        </div>
-        <SummaryPill label="ราคารวม" value={formatCurrency(item.lineTotal)} />
-      </div>
-    </div>
-  )
-}
-
 function SavedPurchaseTableRow({
   purchase,
   item,
@@ -1750,80 +1685,6 @@ function SavedPurchaseTableRow({
   )
 }
 
-function PurchaseMobileRow({
-  index,
-  item,
-  store,
-}: {
-  index: number
-  item: PurchaseItem
-  store: Store
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <Badge variant="secondary" className="h-7">
-          รายการที่ {index + 1}
-        </Badge>
-        <Button
-          variant="ghost"
-          size="icon-lg"
-          className="h-11 w-11 text-muted-foreground"
-          onClick={() => store.removePurchaseItem(item.id)}
-          disabled={store.purchaseItems.length === 1}
-        >
-          <Trash2 className="size-4" />
-          <span className="sr-only">ลบรายการ</span>
-        </Button>
-      </div>
-
-      <div className="grid gap-3">
-        <IngredientSelect
-          key={`${item.id}-${item.ingredientId}`}
-          item={item}
-          store={store}
-        />
-
-        <div className="grid grid-cols-2 gap-3">
-          <FieldNumber
-            label="ปริมาณ"
-            value={item.quantity}
-            onChange={(value) =>
-              store.updatePurchaseItem(item.id, { quantity: value })
-            }
-          />
-          <div>
-            <Label className="mb-2 block">หน่วย</Label>
-            <Input
-              className="h-11"
-              value={item.unit}
-              onChange={(event) =>
-                store.updatePurchaseItem(item.id, { unit: event.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <FieldNumber
-            label="ราคาต่อหน่วย"
-            value={item.unitPrice}
-            onChange={(value) =>
-              store.updatePurchaseItem(item.id, { unitPrice: value })
-            }
-          />
-          <div>
-            <Label className="mb-2 block">ราคารวม</Label>
-            <div className="flex h-11 items-center justify-end rounded-lg border border-border bg-muted px-3 font-semibold">
-              {formatCurrency(lineTotal(item))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function PurchaseTableRow({
   index,
   item,
@@ -1835,8 +1696,8 @@ function PurchaseTableRow({
 }) {
   return (
     <TableRow>
-      <TableCell className="text-center">{index + 1}</TableCell>
-      <TableCell>
+      <TableCell className="text-center align-top">{index + 1}</TableCell>
+      <TableCell className="overflow-visible">
         <IngredientSelect
           key={`${item.id}-${item.ingredientId}`}
           item={item}
@@ -1854,12 +1715,12 @@ function PurchaseTableRow({
               quantity: toNumber(event.target.value),
             })
           }
-          className="h-11"
+          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
         />
       </TableCell>
       <TableCell>
         <Input
-          className="h-11"
+          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
           value={item.unit}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, { unit: event.target.value })
@@ -1877,7 +1738,7 @@ function PurchaseTableRow({
               unitPrice: toNumber(event.target.value),
             })
           }
-          className="h-11"
+          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
         />
       </TableCell>
       <TableCell className="text-right font-semibold">
@@ -1887,7 +1748,7 @@ function PurchaseTableRow({
         <Button
           variant="ghost"
           size="icon-lg"
-          className="h-11 w-11"
+          className="h-9 w-9 sm:h-11 sm:w-11"
           onClick={() => store.removePurchaseItem(item.id)}
           disabled={store.purchaseItems.length === 1}
         >
@@ -1977,12 +1838,12 @@ function IngredientSelect({
   }
 
   return (
-    <div className="relative">
+    <div className="relative min-w-72 sm:min-w-80">
       <Label className="mb-2 block lg:hidden">ชื่อวัตถุดิบ</Label>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          className="h-11 pl-9"
+          className="h-9 pl-9 text-sm sm:h-11"
           value={query}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
           onFocus={() => setIsOpen(true)}
@@ -1997,7 +1858,7 @@ function IngredientSelect({
       </div>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-50 max-h-80 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
+        <div className="left-0 top-[calc(100%+0.25rem)] z-50 max-h-80 w-full min-w-72 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg sm:min-w-80">
           {suggestionRows.map((row) => (
             <button
               key={row.ingredientId}
