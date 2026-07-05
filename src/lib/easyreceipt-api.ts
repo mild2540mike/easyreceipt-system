@@ -183,6 +183,18 @@ export type CreateIngredientFromPurchaseApiInput = {
   unitPrice: number
 }
 
+export type StockOutApiInput = {
+  ingredientId: string
+  movementType: "waste_out" | "sale_out"
+  quantity: number
+  reason: string
+  photo: {
+    name: string
+    type: string
+    size: number
+  }
+}
+
 export type NormalizedInventorySnapshot = {
   ingredients: Ingredient[]
   inventoryItems: InventoryItem[]
@@ -549,6 +561,26 @@ export async function apiCreateBranchIngredientFromPurchase(
 ): Promise<NormalizedInventoryRow> {
   const response = await fetch(
     `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/ingredients`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
+
+  return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiCreateBranchStockOut(
+  branchId: string,
+  input: StockOutApiInput
+): Promise<NormalizedInventoryRow> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/movements`,
     {
       method: "POST",
       headers: {

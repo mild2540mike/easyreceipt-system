@@ -19,6 +19,7 @@ import {
   apiAddMember,
   apiCookBranchRecipePlan,
   apiCreateBranchIngredientFromPurchase,
+  apiCreateBranchStockOut,
   apiCreateBranchPurchase,
   apiCreateBranchRecipe,
   apiDeleteBranchRecipe,
@@ -44,6 +45,7 @@ import {
   type NormalizedRecipePlan,
   type NormalizedRecipeSnapshot,
   type ReportSummary,
+  type StockOutApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 
@@ -119,6 +121,8 @@ export type InventoryEditInput = {
   reorderPoint: number
   costPerUnit: number
 }
+
+export type StockOutInput = StockOutApiInput
 
 type ActionResult = {
   ok: boolean
@@ -698,6 +702,34 @@ export function useEasyReceiptStore() {
     onError: (error) => {
       setInventoryMutationError(
         errorMessage(error, "Inventory could not be updated.")
+      )
+    },
+  })
+
+  const createStockOutMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      input,
+    }: {
+      branchId: string
+      input: StockOutInput
+    }) => apiCreateBranchStockOut(branchId, input),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+    onSuccess: (row, variables) => {
+      syncBranchInventoryRow(variables.branchId, row)
+      void queryClient.invalidateQueries({
+        queryKey: inventoryQueryKey(variables.branchId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: dashboardQueryKey(variables.branchId),
+      })
+      void queryClient.invalidateQueries({ queryKey: reportsQueryKey })
+    },
+    onError: (error) => {
+      setInventoryMutationError(
+        errorMessage(error, "ไม่สามารถตัดสต็อกได้")
       )
     },
   })
@@ -1634,6 +1666,71 @@ export function useEasyReceiptStore() {
     }
   }
 
+  async function recordStockOut(input: StockOutInput): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditInventory) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์ตัดสต็อก",
+      }
+    }
+
+    const item = inventoryRowByIngredientId.get(input.ingredientId)
+    const quantity = Math.max(input.quantity, 0)
+
+    if (!item) {
+      return {
+        ok: false,
+        error: "กรุณาเลือกวัตถุดิบ",
+      }
+    }
+
+    if (quantity <= 0 || quantity > item.onHand) {
+      return {
+        ok: false,
+        error: "จำนวนที่ตัดต้องมากกว่า 0 และไม่เกินคงเหลือ",
+      }
+    }
+
+    if (!input.reason.trim()) {
+      return {
+        ok: false,
+        error: "กรุณาระบุเหตุผล",
+      }
+    }
+
+    if (!input.photo.name) {
+      return {
+        ok: false,
+        error: "กรุณาอัปโหลดรูปประกอบ",
+      }
+    }
+
+    try {
+      await createStockOutMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: {
+          ...input,
+          quantity,
+          reason: input.reason.trim(),
+        },
+      })
+
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถตัดสต็อกได้"),
+      }
+    }
+  }
+
   async function refreshRecipeAndInventory(branchId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
@@ -2025,10 +2122,12 @@ export function useEasyReceiptStore() {
     isInventoryLoading,
     isInventorySaving: updateInventoryMutation.isPending,
     isIngredientSaving: createIngredientMutation.isPending,
+    isStockOutSaving: createStockOutMutation.isPending,
     inventoryError,
     canEditInventory,
     addIngredientFromPurchase,
     updateInventoryItem,
+    recordStockOut,
     lowStockItems,
     currentPurchaseTotal,
     purchaseSeries: reportPurchaseSeries,
