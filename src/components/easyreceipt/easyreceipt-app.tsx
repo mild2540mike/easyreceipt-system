@@ -178,6 +178,16 @@ const navItems: NavItem[] = [
   },
 ]
 
+function canAccessMemberManagement(member: Store["currentMember"]) {
+  return member?.role === "owner" || member?.role === "manager"
+}
+
+function visibleNavItems(member: Store["currentMember"]) {
+  return navItems.filter(
+    (item) => item.id !== "members" || canAccessMemberManagement(member)
+  )
+}
+
 const currencyFormatter = new Intl.NumberFormat("th-TH", {
   style: "currency",
   currency: "THB",
@@ -713,6 +723,17 @@ export function EasyReceiptPortalPage({
     }
   }, [router, store.currentMember, store.isAuthReady])
 
+  useEffect(() => {
+    if (
+      store.isAuthReady &&
+      store.currentMember &&
+      activeView === "members" &&
+      !canAccessMemberManagement(store.currentMember)
+    ) {
+      router.replace("/portal")
+    }
+  }, [activeView, router, store.currentMember, store.isAuthReady])
+
   if (!store.isAuthReady || !store.currentMember) {
     return <AuthLoadingScreen />
   }
@@ -722,8 +743,10 @@ export function EasyReceiptPortalPage({
     router.replace("/")
   }
 
+  const memberCanAccessMembers = canAccessMemberManagement(store.currentMember)
+  const currentNavItems = visibleNavItems(store.currentMember)
   const activeItem =
-    navItems.find((item) => item.id === activeView) ?? navItems[0]
+    currentNavItems.find((item) => item.id === activeView) ?? currentNavItems[0]
   const ActiveIcon = activeItem.icon
 
   return (
@@ -793,21 +816,27 @@ export function EasyReceiptPortalPage({
           </header>
 
           <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
-            {children ?? (
+            {activeView === "members" && !memberCanAccessMembers ? (
+              <DashboardView store={store} />
+            ) : (
+              children ?? (
               <>
                 {activeView === "dashboard" && <DashboardView store={store} />}
                 {activeView === "purchase" && <PurchaseView store={store} />}
                 {activeView === "stock" && <StockView store={store} />}
                 {activeView === "recipes" && <RecipesView store={store} />}
                 {activeView === "reports" && <ReportsView store={store} />}
-                {activeView === "members" && <MembersView store={store} />}
+                {activeView === "members" && memberCanAccessMembers && (
+                  <MembersView store={store} />
+                )}
               </>
+              )
             )}
           </main>
         </div>
       </div>
 
-      <MobileBottomNav activeView={activeView} />
+      <MobileBottomNav activeView={activeView} currentMember={store.currentMember} />
     </div>
   )
 }
@@ -950,7 +979,7 @@ function DesktopSidebar({
       </div>
 
       <nav className="space-y-2">
-        {navItems.map((item) => {
+        {visibleNavItems(currentMember).map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id
 
@@ -1031,13 +1060,22 @@ function DesktopSidebar({
 
 function MobileBottomNav({
   activeView,
+  currentMember,
 }: {
   activeView: ViewId
+  currentMember: Store["currentMember"]
 }) {
+  const items = visibleNavItems(currentMember)
+
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
-      <div className="mx-auto grid max-w-lg grid-cols-6 gap-1">
-        {navItems.map((item) => {
+      <div
+        className={cn(
+          "mx-auto grid max-w-lg gap-1",
+          items.length === 5 ? "grid-cols-5" : "grid-cols-6"
+        )}
+      >
+        {items.map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id
 
