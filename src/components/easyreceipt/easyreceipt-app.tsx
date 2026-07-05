@@ -1833,7 +1833,7 @@ function BranchSwitcher({ store }: { store: Store }) {
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md gap-3 rounded-lg">
           <DialogHeader>
             <DialogTitle>ตั้งงบประมาณสาขา</DialogTitle>
             <DialogDescription>
@@ -1853,7 +1853,7 @@ function BranchSwitcher({ store }: { store: Store }) {
                 <button
                   type="button"
                   className={cn(
-                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                    "min-h-11 rounded-lg border px-3 py-2 text-sm font-medium transition",
                     !isUnlimitedBudget
                       ? "border-sky-300 bg-sky-50 text-sky-800"
                       : "border-border text-muted-foreground"
@@ -1865,7 +1865,7 @@ function BranchSwitcher({ store }: { store: Store }) {
                 <button
                   type="button"
                   className={cn(
-                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
+                    "min-h-11 rounded-lg border px-3 py-2 text-sm font-medium transition",
                     isUnlimitedBudget
                       ? "border-sky-300 bg-sky-50 text-sky-800"
                       : "border-border text-muted-foreground"
@@ -1897,18 +1897,18 @@ function BranchSwitcher({ store }: { store: Store }) {
               )}
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="grid grid-cols-1 gap-2 p-4 pt-2 min-[390px]:grid-cols-2">
             <Button
               type="button"
               variant="outline"
-              className="h-11 flex-1"
+              className="h-11 w-full"
               onClick={() => setBudgetBranchId("")}
             >
               ยกเลิก
             </Button>
             <Button
               type="button"
-              className="h-11 flex-1"
+              className="h-11 w-full"
               disabled={store.isBranchBudgetSaving}
               onClick={handleSaveBudget}
             >
@@ -2172,6 +2172,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
 
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseMessage, setPurchaseMessage] = useState("")
+  const [isPurchaseConfirmOpen, setIsPurchaseConfirmOpen] = useState(false)
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
@@ -2185,7 +2186,7 @@ function PurchaseView({ store }: { store: Store }) {
     purchaseMessage.includes("ไม่สามารถ") ||
     purchaseMessage.includes("กรุณา")
 
-  async function handleSubmitPurchase() {
+  async function handleConfirmSubmitPurchase() {
     setPurchaseMessage("")
     const result = await store.submitPurchase()
 
@@ -2375,46 +2376,58 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
 
         <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button
               variant="outline"
-              className="h-11"
+              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
               onClick={handleAutoSuggestedPurchase}
               disabled={store.lowStockItems.length === 0}
+              title="เติมรายการจากวัตถุดิบที่ควรซื้อ"
             >
               <Sparkles className="size-4" />
+              <span className="truncate text-sm">เติมอัตโนมัติ</span>
               Auto รายการควรซื้อ
             </Button>
-            <Button className="h-11" onClick={store.addPurchaseItem}>
+            <Button
+              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
+              onClick={store.addPurchaseItem}
+              title="เพิ่มแถวรายการวัตถุดิบ"
+            >
               <Plus className="size-4" />
+              <span className="truncate text-sm">เพิ่มแถว</span>
               เพิ่มรายการ
             </Button>
             <Button
               variant="outline"
-              className="h-11"
+              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
               onClick={handleSavePurchaseDraft}
               disabled={store.purchaseItems.length === 0 || store.isPurchaseSaving}
+              title="บันทึกรายการเป็นฉบับร่าง"
             >
               {store.isPurchaseSaving ? (
                 <LoaderCircle className="size-4 animate-spin" />
               ) : (
                 <ReceiptText className="size-4" />
               )}
+              <span className="truncate text-sm">เก็บร่าง</span>
               บันทึกฉบับร่าง
             </Button>
             <Button
-              className="h-11"
-              onClick={handleSubmitPurchase}
+              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
+              onClick={() => setIsPurchaseConfirmOpen(true)}
               disabled={store.isPurchaseSaving || budgetStatus.isOverBudget}
+              title="บันทึกใบซื้อและอัปเดตคลัง"
             >
               {store.isPurchaseSaving ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
+                  <span className="truncate text-sm">กำลังบันทึก</span>
                   กำลังบันทึก...
                 </>
               ) : (
                 <>
                   <Save className="size-4" />
+                  <span className="truncate text-sm">บันทึกซื้อ</span>
                   บันทึกใบซื้อ
                 </>
               )}
@@ -2483,6 +2496,79 @@ function PurchaseView({ store }: { store: Store }) {
           </div>
         </div>
       </section>
+
+      <Dialog
+        open={isPurchaseConfirmOpen}
+        onOpenChange={setIsPurchaseConfirmOpen}
+      >
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
+          <DialogHeader>
+            <DialogTitle>ยืนยันบันทึกใบซื้อ</DialogTitle>
+            <DialogDescription>
+              ระบบจะบันทึกรายการเป็นใบซื้อและอัปเดตคลังวัตถุดิบ
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 px-4">
+            <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">รายการใหม่</span>
+                <span className="font-semibold">
+                  {store.purchaseItems.length} รายการ
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">ฉบับร่าง</span>
+                <span className="font-semibold">
+                  {store.draftPurchasesForDate.length} ใบ
+                </span>
+              </div>
+              <div className="mt-3 border-t border-border pt-3">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="font-medium">ยอดที่จะบันทึก</span>
+                  <span className="text-lg font-bold">
+                    {formatCurrency(budgetStatus.draft)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {budgetStatus.isLimited && (
+              <div
+                className={cn(
+                  "rounded-lg border p-3 text-sm",
+                  budgetStatus.isOverBudget
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-sky-200 bg-sky-50 text-sky-800"
+                )}
+              >
+                คงเหลือหลังบันทึก {formatCurrency(budgetStatus.remaining ?? 0)}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="grid grid-cols-1 gap-2 p-4 pt-2 min-[390px]:grid-cols-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              onClick={() => setIsPurchaseConfirmOpen(false)}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="button"
+              className="h-11 w-full"
+              disabled={store.isPurchaseSaving || budgetStatus.isOverBudget}
+              onClick={handleConfirmSubmitPurchase}
+            >
+              {store.isPurchaseSaving ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              ยืนยันบันทึก
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <section className="grid gap-4 xl:grid-cols-3">
         {store.inventoryRows
