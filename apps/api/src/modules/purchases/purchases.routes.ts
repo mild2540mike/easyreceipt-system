@@ -21,8 +21,15 @@ const createPurchaseSchema = z.object({
   purchaseDate: z.string().min(1),
   vendor: z.string().optional(),
   status: z.enum(["draft", "saved"]).optional(),
-  items: z.array(purchaseItemSchema).min(1),
-})
+  draftPurchaseIds: z.array(z.string().min(1)).optional().default([]),
+  items: z.array(purchaseItemSchema).optional().default([]),
+}).refine(
+  (input) => input.items.length > 0 || input.draftPurchaseIds.length > 0,
+  {
+    message: "Purchase must include at least one item or draft purchase.",
+    path: ["items"],
+  }
+)
 
 const purchaseQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -240,6 +247,7 @@ purchasesRouter.post(
     const branchId = routeParam(req.params.branchId, "branchId")
     const input = createPurchaseSchema.parse(req.body)
     const purchaseStatus = input.status ?? "saved"
+    const draftPurchaseIds = Array.from(new Set(input.draftPurchaseIds))
 
     const purchase = await prisma.$transaction(
       async (tx) => {
@@ -250,7 +258,45 @@ purchasesRouter.post(
           throw badRequest("Invalid purchase date.")
         }
 
-        const ingredientIds = input.items.map((item) => item.ingredientId)
+        if (purchaseStatus === "draft" && draftPurchaseIds.length > 0) {
+          throw badRequest("Draft purchases cannot include existing drafts.")
+        }
+
+        const draftPurchases =
+          draftPurchaseIds.length > 0
+            ? await tx.purchase.findMany({
+                where: {
+                  branchId,
+                  id: { in: draftPurchaseIds },
+                  status: "draft",
+                },
+                include: {
+                  items: true,
+                },
+              })
+            : []
+
+        if (draftPurchases.length !== draftPurchaseIds.length) {
+          throw notFound("Purchase draft not found.")
+        }
+
+        const purchaseItems = [
+          ...draftPurchases.flatMap((draft) =>
+            draft.items.map((item) => ({
+              ingredientId: item.ingredientId,
+              quantity: Number(item.quantity),
+              unit: item.unit,
+              unitPrice: Number(item.unitPrice),
+            }))
+          ),
+          ...input.items,
+        ]
+
+        if (purchaseItems.length === 0) {
+          throw badRequest("Purchase must include at least one item.")
+        }
+
+        const ingredientIds = purchaseItems.map((item) => item.ingredientId)
         const ingredients = await tx.ingredient.findMany({
           where: {
             id: { in: ingredientIds },
@@ -260,7 +306,7 @@ purchasesRouter.post(
           ingredients.map((ingredient) => [ingredient.id, ingredient] as const)
         )
         const totalAmount = roundMoney(
-          input.items.reduce(
+          purchaseItems.reduce(
             (total, item) => total + item.quantity * item.unitPrice,
             0
           )
@@ -313,7 +359,7 @@ purchasesRouter.post(
           },
         })
 
-        for (const item of input.items) {
+        for (const item of purchaseItems) {
           const ingredient = ingredientById.get(item.ingredientId)
 
           if (!ingredient) {
@@ -402,6 +448,21 @@ purchasesRouter.post(
               afterQuantity,
               referenceType: "purchase",
               referenceId: createdPurchase.id,
+            },
+          })
+        }
+
+        if (purchaseStatus === "saved" && draftPurchaseIds.length > 0) {
+          await tx.purchaseItem.deleteMany({
+            where: {
+              purchaseId: { in: draftPurchaseIds },
+            },
+          })
+          await tx.purchase.deleteMany({
+            where: {
+              id: { in: draftPurchaseIds },
+              branchId,
+              status: "draft",
             },
           })
         }

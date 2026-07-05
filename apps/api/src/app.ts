@@ -39,7 +39,7 @@ export function createApp() {
       enabled: env.NODE_ENV !== "test",
     })
   )
-  app.use(express.json({ limit: "1mb" }))
+  app.use(express.json({ limit: "8mb" }))
   app.use(cookieParser())
 
   app.get("/api/v1/health", (_req, res) => {

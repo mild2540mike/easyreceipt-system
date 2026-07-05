@@ -889,6 +889,7 @@ function AuthLoadingScreen() {
 
 type Store = EasyReceiptStore
 type WidgetPosition = { right: number; bottom: number }
+const maxStockOutPhotoSize = 5 * 1024 * 1024
 type WidgetDragState = {
   pointerId: number
   startX: number
@@ -1025,6 +1026,7 @@ function StockOutChatWidget({ store }: { store: Store }) {
     name: string
     type: string
     size: number
+    dataUrl: string
   } | null>(null)
   const [message, setMessage] = useState("")
   const selectedItem = store.inventoryRows.find(
@@ -1162,6 +1164,7 @@ function StockOutChatWidget({ store }: { store: Store }) {
         name: "",
         type: "",
         size: 0,
+        dataUrl: "",
       },
     })
 
@@ -1416,15 +1419,34 @@ function StockOutChatWidget({ store }: { store: Store }) {
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
-                      setPhoto(
-                        file
-                          ? {
-                              name: file.name,
-                              type: file.type || "image/*",
-                              size: file.size,
-                            }
-                          : null
-                      )
+
+                      if (!file) {
+                        setPhoto(null)
+                        return
+                      }
+
+                      if (file.size > maxStockOutPhotoSize) {
+                        setPhoto(null)
+                        setMessage("รูปประกอบต้องมีขนาดไม่เกิน 5MB")
+                        event.target.value = ""
+                        return
+                      }
+
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        setPhoto({
+                          name: file.name,
+                          type: file.type || "image/*",
+                          size: file.size,
+                          dataUrl: String(reader.result ?? ""),
+                        })
+                      }
+                      reader.onerror = () => {
+                        setPhoto(null)
+                        setMessage("ไม่สามารถอ่านไฟล์รูปได้")
+                        event.target.value = ""
+                      }
+                      reader.readAsDataURL(file)
                     }}
                   />
                 </label>

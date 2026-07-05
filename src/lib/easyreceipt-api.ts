@@ -101,6 +101,7 @@ export type PurchaseApiInput = {
   purchaseDate: string
   vendor?: string
   status?: "draft" | "saved"
+  draftPurchaseIds?: string[]
   items: {
     ingredientId: string
     quantity: number
@@ -199,6 +200,7 @@ export type StockOutApiInput = {
     name: string
     type: string
     size: number
+    dataUrl: string
   }
 }
 

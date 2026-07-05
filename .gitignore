@@ -21,6 +21,12 @@
 /build
 /apps/api/dist
 
+# user uploads
+/public/uploads/**
+!/public/uploads/
+!/public/uploads/**/
+!/public/uploads/**/.gitkeep
+
 # misc
 .DS_Store
 *.pem

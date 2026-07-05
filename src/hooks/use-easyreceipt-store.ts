@@ -790,6 +790,7 @@ export function useEasyReceiptStore() {
         purchaseDate: string
         vendor?: string
         status?: "draft" | "saved"
+        draftPurchaseIds?: string[]
         items: PurchaseItem[]
       }
     }) =>
@@ -797,6 +798,7 @@ export function useEasyReceiptStore() {
         purchaseDate: input.purchaseDate,
         vendor: input.vendor,
         status: input.status,
+        draftPurchaseIds: input.draftPurchaseIds,
         items: input.items.map((item) => ({
           ingredientId: item.ingredientId,
           quantity: item.quantity,
@@ -1150,6 +1152,14 @@ export function useEasyReceiptStore() {
       ),
     [savedPurchaseHistory]
   )
+  const draftPurchaseTotalForDate = useMemo(
+    () =>
+      draftPurchaseHistory.reduce(
+        (total, purchase) => total + purchase.total,
+        0
+      ),
+    [draftPurchaseHistory]
+  )
   const dashboardSummary = dashboardQuery.data ?? emptyDashboard
   const reportSummary = useMemo(
     () =>
@@ -1182,7 +1192,7 @@ export function useEasyReceiptStore() {
   const purchaseBudgetStatus = useMemo<PurchaseBudgetStatus>(() => {
     const budget = activeBranch?.dailyPurchaseBudget ?? null
     const used = roundMoney(savedPurchaseTotalForDate)
-    const draft = roundMoney(currentPurchaseTotal)
+    const draft = roundMoney(currentPurchaseTotal + draftPurchaseTotalForDate)
     const projected = roundMoney(used + draft)
     const isLimited = budget !== null
 
@@ -1195,7 +1205,12 @@ export function useEasyReceiptStore() {
       isLimited,
       isOverBudget: isLimited && projected > budget,
     }
-  }, [activeBranch?.dailyPurchaseBudget, currentPurchaseTotal, savedPurchaseTotalForDate])
+  }, [
+    activeBranch?.dailyPurchaseBudget,
+    currentPurchaseTotal,
+    draftPurchaseTotalForDate,
+    savedPurchaseTotalForDate,
+  ])
 
   const incomingByIngredient = useMemo(() => {
     const incoming = new Map<string, number>()
@@ -1749,7 +1764,6 @@ export function useEasyReceiptStore() {
     const items = purchaseItems.filter(
       (item) => item.ingredientId && item.quantity > 0
     )
-
     if (items.length === 0) {
       return {
         ok: false,
@@ -1861,8 +1875,9 @@ export function useEasyReceiptStore() {
     const items = purchaseItems.filter(
       (item) => item.ingredientId && item.quantity > 0
     )
+    const draftPurchaseIds = draftPurchaseHistory.map((purchase) => purchase.id)
 
-    if (items.length === 0) {
+    if (items.length === 0 && draftPurchaseIds.length === 0) {
       return {
         ok: false,
         error: "กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ",
@@ -1883,6 +1898,7 @@ export function useEasyReceiptStore() {
           purchaseDate: purchaseDate.toISOString(),
           vendor: "บันทึกจาก EasyReceipt",
           status: "saved",
+          draftPurchaseIds,
           items,
         },
       })
@@ -2072,7 +2088,7 @@ export function useEasyReceiptStore() {
       }
     }
 
-    if (!input.photo.name) {
+    if (!input.photo.name || !input.photo.dataUrl) {
       return {
         ok: false,
         error: "กรุณาอัปโหลดรูปประกอบ",

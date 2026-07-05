@@ -1,4 +1,7 @@
 import type { Prisma } from "@prisma/client"
+import { randomUUID } from "node:crypto"
+import { mkdir, writeFile } from "node:fs/promises"
+import path from "node:path"
 import { Router } from "express"
 import { z } from "zod"
 
@@ -35,7 +38,8 @@ const stockOutSchema = z.object({
   photo: z.object({
     name: z.string().min(1),
     type: z.string().min(1),
-    size: z.coerce.number().min(0),
+    size: z.coerce.number().min(1).max(5 * 1024 * 1024),
+    dataUrl: z.string().min(1),
   }),
 })
 
@@ -44,6 +48,65 @@ export const inventoryRouter = Router({ mergeParams: true })
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
   include: { ingredient: true }
 }>
+
+const stockOutUploadDir = path.join(
+  process.cwd(),
+  "public",
+  "uploads",
+  "stock-out"
+)
+const stockOutUploadPublicDir = "public/uploads/stock-out"
+const stockOutUploadUrlDir = "/uploads/stock-out"
+const allowedStockOutImageTypes: Record<string, string> = {
+  "image/gif": ".gif",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+}
+
+function safeFileStem(filename: string) {
+  const stem = path.parse(filename).name.trim()
+
+  return stem.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 48) || "stock-out"
+}
+
+async function saveStockOutPhoto(input: z.infer<typeof stockOutSchema>["photo"]) {
+  const match = input.dataUrl.match(
+    /^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=]+)$/
+  )
+
+  if (!match) {
+    throw badRequest("Invalid stock-out photo payload.")
+  }
+
+  const mimeType = match[1].toLowerCase()
+  const extension = allowedStockOutImageTypes[mimeType]
+
+  if (!extension || mimeType !== input.type.toLowerCase()) {
+    throw badRequest("Stock-out photo must be a supported image file.")
+  }
+
+  const buffer = Buffer.from(match[2], "base64")
+
+  if (buffer.length === 0 || buffer.length > 5 * 1024 * 1024) {
+    throw badRequest("Stock-out photo must be 5MB or smaller.")
+  }
+
+  await mkdir(stockOutUploadDir, { recursive: true })
+
+  const storedName = `${Date.now()}-${randomUUID()}-${safeFileStem(input.name)}${extension}`
+  const diskPath = path.join(stockOutUploadDir, storedName)
+  await writeFile(diskPath, buffer)
+
+  return {
+    originalName: input.name,
+    storedName,
+    type: mimeType,
+    size: buffer.length,
+    path: `${stockOutUploadPublicDir}/${storedName}`,
+    url: `${stockOutUploadUrlDir}/${storedName}`,
+  }
+}
 
 inventoryRouter.get(
   "/",
@@ -181,6 +244,7 @@ inventoryRouter.post(
       }
 
       const afterQuantity = roundQuantity(beforeQuantity - quantity)
+      const savedPhoto = await saveStockOutPhoto(input.photo)
       const movement = await tx.stockMovement.create({
         data: {
           branchId,
@@ -193,7 +257,7 @@ inventoryRouter.post(
           beforeQuantity,
           afterQuantity,
           referenceType: "manual_stock_out",
-          referenceId: input.photo.name.slice(0, 64),
+          referenceId: savedPhoto.storedName.slice(0, 64),
         },
       })
 
@@ -213,11 +277,7 @@ inventoryRouter.post(
             unit: currentInventory.ingredient.unit,
             beforeQuantity,
             afterQuantity,
-            photo: {
-              name: input.photo.name,
-              type: input.photo.type,
-              size: input.photo.size,
-            },
+            photo: savedPhoto,
           }).slice(0, 4000),
         },
       })
