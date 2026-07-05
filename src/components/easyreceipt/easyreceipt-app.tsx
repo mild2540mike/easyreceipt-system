@@ -5748,7 +5748,7 @@ function StatusSelect({
 
 function ReportsView({ store }: { store: Store }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
       {store.isReportsLoading && (
         <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
           <LoaderCircle className="size-4 animate-spin" />
@@ -5762,7 +5762,7 @@ function ReportsView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {store.reportCashFlowMetrics.map((metric) => (
           <MetricCard
             key={metric.id}
@@ -5779,20 +5779,20 @@ function ReportsView({ store }: { store: Store }) {
         ))}
       </section>
 
-      <section className="rounded-lg border border-border bg-background p-4 sm:p-5">
-        <Tabs defaultValue="purchase" className="gap-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
+        <Tabs defaultValue="purchase" className="gap-3 sm:gap-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold">รายงาน / การใช้งาน</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-base font-semibold sm:text-lg">รายงาน / การใช้งาน</h2>
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 {store.reportBranchSummary.helper}
               </p>
             </div>
-            <TabsList className="h-11 w-full sm:w-fit" variant="default">
-              <TabsTrigger value="purchase" className="h-9 px-3">
+            <TabsList className="h-10 w-full sm:h-11 sm:w-fit" variant="default">
+              <TabsTrigger value="purchase" className="h-8 px-3 sm:h-9">
                 ยอดซื้อ
               </TabsTrigger>
-              <TabsTrigger value="cashflow" className="h-9 px-3">
+              <TabsTrigger value="cashflow" className="h-8 px-3 sm:h-9">
                 เงินสด
               </TabsTrigger>
             </TabsList>
@@ -5851,17 +5851,17 @@ function BranchPurchaseBarSeries({
 
   if (data.length === 0) {
     return (
-      <div className="mt-5 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+      <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:mt-5 sm:p-6">
         ยังไม่มียอดซื้อสำหรับแสดงในกราฟ
       </div>
     )
   }
 
   return (
-    <div className="mt-5">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-3 sm:mt-5">
+      <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <p className="text-sm font-semibold">{label}</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {branches.map((branch) => (
             <span
               key={branch.branchId}
@@ -5877,13 +5877,13 @@ function BranchPurchaseBarSeries({
         </div>
       </div>
 
-      <div className="flex h-72 items-end gap-4 overflow-x-auto rounded-lg border border-border bg-muted/40 p-4">
+      <div className="flex h-56 items-end gap-2 overflow-x-auto rounded-lg border border-border bg-muted/40 p-3 sm:h-72 sm:gap-4 sm:p-4">
         {data.map((item) => (
           <div
             key={item.date}
-            className="flex min-w-28 flex-1 flex-col items-center gap-2"
+            className="flex min-w-20 flex-1 flex-col items-center gap-2 sm:min-w-28"
           >
-            <div className="flex h-48 w-full items-end justify-center gap-1.5">
+            <div className="flex h-36 w-full items-end justify-center gap-1 sm:h-48 sm:gap-1.5">
               {branches.map((branch) => {
                 const total =
                   item.branches.find((entry) => entry.branchId === branch.branchId)
@@ -5924,20 +5924,26 @@ function CashFlowList({
   metrics: Store["reportCashFlowMetrics"]
 }) {
   return (
-    <div className="mt-5 grid gap-3 md:grid-cols-2">
+    <div className="mt-3 grid gap-2 sm:mt-5 md:grid-cols-2">
       {metrics.map((metric) => (
         <div
           key={metric.id}
-          className="rounded-lg border border-border p-4"
+          className="rounded-lg border border-border p-3 sm:p-4"
         >
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="font-semibold">{metric.label}</p>
-            <Badge variant="secondary" className="h-6">
+          <div className="mb-1.5 flex items-start justify-between gap-3 sm:mb-3">
+            <p className="text-sm font-semibold leading-snug sm:text-base">
+              {metric.label}
+            </p>
+            <Badge variant="secondary" className="h-6 shrink-0">
               {metric.kind}
             </Badge>
           </div>
-          <p className="text-2xl font-bold">{formatMetricValue(metric)}</p>
-          <p className="text-sm text-muted-foreground">{metricHelper(metric)}</p>
+          <p className="text-xl font-bold leading-tight sm:text-2xl">
+            {formatMetricValue(metric)}
+          </p>
+          <p className="mt-1 text-xs leading-snug text-muted-foreground sm:text-sm">
+            {metricHelper(metric)}
+          </p>
         </div>
       ))}
     </div>
