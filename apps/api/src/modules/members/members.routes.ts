@@ -27,6 +27,9 @@ const addMemberSchema = z.object({
 })
 
 const updateMemberSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
   role: roleSchema.optional(),
   status: statusSchema.optional(),
   branchIds: z.array(z.string().min(1)).optional(),
@@ -202,6 +205,24 @@ membersRouter.patch(
         throw badRequest("Member requires at least one accessible branch.")
       }
 
+      const nextEmail = input.email?.trim().toLowerCase()
+
+      if (nextEmail && nextEmail !== target.email) {
+        const duplicate = await tx.member.findFirst({
+          where: {
+            organizationId: manager.organizationId,
+            email: nextEmail,
+            id: {
+              not: memberId,
+            },
+          },
+        })
+
+        if (duplicate) {
+          throw badRequest("Member email already exists.")
+        }
+      }
+
       await tx.memberBranchAccess.deleteMany({
         where: { memberId },
       })
@@ -218,6 +239,11 @@ membersRouter.patch(
       return tx.member.update({
         where: { id: memberId },
         data: {
+          name: input.name?.trim() ?? target.name,
+          email: nextEmail ?? target.email,
+          passwordHash: input.password
+            ? await bcrypt.hash(input.password, 10)
+            : target.passwordHash,
           role: nextRole,
           status: input.status ?? target.status,
           primaryBranchId: nextBranchIds[0],

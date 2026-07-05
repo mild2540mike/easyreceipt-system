@@ -3908,6 +3908,7 @@ function MembersView({ store }: { store: Store }) {
                 <TableHead>สาขา</TableHead>
                 <TableHead>ใช้งานล่าสุด</TableHead>
                 <TableHead>วันที่เพิ่ม</TableHead>
+                <TableHead className="w-32 text-right">จัดการ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3990,6 +3991,9 @@ function MembersView({ store }: { store: Store }) {
                   </TableCell>
                   <TableCell>{member.lastActive}</TableCell>
                   <TableCell>{member.joinedAt}</TableCell>
+                  <TableCell className="text-right">
+                    <MemberEditDialog member={member} store={store} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -4197,12 +4201,15 @@ function MemberMobileCard({
     <Card className="rounded-lg">
       <CardHeader>
         <CardAction>
-          <Badge
-            variant="outline"
-            className={cn("h-6", memberStatusClassName(member.status))}
-          >
-            {memberStatusLabel(member.status)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className={cn("h-6", memberStatusClassName(member.status))}
+            >
+              {memberStatusLabel(member.status)}
+            </Badge>
+            <MemberEditDialog member={member} store={store} compact />
+          </div>
         </CardAction>
         <CardDescription>{member.email}</CardDescription>
         <CardTitle>{member.name}</CardTitle>
@@ -4275,6 +4282,184 @@ function MemberMobileCard({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function MemberEditDialog({
+  member,
+  store,
+  compact = false,
+}: {
+  member: Store["members"][number]
+  store: Store
+  compact?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(member.name)
+  const [email, setEmail] = useState(member.email)
+  const [password, setPassword] = useState("")
+  const [resetPassword, setResetPassword] = useState(false)
+  const [message, setMessage] = useState("")
+
+  function openEditor() {
+    setName(member.name)
+    setEmail(member.email)
+    setPassword("")
+    setResetPassword(false)
+    setMessage("")
+    setOpen(true)
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!store.canManageMembers) {
+      setMessage("บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลสมาชิก")
+      return
+    }
+
+    const ok = await store.updateMemberProfile(member.id, {
+      name,
+      email,
+      password: resetPassword ? password.trim() : undefined,
+    })
+
+    if (!ok) {
+      setMessage(
+        store.memberError ||
+          "กรุณากรอกชื่อ อีเมล และรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
+      )
+      return
+    }
+
+    setOpen(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="outline"
+        className={cn(
+          "h-9",
+          compact ? "w-9 px-0" : "px-3"
+        )}
+        disabled={!store.canManageMembers}
+        onClick={openEditor}
+      >
+        <Pencil className="size-4" />
+        {compact ? (
+          <span className="sr-only">แก้ไขข้อมูล</span>
+        ) : (
+          <span>แก้ไขข้อมูล</span>
+        )}
+      </Button>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>แก้ไขข้อมูลสมาชิก</DialogTitle>
+          <DialogDescription>
+            ปรับชื่อ อีเมล หรือกรอกรหัสผ่านใหม่เพื่อ reset รหัสผ่าน
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-4 px-4 pb-4" onSubmit={handleSubmit}>
+          <div>
+            <Label className="mb-2 block">ชื่อสมาชิก</Label>
+            <Input
+              className="h-11"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="mb-2 block">อีเมล</Label>
+            <Input
+              type="email"
+              className="h-11"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between gap-4">
+              <Label className="flex items-center gap-2">
+                <KeyRound className="size-4" />
+                เปลี่ยนรหัสผ่าน
+              </Label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={resetPassword}
+                className={cn(
+                  "relative h-6 w-11 rounded-full border transition",
+                  resetPassword
+                    ? "border-sky-600 bg-sky-600"
+                    : "border-border bg-muted"
+                )}
+                onClick={() => {
+                  setResetPassword((current) => {
+                    if (current) {
+                      setPassword("")
+                    }
+
+                    return !current
+                  })
+                }}
+              >
+                <span
+                  className={cn(
+                    "absolute top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition",
+                    resetPassword ? "left-5" : "left-0.5"
+                  )}
+                />
+                <span className="sr-only">เปลี่ยนรหัสผ่าน</span>
+              </button>
+            </div>
+            {resetPassword && (
+              <div className="mt-3">
+                <Label className="mb-2 block">รหัสผ่านใหม่</Label>
+                <Input
+                  type="password"
+                  className="h-11"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="อย่างน้อย 6 ตัวอักษร"
+                  autoComplete="new-password"
+                />
+              </div>
+            )}
+          </div>
+
+          {message && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {message}
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button
+              type="submit"
+              className="h-11"
+              disabled={!store.canManageMembers || store.isMemberSaving}
+            >
+              {store.isMemberSaving ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              บันทึกข้อมูล
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11"
+              onClick={() => setOpen(false)}
+            >
+              ยกเลิก
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

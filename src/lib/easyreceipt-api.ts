@@ -37,6 +37,9 @@ export type AddMemberApiInput = {
 }
 
 export type UpdateMemberApiInput = {
+  name?: string
+  email?: string
+  password?: string
   role?: string
   status?: string
   branchIds?: string[]

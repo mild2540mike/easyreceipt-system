@@ -93,6 +93,12 @@ export type MemberFormInput = {
   branchIds: string[]
 }
 
+export type MemberProfileInput = {
+  name: string
+  email: string
+  password?: string
+}
+
 export type RecipeFormInput = Omit<Recipe, "id">
 
 export type NewIngredientFromPurchaseInput = {
@@ -1933,6 +1939,54 @@ export function useEasyReceiptStore() {
     updateMemberMutation.mutate({ memberId, input: { branchIds: nextBranchIds } })
   }
 
+  async function updateMemberProfile(
+    memberId: string,
+    input: MemberProfileInput
+  ): Promise<boolean> {
+    const nextName = input.name.trim()
+    const nextEmail = input.email.trim().toLowerCase()
+    const nextPassword = input.password?.trim() ?? ""
+
+    if (!nextName || !nextEmail || (nextPassword && nextPassword.length < 6)) {
+      return false
+    }
+
+    setMembers((items) =>
+      items.map((member) =>
+        member.id === memberId
+          ? {
+              ...member,
+              name: nextName,
+              email: nextEmail,
+            }
+          : member
+      )
+    )
+    setCurrentMember((member) =>
+      member?.id === memberId
+        ? {
+            ...member,
+            name: nextName,
+            email: nextEmail,
+          }
+        : member
+    )
+
+    try {
+      await updateMemberMutation.mutateAsync({
+        memberId,
+        input: {
+          name: nextName,
+          email: nextEmail,
+          ...(nextPassword ? { password: nextPassword } : {}),
+        },
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
 
   return {
     activeView,
@@ -2007,6 +2061,7 @@ export function useEasyReceiptStore() {
     updateMemberRole,
     updateMemberStatus,
     updateMemberBranches,
+    updateMemberProfile,
   }
 }
 
