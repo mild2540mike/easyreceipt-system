@@ -16,6 +16,7 @@ model Organization {
   branches    Branch[]
   members     Member[]
   ingredients Ingredient[]
+  usageReasons UsageReason[]
   auditLogs   AuditLog[]
 
   @@map("organizations")
@@ -71,6 +72,7 @@ model Member {
   recipePlans    RecipePlan[]         @relation("RecipePlanPlannedBy")
   cookingRuns    CookingRun[]         @relation("CookingRunCookedBy")
   stockMovements StockMovement[]      @relation("StockMovementCreatedBy")
+  usageReasons   UsageReason[]        @relation("UsageReasonCreatedBy")
   auditLogs      AuditLog[]           @relation("AuditLogActor")
 
   @@unique([organizationId, username])
@@ -307,6 +309,24 @@ model StockMovement {
   @@index([cookingRunId])
   @@index([createdByMemberId])
   @@map("stock_movements")
+}
+
+model UsageReason {
+  id                String   @id @default(cuid()) @db.NVarChar(64)
+  organizationId    String   @db.NVarChar(64)
+  label             String   @db.NVarChar(180)
+  isActive          Boolean  @default(true)
+  createdByMemberId String?  @db.NVarChar(64)
+  createdAt         DateTime @default(now()) @db.DateTime2
+  updatedAt         DateTime @updatedAt @db.DateTime2
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    Member?      @relation("UsageReasonCreatedBy", fields: [createdByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([organizationId, label])
+  @@index([organizationId, isActive, label])
+  @@index([createdByMemberId])
+  @@map("usage_reasons")
 }
 
 model AuditLog {

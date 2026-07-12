@@ -36,6 +36,7 @@ import {
   apiGetBranchInventoryMovements,
   apiGetBranchPurchases,
   apiGetBranchRecipes,
+  apiGetBranchUsageReasons,
   apiGetCurrentMember,
   apiGetMembers,
   apiGetReportSummary,
@@ -194,6 +195,8 @@ const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
 const usageMovementsQueryKey = (branchId: string, dateKey: string) =>
   ["easyreceipt", "inventory", "usage", branchId, dateKey] as const
+const usageReasonsQueryKey = (branchId: string) =>
+  ["easyreceipt", "inventory", "usage-reasons", branchId] as const
 const purchasesQueryKey = (branchId: string, dateKey: string) =>
   ["easyreceipt", "purchases", branchId, dateKey] as const
 const recipesQueryKey = (branchId: string) =>
@@ -659,6 +662,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       canViewUsage &&
       effectiveActiveView === "usage"
   )
+  const shouldLoadUsageReasons = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      canViewUsage &&
+      effectiveActiveView === "usage"
+  )
   const shouldLoadRecipes = Boolean(
     hasPortalView &&
       currentMember &&
@@ -729,6 +739,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }),
     enabled: shouldLoadUsageMovements,
     staleTime: 15_000,
+  })
+
+  const usageReasonsQuery = useQuery({
+    queryKey: usageReasonsQueryKey(activeBranchId),
+    queryFn: () => apiGetBranchUsageReasons(activeBranchId),
+    enabled: shouldLoadUsageReasons,
+    staleTime: 60_000,
   })
 
   const recipesQuery = useQuery({
@@ -1281,6 +1298,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const usageMovements = useMemo<NormalizedStockMovement[]>(
     () => usageMovementsQuery.data ?? [],
     [usageMovementsQuery.data]
+  )
+  const usageReasons = useMemo(
+    () => usageReasonsQuery.data ?? [],
+    [usageReasonsQuery.data]
   )
   const savedPurchaseTotalForDate = useMemo(
     () =>
@@ -2813,6 +2834,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     usageDateKey,
     usageItems,
     usageMovements,
+    usageReasons,
     setUsageDate,
     updateUsageItem,
     addUsageItem,
@@ -2833,6 +2855,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     submitPurchase,
     isPurchasesLoading,
     isUsageMovementsLoading,
+    isUsageReasonsLoading: usageReasonsQuery.isPending && shouldLoadUsageReasons,
     isPurchaseSaving: createPurchaseMutation.isPending,
     isUsageSaving: createUsageMutation.isPending,
     isPurchaseDraftDeleting:

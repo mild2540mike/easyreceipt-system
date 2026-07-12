@@ -197,6 +197,11 @@ type ApiStockMovement = {
   occurredAt: string
 }
 
+type ApiUsageReason = {
+  id: string
+  label: string
+}
+
 export type UpdateInventoryApiInput = {
   name: string
   category: string
@@ -752,6 +757,21 @@ export async function apiGetBranchInventoryMovements(
   )
 
   return data.movements.map(normalizeStockMovement)
+}
+
+export async function apiGetBranchUsageReasons(
+  branchId: string
+): Promise<string[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage-reasons`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<{ reasons: ApiUsageReason[] }>(response)
+
+  return data.reasons.map((reason) => reason.label.trim()).filter(Boolean)
 }
 
 export async function apiCreateBranchUsage(

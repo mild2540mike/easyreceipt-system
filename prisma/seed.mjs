@@ -197,6 +197,13 @@ function defaultMemberPermissions(role) {
   }
 }
 
+const usageReasonSeeds = [
+  "ใช้ประจำวัน",
+  "ของเสีย",
+  "จำหน่าย",
+  "ของหาย",
+]
+
 const recipeTemplatesByBranch = {
   "branch-wat-sakaeo": [
     {
@@ -898,6 +905,7 @@ function round(value, digits = 3) {
 async function clearDatabase(tx) {
   await tx.auditLog.deleteMany()
   await tx.stockMovement.deleteMany()
+  await tx.usageReason.deleteMany()
   await tx.cookingRun.deleteMany()
   await tx.stockReservation.deleteMany()
   await tx.recipePlan.deleteMany()
@@ -999,6 +1007,15 @@ async function main() {
             },
           })
         }
+      }
+
+      for (const label of usageReasonSeeds) {
+        await tx.usageReason.create({
+          data: {
+            organizationId: organization.id,
+            label,
+          },
+        })
       }
 
       for (const ingredient of stockSeedItems) {

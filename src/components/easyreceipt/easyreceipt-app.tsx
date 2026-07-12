@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react"
@@ -1006,13 +1008,61 @@ type SavedPurchaseSupplierGroup = {
 type WidgetPosition = { right: number; bottom: number }
 const maxStockOutPhotoSize = 5 * 1024 * 1024
 const customUsageReasonsKey = "easyreceipt.customUsageReasons"
-const defaultUsageReasons = [
-  "ใช้ผลิตประจำวัน",
-  "เบิกใช้หน้าร้าน",
-  "เตรียมวัตถุดิบล่วงหน้า",
-  "ทดลองเมนู",
-  "ใช้สำหรับงานพิเศษ",
-]
+
+function FreezableTable({
+  className,
+  onClick,
+  onKeyDown,
+  ...props
+}: Parameters<typeof Table>[0]) {
+  const [frozenColumn, setFrozenColumn] = useState<number | null>(null)
+
+  function toggleFrozenColumn(target: EventTarget | null) {
+    if (!(target instanceof Element)) {
+      return
+    }
+
+    const header = target.closest("th")
+
+    if (!(header instanceof HTMLTableCellElement)) {
+      return
+    }
+
+    const label = header.textContent?.trim()
+
+    if (!label || header.dataset.freezeDisabled === "true") {
+      return
+    }
+
+    const nextColumn = header.cellIndex + 1
+    setFrozenColumn((current) => (current === nextColumn ? null : nextColumn))
+  }
+
+  return (
+    <Table
+      {...props}
+      data-frozen-column={frozenColumn ?? undefined}
+      className={cn("freezable-table", className)}
+      onClick={(event: ReactMouseEvent<HTMLTableElement>) => {
+        onClick?.(event)
+
+        if (!event.defaultPrevented) {
+          toggleFrozenColumn(event.target)
+        }
+      }}
+      onKeyDown={(event: ReactKeyboardEvent<HTMLTableElement>) => {
+        onKeyDown?.(event)
+
+        if (
+          !event.defaultPrevented &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          toggleFrozenColumn(event.target)
+        }
+      }}
+    />
+  )
+}
 
 function loadCustomUsageReasons() {
   if (typeof window === "undefined") {
@@ -2238,7 +2288,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
 
       {purchaseOrderItems.length > 0 ? (
         <div className="overflow-x-auto">
-          <Table>
+          <FreezableTable>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-16 text-center">#</TableHead>
@@ -2288,7 +2338,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
                 </TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       ) : (
         <div className="p-4 sm:p-5">
@@ -2450,7 +2500,7 @@ function PurchaseView({ store }: { store: Store }) {
 
         <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
           <div className="overflow-x-auto overflow-y-visible rounded-lg border border-border">
-            <Table className="w-full min-w-[45rem] table-fixed text-xs sm:text-sm">
+            <FreezableTable className="w-full min-w-[45rem] table-fixed text-xs sm:text-sm">
               <colgroup>
                 <col className="w-10" />
                 <col className="w-56" />
@@ -2502,7 +2552,7 @@ function PurchaseView({ store }: { store: Store }) {
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
+            </FreezableTable>
           </div>
 
           <div
@@ -2644,7 +2694,7 @@ function PurchaseView({ store }: { store: Store }) {
           </Badge>
         </div>
         <div className="overflow-x-auto">
-          <Table className="min-w-[52rem] text-sm">
+          <FreezableTable className="min-w-[52rem] text-sm">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-24 text-center">เวลา</TableHead>
@@ -2687,7 +2737,7 @@ function PurchaseView({ store }: { store: Store }) {
                 </TableRow>
               )}
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       </section>
 
@@ -3323,7 +3373,7 @@ function UsageView({ store }: { store: Store }) {
   const usageReasonOptions = Array.from(
     new Set(
       [
-        ...defaultUsageReasons,
+        ...store.usageReasons,
         ...store.usageMovements.map((movement) => movement.reason),
       ]
         .map((reason) => reason.trim())
@@ -3417,10 +3467,10 @@ function UsageView({ store }: { store: Store }) {
 
         <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
           <div className="overflow-x-auto rounded-lg border border-border">
-            <Table className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
+            <FreezableTable className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
               <colgroup>
                 <col className="w-10" />
-                <col className="w-60" />
+                <col className="w-50" />
                 <col className="w-20" />
                 <col className="w-20" />
                 <col className="w-14" />
@@ -3458,7 +3508,7 @@ function UsageView({ store }: { store: Store }) {
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
+            </FreezableTable>
           </div>
 
           <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950 sm:p-4">
@@ -3522,7 +3572,7 @@ function UsageView({ store }: { store: Store }) {
           </Badge>
         </div>
         <div className="overflow-x-auto">
-          <Table className="min-w-[52rem] text-sm">
+          <FreezableTable className="min-w-[52rem] text-sm">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-24">เวลา</TableHead>
@@ -3567,7 +3617,7 @@ function UsageView({ store }: { store: Store }) {
                 </TableRow>
               )}
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       </section>
     </div>
@@ -3817,7 +3867,9 @@ function UsageDraftTableRow({
 
   return (
     <TableRow className={cn(isOverStock && "bg-red-50/60")}>
-      <TableCell className="text-center align-top">{index + 1}</TableCell>
+      <TableCell className="text-center align-top">
+        {index + 1}
+      </TableCell>
       <TableCell>
         <UsageIngredientSelect
           value={item.ingredientId}
@@ -3849,7 +3901,9 @@ function UsageDraftTableRow({
           disabled={!store.canEditUsage}
         />
       </TableCell>
-      <TableCell>{inventoryRow?.ingredient.unit ?? "-"}</TableCell>
+      <TableCell>
+        {inventoryRow?.ingredient.unit ?? "-"}
+      </TableCell>
       <TableCell
         className={cn(
           "text-right font-semibold",
@@ -4363,7 +4417,7 @@ function StockView({ store }: { store: Store }) {
 
       <section className="overflow-hidden rounded-lg border border-border bg-background xl:hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <FreezableTable>
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-48">วัตถุดิบ</TableHead>
@@ -4455,12 +4509,12 @@ function StockView({ store }: { store: Store }) {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       </section>
 
       <section className="hidden overflow-hidden rounded-lg border border-border bg-background xl:block">
-        <Table>
+        <FreezableTable>
           <TableHeader>
             <TableRow>
               <TableHead>วัตถุดิบ</TableHead>
@@ -4547,7 +4601,7 @@ function StockView({ store }: { store: Store }) {
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+        </FreezableTable>
       </section>
 
       <StockEditDialog
@@ -6189,7 +6243,7 @@ function BudgetsView({ store }: { store: Store }) {
         </div>
 
         <div className="overflow-x-auto">
-          <Table className="min-w-[58rem]">
+          <FreezableTable className="min-w-[58rem]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-72">สาขา</TableHead>
@@ -6311,7 +6365,7 @@ function BudgetsView({ store }: { store: Store }) {
                 )
               })}
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       </section>
     </div>
@@ -6402,7 +6456,7 @@ function MembersView({ store }: { store: Store }) {
         </div>
 
         <div className="hidden overflow-x-auto rounded-lg border border-border bg-background lg:block">
-          <Table className="min-w-[64rem] text-sm">
+          <FreezableTable className="min-w-[64rem] text-sm">
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead className="w-[24rem]">สมาชิก</TableHead>
@@ -6475,7 +6529,7 @@ function MembersView({ store }: { store: Store }) {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </FreezableTable>
         </div>
       </section>
     </div>

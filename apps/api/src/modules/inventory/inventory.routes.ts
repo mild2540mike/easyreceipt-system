@@ -11,7 +11,11 @@ import { asyncHandler } from "../../utils/async-handler"
 import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
-import { assertBranchAccess, memberCanEditMenu } from "../common/permissions"
+import {
+  assertBranchAccess,
+  memberCanEditMenu,
+  memberCanViewMenu,
+} from "../common/permissions"
 
 const updateInventorySchema = z.object({
   name: z.string().min(1),
@@ -279,6 +283,36 @@ inventoryRouter.get(
       movements: (movements as StockMovementWithDetails[]).map(
         (movement) => serializeStockMovement(movement, reasonByMovementId)
       ),
+    })
+  })
+)
+
+inventoryRouter.get(
+  "/usage-reasons",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanViewMenu(access.member, "usage")) {
+      throw forbidden("Member does not have permission to view usage reasons.")
+    }
+
+    const reasons = await prisma.usageReason.findMany({
+      where: {
+        organizationId: access.branch.organizationId,
+        isActive: true,
+      },
+      orderBy: {
+        label: "asc",
+      },
+    })
+
+    res.json({
+      reasons: reasons.map((reason) => ({
+        id: reason.id,
+        label: reason.label,
+      })),
     })
   })
 )
