@@ -15,7 +15,7 @@ import {
 } from "../common/permissions"
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  username: z.string().trim().min(1),
   password: z.string().min(1),
 })
 
@@ -51,13 +51,13 @@ authRouter.post(
     const input = loginSchema.parse(req.body)
     const member = await prisma.member.findFirst({
       where: {
-        email: input.email.trim().toLowerCase(),
+        username: input.username.trim().toLowerCase(),
         status: "active",
       },
     })
 
     if (!member || !(await verifyPassword(input.password, member.passwordHash))) {
-      throw unauthorized("Invalid email or password.")
+      throw unauthorized("Invalid username or password.")
     }
 
     await prisma.member.update({

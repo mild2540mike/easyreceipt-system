@@ -28,6 +28,7 @@ const createIngredientSchema = z.object({
   name: z.string().min(1),
   unit: z.string().min(1).default("กก."),
   unitPrice: z.coerce.number().min(0).default(0),
+  supplier: z.string().min(1).default("ยังไม่ระบุ"),
 })
 
 const stockOutSchema = z.object({
@@ -155,6 +156,7 @@ inventoryRouter.post(
       const name = input.name.trim()
       const unit = input.unit.trim() || "กก."
       const unitPrice = roundMoney(input.unitPrice)
+      const supplier = input.supplier.trim() || "ยังไม่ระบุ"
       const existingIngredient = await tx.ingredient.findFirst({
         where: {
           organizationId: access.branch.organizationId,
@@ -172,7 +174,7 @@ inventoryRouter.post(
             category: "วัตถุดิบใหม่",
             unit,
             defaultPrice: unitPrice,
-            supplier: "เพิ่มจากใบซื้อ",
+            supplier,
           },
         }))
 

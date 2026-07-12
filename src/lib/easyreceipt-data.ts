@@ -22,7 +22,7 @@ export type Branch = {
 export type Member = {
   id: string
   name: string
-  email: string
+  username: string
   role: MemberRole
   status: MemberStatus
   lastActive: string

@@ -17,7 +17,7 @@ type ApiMember = {
   organizationId: string
   primaryBranchId: string | null
   name: string
-  email: string
+  username: string
   role: string
   status: string
   lastActiveAt: string | null
@@ -34,7 +34,7 @@ type ApiMemberWithBranches = ApiMember & {
 
 export type AddMemberApiInput = {
   name: string
-  email: string
+  username: string
   password: string
   role: string
   branchIds: string[]
@@ -42,7 +42,7 @@ export type AddMemberApiInput = {
 
 export type UpdateMemberApiInput = {
   name?: string
-  email?: string
+  username?: string
   password?: string
   role?: string
   status?: string
@@ -61,7 +61,7 @@ export type AuthSession = {
 }
 
 export type LoginInput = {
-  email: string
+  username: string
   password: string
 }
 
@@ -189,6 +189,7 @@ export type CreateIngredientFromPurchaseApiInput = {
   name: string
   unit: string
   unitPrice: number
+  supplier?: string
 }
 
 export type StockOutApiInput = {
@@ -301,7 +302,7 @@ function normalizeMember(member: ApiMember, branchIds: string[]): Member {
   return {
     id: member.id,
     name: member.name,
-    email: member.email,
+    username: member.username,
     role: isMemberRole(member.role) ? member.role : "staff",
     status: isMemberStatus(member.status) ? member.status : "suspended",
     lastActive: formatLastActive(member.lastActiveAt),

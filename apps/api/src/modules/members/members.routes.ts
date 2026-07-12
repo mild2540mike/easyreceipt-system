@@ -20,7 +20,7 @@ const statusSchema = z.enum(["active", "invited", "suspended"])
 
 const addMemberSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  username: z.string().trim().min(1).max(80),
   password: z.string().min(6),
   role: roleSchema,
   branchIds: z.array(z.string().min(1)).min(1),
@@ -28,7 +28,7 @@ const addMemberSchema = z.object({
 
 const updateMemberSchema = z.object({
   name: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  username: z.string().trim().min(1).max(80).optional(),
   password: z.string().min(6).optional(),
   role: roleSchema.optional(),
   status: statusSchema.optional(),
@@ -48,6 +48,10 @@ function sanitizeBranchIds(
     role === "staff" || role === "viewer" ? branchIds.slice(0, 1) : branchIds
 
   return roleScoped
+}
+
+function normalizeUsername(username: string) {
+  return username.trim().toLowerCase()
 }
 
 membersRouter.get(
@@ -117,15 +121,17 @@ membersRouter.post(
         throw badRequest("Member requires at least one accessible branch.")
       }
 
-      const duplicate = await tx.member.findFirst({
+      const username = normalizeUsername(input.username)
+
+      const duplicateUsername = await tx.member.findFirst({
         where: {
           organizationId: manager.organizationId,
-          email: input.email.trim().toLowerCase(),
+          username,
         },
       })
 
-      if (duplicate) {
-        throw badRequest("Member email already exists.")
+      if (duplicateUsername) {
+        throw badRequest("Member username already exists.")
       }
 
       const createdMember = await tx.member.create({
@@ -133,7 +139,7 @@ membersRouter.post(
           organizationId: manager.organizationId,
           primaryBranchId: branchIds[0],
           name: input.name.trim(),
-          email: input.email.trim().toLowerCase(),
+          username,
           role: input.role,
           status: "invited",
           passwordHash: await bcrypt.hash(input.password, 10),
@@ -205,21 +211,23 @@ membersRouter.patch(
         throw badRequest("Member requires at least one accessible branch.")
       }
 
-      const nextEmail = input.email?.trim().toLowerCase()
+      const nextUsername = input.username
+        ? normalizeUsername(input.username)
+        : undefined
 
-      if (nextEmail && nextEmail !== target.email) {
-        const duplicate = await tx.member.findFirst({
+      if (nextUsername && nextUsername !== target.username) {
+        const duplicateUsername = await tx.member.findFirst({
           where: {
             organizationId: manager.organizationId,
-            email: nextEmail,
+            username: nextUsername,
             id: {
               not: memberId,
             },
           },
         })
 
-        if (duplicate) {
-          throw badRequest("Member email already exists.")
+        if (duplicateUsername) {
+          throw badRequest("Member username already exists.")
         }
       }
 
@@ -240,7 +248,7 @@ membersRouter.patch(
         where: { id: memberId },
         data: {
           name: input.name?.trim() ?? target.name,
-          email: nextEmail ?? target.email,
+          username: nextUsername ?? target.username,
           passwordHash: input.password
             ? await bcrypt.hash(input.password, 10)
             : target.passwordHash,

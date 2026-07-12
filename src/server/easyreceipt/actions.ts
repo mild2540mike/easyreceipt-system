@@ -36,7 +36,7 @@ type MemberActionInput = {
   actorMemberId: string
   organizationId: string
   name: string
-  email: string
+  username: string
   role: string
   branchIds: string[]
 }
@@ -599,8 +599,12 @@ export async function addMemberAction(input: MemberActionInput) {
         ? requestedBranchIds.slice(0, 1)
         : requestedBranchIds
 
-    if (!input.name.trim() || !input.email.trim() || branchIds.length === 0) {
-      throw new Error("Member requires name, email, and branch access.")
+    if (
+      !input.name.trim() ||
+      !input.username.trim() ||
+      branchIds.length === 0
+    ) {
+      throw new Error("Member requires name, username, and branch access.")
     }
 
     const createdMember = await tx.member.create({
@@ -608,7 +612,7 @@ export async function addMemberAction(input: MemberActionInput) {
         organizationId: input.organizationId,
         primaryBranchId: branchIds[0],
         name: input.name.trim(),
-        email: input.email.trim().toLowerCase(),
+        username: input.username.trim().toLowerCase(),
         passwordHash: "prototype:123456",
         role: input.role,
         status: "invited",

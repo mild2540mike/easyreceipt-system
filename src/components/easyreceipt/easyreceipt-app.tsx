@@ -32,7 +32,6 @@ import {
   LockKeyhole,
   LogIn,
   LogOut,
-  Mail,
   Maximize2,
   MessageCircle,
   Minimize2,
@@ -47,8 +46,6 @@ import {
   Send,
   ShieldCheck,
   ShoppingCart,
-  Sparkles,
-  Star,
   Trash2,
   UserPlus,
   UserRound,
@@ -143,6 +140,10 @@ type NavItem = {
   color: string
 }
 
+const isBudgetManagementPageEnabled = false
+const isCashFlowReportTabEnabled = false
+const isDashboardPageEnabled = false
+
 const navItems: NavItem[] = [
   {
     id: "dashboard",
@@ -155,11 +156,11 @@ const navItems: NavItem[] = [
   },
   {
     id: "purchase",
-    label: "บันทึกการซื้อ",
-    shortLabel: "ซื้อ",
-    description: "ใบสรุปการซื้อและยอดรวม",
+    label: "บันทึกของมาเพิ่ม",
+    shortLabel: "ของเข้า",
+    description: "บันทึกรายการของเข้าและยอดรวม",
     href: "/portal/purchase",
-    icon: ShoppingCart,
+    icon: Plus,
     color: "text-amber-700 bg-amber-50 border-amber-200",
   },
   {
@@ -173,8 +174,8 @@ const navItems: NavItem[] = [
   },
   {
     id: "recipes",
-    label: "สูตรอาหาร",
-    shortLabel: "สูตร",
+    label: "ทดลองสูตรอาหาร",
+    shortLabel: "ทดลอง",
     description: "ตัดสต็อกตามสูตรการใช้งาน",
     href: "/portal/recipes",
     icon: ChefHat,
@@ -220,8 +221,10 @@ function canAccessBudgetManagement(member: Store["currentMember"]) {
 function visibleNavItems(member: Store["currentMember"]) {
   return navItems.filter(
     (item) =>
+      (item.id !== "dashboard" || isDashboardPageEnabled) &&
       (item.id !== "members" || canAccessMemberManagement(member)) &&
-      (item.id !== "budgets" || canAccessBudgetManagement(member))
+      (item.id !== "budgets" ||
+        (isBudgetManagementPageEnabled && canAccessBudgetManagement(member)))
   )
 }
 
@@ -261,10 +264,6 @@ function formatMetricValue(metric: Store["reportCashFlowMetrics"][number]) {
 function metricHelper(metric: Store["reportCashFlowMetrics"][number]) {
   if (metric.id === "purchase-total") {
     return "รวมยอดซื้อจากฐานข้อมูล"
-  }
-
-  if (metric.id === "cooking-count") {
-    return "จำนวนครั้งที่ปรุงสำเร็จ"
   }
 
   return "จำนวนความเคลื่อนไหวสต็อก"
@@ -730,7 +729,7 @@ export function EasyReceiptLogin() {
 
   useEffect(() => {
     if (store.isAuthReady && store.currentMember) {
-      router.replace("/portal")
+      router.replace("/portal/purchase")
     }
   }, [router, store.currentMember, store.isAuthReady])
 
@@ -742,14 +741,14 @@ export function EasyReceiptLogin() {
     <LoginView
       store={store}
       onLoginSuccess={() => {
-        router.replace("/portal")
+        router.replace("/portal/purchase")
       }}
     />
   )
 }
 
 export function EasyReceiptApp() {
-  return <EasyReceiptPortalPage activeView="dashboard" />
+  return <EasyReceiptPortalPage activeView="purchase" />
 }
 
 export function EasyReceiptPortalPage({
@@ -772,12 +771,14 @@ export function EasyReceiptPortalPage({
     if (
       store.isAuthReady &&
       store.currentMember &&
-      ((activeView === "members" &&
+      ((activeView === "dashboard" && !isDashboardPageEnabled) ||
+        (activeView === "members" &&
         !canAccessMemberManagement(store.currentMember)) ||
         (activeView === "budgets" &&
-          !canAccessBudgetManagement(store.currentMember)))
+          (!isBudgetManagementPageEnabled ||
+            !canAccessBudgetManagement(store.currentMember))))
     ) {
-      router.replace("/portal")
+      router.replace("/portal/purchase")
     }
   }, [activeView, router, store.currentMember, store.isAuthReady])
 
@@ -791,7 +792,9 @@ export function EasyReceiptPortalPage({
   }
 
   const memberCanAccessMembers = canAccessMemberManagement(store.currentMember)
-  const memberCanAccessBudgets = canAccessBudgetManagement(store.currentMember)
+  const memberCanAccessBudgets =
+    isBudgetManagementPageEnabled &&
+    canAccessBudgetManagement(store.currentMember)
   const currentNavItems = visibleNavItems(store.currentMember)
   const activeItem =
     currentNavItems.find((item) => item.id === activeView) ?? currentNavItems[0]
@@ -864,24 +867,27 @@ export function EasyReceiptPortalPage({
           </header>
 
           <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
-            {(activeView === "members" && !memberCanAccessMembers) ||
+            {(activeView === "dashboard" && !isDashboardPageEnabled) ||
+            (activeView === "members" && !memberCanAccessMembers) ||
             (activeView === "budgets" && !memberCanAccessBudgets) ? (
-              <DashboardView store={store} />
+              <PurchaseView store={store} />
             ) : (
               children ?? (
-              <>
-                {activeView === "dashboard" && <DashboardView store={store} />}
-                {activeView === "purchase" && <PurchaseView store={store} />}
-                {activeView === "stock" && <StockView store={store} />}
-                {activeView === "recipes" && <RecipesView store={store} />}
-                {activeView === "reports" && <ReportsView store={store} />}
-                {activeView === "budgets" && memberCanAccessBudgets && (
-                  <BudgetsView store={store} />
-                )}
-                {activeView === "members" && memberCanAccessMembers && (
-                  <MembersView store={store} />
-                )}
-              </>
+                <>
+                  {activeView === "dashboard" && isDashboardPageEnabled && (
+                    <DashboardView store={store} />
+                  )}
+                  {activeView === "purchase" && <PurchaseView store={store} />}
+                  {activeView === "stock" && <StockView store={store} />}
+                  {activeView === "recipes" && <RecipesView store={store} />}
+                  {activeView === "reports" && <ReportsView store={store} />}
+                  {activeView === "budgets" && memberCanAccessBudgets && (
+                    <BudgetsView store={store} />
+                  )}
+                  {activeView === "members" && memberCanAccessMembers && (
+                    <MembersView store={store} />
+                  )}
+                </>
               )
             )}
           </main>
@@ -889,7 +895,6 @@ export function EasyReceiptPortalPage({
       </div>
 
       <MobileBottomNav activeView={activeView} currentMember={store.currentMember} />
-      <StockOutChatWidget store={store} />
     </div>
   )
 }
@@ -924,17 +929,17 @@ function LoginView({
   store: Store
   onLoginSuccess: () => void
 }) {
-  const [email, setEmail] = useState("owner@easyreceipt.local")
+  const [username, setUsername] = useState("owner")
   const [password, setPassword] = useState("123456")
   const [error, setError] = useState("")
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError("")
-    const ok = await store.login(email, password)
+    const ok = await store.login(username, password)
 
     if (!ok) {
-      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีไม่ได้เปิดใช้งาน")
+      setError("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง หรือบัญชีไม่ได้เปิดใช้งาน")
       return
     }
 
@@ -960,15 +965,15 @@ function LoginView({
 
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
-              <Label className="mb-2 block">อีเมล</Label>
+              <Label className="mb-2 block">ชื่อผู้ใช้</Label>
               <div className="relative">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <UserRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  type="email"
+                  type="text"
                   className="h-12 pl-9"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  autoComplete="email"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoComplete="username"
                 />
               </div>
             </div>
@@ -1012,9 +1017,9 @@ function LoginView({
               <LockKeyhole className="size-4" />
               บัญชีทดลอง
             </div>
-            <p>owner@easyreceipt.local / 123456</p>
-            <p>manager@easyreceipt.local / 123456</p>
-            <p>staff@easyreceipt.local / 123456</p>
+            <p>owner / 123456</p>
+            <p>manager / 123456</p>
+            <p>staff / 123456</p>
           </div>
         </section>
       </div>
@@ -1608,17 +1613,6 @@ function DesktopSidebar({
         </div>
       )}
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
-        <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-          <Star className="size-4 fill-amber-400 text-amber-500" />
-          ฟังก์ชันเสริม
-        </div>
-        <ul className="space-y-2 text-xs">
-          <li>Auto sum ยอดซื้อ</li>
-          <li>แจ้งเตือน Stock อัปเดต</li>
-          <li>รายงานต้นทุนและเงินสด</li>
-        </ul>
-      </div>
     </aside>
   )
 }
@@ -1958,7 +1952,7 @@ function DashboardView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-3">
         <MetricCard
           label="ยอดซื้อรวมล่าสุด"
           value={formatCurrency(store.currentPurchaseTotal)}
@@ -1979,13 +1973,6 @@ function DashboardView({ store }: { store: Store }) {
           helper="คงเหลือไม่พอต่อการจองใช้"
           icon={AlertTriangle}
           tone="border-red-200 bg-red-50 text-red-800"
-        />
-        <MetricCard
-          label="รายการที่ปรุงแล้ว"
-          value={`${store.dashboardSummary.cookingCount} รายการ`}
-          helper="นับจาก cooking runs ในฐานข้อมูล"
-          icon={ChefHat}
-          tone="border-teal-200 bg-teal-50 text-teal-800"
         />
       </section>
 
@@ -2075,7 +2062,7 @@ function PurchaseOrderSection({ store }: { store: Store }) {
             {isCombinedPurchaseOrder
               ? `รวมฉบับร่างและแจ้งเตือนสต็อกของ ${branchName}`
               : isDraftPurchaseOrder
-                ? `ฉบับร่างจากหน้าบันทึกการซื้อของ ${branchName}`
+                ? `ฉบับร่างจากหน้าบันทึกของมาเพิ่มของ ${branchName}`
                 : `สร้างจากรายการที่ควรซื้อเพิ่มของ ${branchName}`}
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-sm">
@@ -2199,6 +2186,9 @@ function PurchaseView({ store }: { store: Store }) {
   )
   const newItemIndexOffset = savedPurchaseRows.length + draftPurchaseRows.length
   const budgetStatus = store.purchaseBudgetStatus
+  const hasPurchasesToSubmit =
+    store.purchaseItems.some((item) => item.ingredientId && item.quantity > 0) ||
+    store.draftPurchasesForDate.length > 0
   const purchaseMessageIsError =
     Boolean(store.purchaseError) ||
     purchaseMessage.includes("ไม่สามารถ") ||
@@ -2206,6 +2196,12 @@ function PurchaseView({ store }: { store: Store }) {
 
   async function handleConfirmSubmitPurchase() {
     setPurchaseMessage("")
+
+    if (!hasPurchasesToSubmit) {
+      setPurchaseMessage("กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ")
+      return
+    }
+
     const result = await store.submitPurchase()
 
     if (!result.ok) {
@@ -2213,18 +2209,8 @@ function PurchaseView({ store }: { store: Store }) {
       return
     }
 
+    setIsPurchaseConfirmOpen(false)
     setPurchaseMessage("บันทึกใบซื้อเข้าฐานข้อมูลและอัปเดตคลังวัตถุดิบแล้ว")
-  }
-
-  function handleAutoSuggestedPurchase() {
-    setPurchaseMessage("")
-    const ok = store.addSuggestedPurchaseItems()
-
-    setPurchaseMessage(
-      ok
-        ? "เพิ่มรายการที่ควรซื้อเข้าร่างใบซื้อแล้ว"
-        : "ยังไม่มีรายการที่ควรซื้อเพิ่ม"
-    )
   }
 
   async function handleSavePurchaseDraft() {
@@ -2396,18 +2382,7 @@ function PurchaseView({ store }: { store: Store }) {
         <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button
-              variant="outline"
-              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
-              onClick={handleAutoSuggestedPurchase}
-              disabled={store.lowStockItems.length === 0}
-              title="เติมรายการจากวัตถุดิบที่ควรซื้อ"
-            >
-              <Sparkles className="size-4" />
-              <span className="truncate text-sm">เติมอัตโนมัติ</span>
-              Auto รายการควรซื้อ
-            </Button>
-            <Button
-              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
+              className="col-span-2 h-12 min-w-0 justify-center px-3 text-[0px] sm:col-span-1 sm:h-11"
               onClick={store.addPurchaseItem}
               title="เพิ่มแถวรายการวัตถุดิบ"
             >
@@ -2433,7 +2408,11 @@ function PurchaseView({ store }: { store: Store }) {
             <Button
               className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
               onClick={() => setIsPurchaseConfirmOpen(true)}
-              disabled={store.isPurchaseSaving || budgetStatus.isOverBudget}
+              disabled={
+                store.isPurchaseSaving ||
+                budgetStatus.isOverBudget ||
+                !hasPurchasesToSubmit
+              }
               title="บันทึกใบซื้อและอัปเดตคลัง"
             >
               {store.isPurchaseSaving ? (
@@ -2574,7 +2553,11 @@ function PurchaseView({ store }: { store: Store }) {
             <Button
               type="button"
               className="h-11 w-full"
-              disabled={store.isPurchaseSaving || budgetStatus.isOverBudget}
+              disabled={
+                store.isPurchaseSaving ||
+                budgetStatus.isOverBudget ||
+                !hasPurchasesToSubmit
+              }
               onClick={handleConfirmSubmitPurchase}
             >
               {store.isPurchaseSaving ? (
@@ -2588,25 +2571,6 @@ function PurchaseView({ store }: { store: Store }) {
         </DialogContent>
       </Dialog>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        {store.inventoryRows
-          .filter((item) => item.incoming > 0)
-          .map((item) => (
-            <div
-              key={item.ingredientId}
-              className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"
-            >
-              <p className="font-semibold">{item.ingredient.name}</p>
-              <p className="text-sm text-emerald-800">
-                รับเข้า +{formatNumber(item.incoming)} {item.ingredient.unit}
-              </p>
-              <p className="mt-2 text-sm">
-                คงเหลือในคลังตอนนี้ {formatNumber(item.projected)}{" "}
-                {item.ingredient.unit}
-              </p>
-            </div>
-          ))}
-      </section>
     </div>
   )
 }
@@ -2635,7 +2599,7 @@ function SavedPurchaseTableRow({
       <TableCell>
         <div className="font-medium">{ingredient?.name ?? "วัตถุดิบ"}</div>
         <div className="text-xs text-muted-foreground">
-          {purchase.vendor || "ไม่ระบุผู้ขาย"}
+          {ingredient?.supplier || "ไม่ระบุซัพพลายเออร์"}
         </div>
       </TableCell>
       <TableCell>{formatNumber(item.quantity)}</TableCell>
@@ -2679,7 +2643,7 @@ function DraftPurchaseTableRow({
       <TableCell>
         <div className="font-medium">{ingredient?.name ?? "วัตถุดิบ"}</div>
         <div className="text-xs text-muted-foreground">
-          {purchase.vendor || "ฉบับร่างจาก EasyReceipt"}
+          {ingredient?.supplier || "ไม่ระบุซัพพลายเออร์"}
         </div>
       </TableCell>
       <TableCell>{formatNumber(item.quantity)}</TableCell>
@@ -2737,7 +2701,7 @@ function PurchaseTableRow({
           type="number"
           min="0"
           step="0.01"
-          value={item.quantity}
+          value={item.quantity === 0 ? "" : item.quantity}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
               quantity: toNumber(event.target.value),
@@ -2760,7 +2724,7 @@ function PurchaseTableRow({
           type="number"
           min="0"
           step="0.01"
-          value={item.unitPrice}
+          value={item.unitPrice === 0 ? "" : item.unitPrice}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, {
               unitPrice: toNumber(event.target.value),
@@ -2770,7 +2734,7 @@ function PurchaseTableRow({
         />
       </TableCell>
       <TableCell className="text-right font-semibold">
-        {formatCurrency(lineTotal(item))}
+        {lineTotal(item) > 0 ? formatCurrency(lineTotal(item)) : "-"}
       </TableCell>
       <TableCell>
         <Button
@@ -2791,7 +2755,7 @@ function IngredientSelect({
   item,
   store,
   className,
-  hideMobileLabel = false,
+  hideMobileLabel = true,
 }: {
   item: PurchaseItem
   store: Store
@@ -3022,11 +2986,13 @@ function FieldNumber({
   value,
   onChange,
   disabled = false,
+  blankWhenZero = false,
 }: {
   label: string
   value: number
   onChange: (value: number) => void
   disabled?: boolean
+  blankWhenZero?: boolean
 }) {
   return (
     <div>
@@ -3035,7 +3001,7 @@ function FieldNumber({
         type="number"
         min="0"
         step="0.01"
-        value={value}
+        value={blankWhenZero && value === 0 ? "" : value}
         onChange={(event) => onChange(toNumber(event.target.value))}
         disabled={disabled}
         className="h-11"
@@ -3742,13 +3708,13 @@ function StockEditForm({
   )
 }
 
-function createRecipeDraft(ingredientId: string): RecipeFormInput {
+function createRecipeDraft(): RecipeFormInput {
   return {
     name: "",
-    menuCategory: "อาหารจานเดียว",
-    yield: 1,
+    menuCategory: "",
+    yield: 0,
     pricePerServing: 0,
-    ingredients: ingredientId ? [{ ingredientId, quantity: 1 }] : [],
+    ingredients: [],
   }
 }
 
@@ -3886,18 +3852,8 @@ function RecipesView({ store }: { store: Store }) {
     const result = await store.unpinRecipe(recipeId)
     setCookMessage(
       result.ok
-        ? "ถอนปักหมุดเมนูออกจากหน้าสูตรอาหารแล้ว"
+        ? "ถอนปักหมุดเมนูออกจากหน้าทดลองสูตรอาหารแล้ว"
         : (result.error ?? "ไม่สามารถถอนปักหมุดสูตรอาหารได้")
-    )
-  }
-
-  async function handleCookRecipe(recipeId: string) {
-    const result = await store.cookRecipe(recipeId)
-
-    setCookMessage(
-      result.ok
-        ? "ปรุงรายการอาหารแล้ว ระบบตัดสต็อกและปลดจองวัตถุดิบเรียบร้อย"
-        : (result.error ?? "ยังปรุงไม่ได้ กรุณาตรวจสอบวัตถุดิบคงเหลือก่อน")
     )
   }
 
@@ -3970,7 +3926,6 @@ function RecipesView({ store }: { store: Store }) {
             recipe={recipe}
             store={store}
             onUnpin={handleUnpinRecipe}
-            onCook={handleCookRecipe}
             isSaving={store.isRecipeSaving}
           />
         ))}
@@ -4023,7 +3978,7 @@ function RecipePinSelection({
             </h2>
           </div>
           <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
-            เลือกสูตรจากคลังสูตรเพื่อเพิ่มเป็นเมนูที่ใช้งานในหน้าสูตรอาหาร
+            เลือกสูตรจากคลังสูตรเพื่อเพิ่มเป็นเมนูที่ใช้งานในหน้าทดลองสูตรอาหาร
           </p>
         </div>
         <Badge variant="outline" className="h-6 w-fit text-xs sm:h-7">
@@ -4158,7 +4113,6 @@ function RecipeFormView({
 }) {
   const store = useEasyReceipt()
   const router = useRouter()
-  const defaultIngredientId = store.ingredients[0]?.id ?? ""
   const editingRecipe =
     mode === "edit"
       ? store.recipeImpacts.find((recipe: { id: string | undefined }) => recipe.id === recipeId)
@@ -4166,7 +4120,7 @@ function RecipeFormView({
   const [recipeDraft, setRecipeDraft] = useState<RecipeFormInput>(() =>
     editingRecipe
       ? draftFromRecipe(editingRecipe)
-      : createRecipeDraft(defaultIngredientId)
+      : createRecipeDraft()
   )
   const [loadedRecipeId, setLoadedRecipeId] = useState(editingRecipe?.id ?? "")
   const [message, setMessage] = useState("")
@@ -4197,24 +4151,13 @@ function RecipeFormView({
   }
 
   function addRecipeIngredientLine() {
-    const usedIngredientIds = new Set(
-      recipeDraft.ingredients.map((item) => item.ingredientId)
-    )
-    const ingredient =
-      store.ingredients.find((item: { id: string }) => !usedIngredientIds.has(item.id)) ??
-      store.ingredients[0]
-
-    if (!ingredient) {
-      return
-    }
-
     setRecipeDraft((current) => ({
       ...current,
       ingredients: [
         ...current.ingredients,
         {
-          ingredientId: ingredient.id,
-          quantity: 1,
+          ingredientId: "",
+          quantity: 0,
         },
       ],
     }))
@@ -4223,10 +4166,7 @@ function RecipeFormView({
   function removeRecipeIngredientLine(index: number) {
     setRecipeDraft((current) => ({
       ...current,
-      ingredients:
-        current.ingredients.length === 1
-          ? current.ingredients
-          : current.ingredients.filter((_, itemIndex) => itemIndex !== index),
+      ingredients: current.ingredients.filter((_, itemIndex) => itemIndex !== index),
     }))
   }
 
@@ -4304,7 +4244,7 @@ function RecipeFormView({
               })}
             >
               <ArrowLeft className="size-4" />
-              กลับหน้าสูตรอาหาร
+              กลับหน้าทดลองสูตรอาหาร
             </Link>
           </CardContent>
         </Card>
@@ -4322,7 +4262,7 @@ function RecipeFormView({
         })}
       >
         <ArrowLeft className="size-4" />
-        กลับหน้าสูตรอาหาร
+        กลับหน้าทดลองสูตรอาหาร
       </Link>
 
       {mode === "new" && (
@@ -4383,6 +4323,7 @@ function RecipeFormView({
               <FieldNumber
                 label="จำนวนเสิร์ฟ"
                 value={recipeDraft.yield}
+                blankWhenZero
                 onChange={(value) =>
                   setRecipeDraft((current) => ({
                     ...current,
@@ -4393,6 +4334,7 @@ function RecipeFormView({
               <FieldNumber
                 label="ราคาต่อเสิร์ฟ"
                 value={recipeDraft.pricePerServing}
+                blankWhenZero
                 onChange={(value) =>
                   setRecipeDraft((current) => ({
                     ...current,
@@ -4416,6 +4358,12 @@ function RecipeFormView({
                 </Button>
               </div>
 
+              {recipeDraft.ingredients.length === 0 && (
+                <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+                  กดเพิ่มวัตถุดิบเพื่อเริ่มกรอกรายการในสูตร
+                </div>
+              )}
+
               {recipeDraft.ingredients.map((item, index) => {
                 const ingredient = store.ingredientById.get(item.ingredientId)
 
@@ -4434,7 +4382,6 @@ function RecipeFormView({
                         size="icon-lg"
                         className="size-10 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                         onClick={() => removeRecipeIngredientLine(index)}
-                        disabled={recipeDraft.ingredients.length === 1}
                       >
                         <Trash2 className="size-4" />
                         <span className="sr-only">ลบวัตถุดิบ</span>
@@ -4462,7 +4409,7 @@ function RecipeFormView({
                         min="0"
                         step="0.01"
                         className="h-11"
-                        value={item.quantity}
+                        value={item.quantity === 0 ? "" : item.quantity}
                         onChange={(event) =>
                           handleRecipeIngredientChange(index, {
                             quantity: toNumber(event.target.value),
@@ -4476,7 +4423,6 @@ function RecipeFormView({
                       size="icon-lg"
                       className="hidden h-11 w-11 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 md:inline-flex"
                       onClick={() => removeRecipeIngredientLine(index)}
-                      disabled={recipeDraft.ingredients.length === 1}
                     >
                       <Trash2 className="size-4" />
                       <span className="sr-only">ลบวัตถุดิบ</span>
@@ -4527,13 +4473,11 @@ function RecipeCard({
   recipe,
   store,
   onUnpin,
-  onCook,
   isSaving,
 }: {
   recipe: RecipeImpact
   store: Store
   onUnpin: (recipeId: string) => void
-  onCook: (recipeId: string) => void
   isSaving: boolean
 }) {
   const recipeStatusLabel = recipe.isCooked
@@ -4625,19 +4569,6 @@ function RecipeCard({
           <div className="rounded-lg border border-sky-200 bg-sky-50 p-2.5 text-sm text-sky-800">
             ปรุงแล้วและตัดสต็อกวัตถุดิบเรียบร้อย
           </div>
-        ) : recipe.canProduce ? (
-          <Button
-            className="h-11 w-full"
-            onClick={() => onCook(recipe.id)}
-            disabled={isSaving}
-          >
-            {isSaving ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <ChefHat className="size-4" />
-            )}
-            ปรุงรายการอาหาร
-          </Button>
         ) : null}
       </CardContent>
     </Card>
@@ -5384,7 +5315,7 @@ function MembersView({ store }: { store: Store }) {
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{member.name}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {member.email}
+                          @{member.username}
                         </p>
                       </div>
                     </div>
@@ -5445,7 +5376,7 @@ function MemberFormView() {
   const store = useEasyReceipt()
   const router = useRouter()
   const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [role, setRole] = useState<MemberRole>("staff")
   const [branchIds, setBranchIds] = useState<string[]>(() =>
@@ -5469,7 +5400,7 @@ function MemberFormView() {
         : branchIds
     const ok = await store.addMember({
       name,
-      email,
+      username,
       password,
       role,
       branchIds: nextBranchIds,
@@ -5478,13 +5409,13 @@ function MemberFormView() {
     if (!ok) {
       setMessage(
         store.memberError ||
-          "กรุณากรอกชื่อ อีเมล รหัสผ่านอย่างน้อย 6 ตัวอักษร เลือกสาขา และใช้อีเมลที่ยังไม่ซ้ำ"
+          "กรุณากรอกชื่อ ชื่อผู้ใช้ รหัสผ่านอย่างน้อย 6 ตัวอักษร เลือกสาขา และใช้ชื่อผู้ใช้ที่ยังไม่ซ้ำ"
       )
       return
     }
 
     setName("")
-    setEmail("")
+    setUsername("")
     setPassword("")
     setRole("staff")
     setBranchIds(
@@ -5534,13 +5465,13 @@ function MemberFormView() {
                 />
               </div>
               <div>
-                <Label className="mb-2 block">อีเมล</Label>
+                <Label className="mb-2 block">ชื่อผู้ใช้</Label>
                 <Input
-                  type="email"
                   className="h-11"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="name@easyreceipt.local"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="เช่น staff9"
+                  autoComplete="username"
                 />
               </div>
               <div>
@@ -5654,7 +5585,7 @@ function MemberMobileCard({
               </Badge>
             </div>
             <p className="mt-1 break-all text-sm leading-snug text-muted-foreground">
-              {member.email}
+              @{member.username}
             </p>
           </div>
         </div>
@@ -5746,14 +5677,14 @@ function MemberEditDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(member.name)
-  const [email, setEmail] = useState(member.email)
+  const [username, setUsername] = useState(member.username)
   const [password, setPassword] = useState("")
   const [resetPassword, setResetPassword] = useState(false)
   const [message, setMessage] = useState("")
 
   function openEditor() {
     setName(member.name)
-    setEmail(member.email)
+    setUsername(member.username)
     setPassword("")
     setResetPassword(false)
     setMessage("")
@@ -5770,14 +5701,14 @@ function MemberEditDialog({
 
     const ok = await store.updateMemberProfile(member.id, {
       name,
-      email,
+      username,
       password: resetPassword ? password.trim() : undefined,
     })
 
     if (!ok) {
       setMessage(
         store.memberError ||
-          "กรุณากรอกชื่อ อีเมล และรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
+          "กรุณากรอกชื่อ ชื่อผู้ใช้ และรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
       )
       return
     }
@@ -5809,7 +5740,7 @@ function MemberEditDialog({
         <DialogHeader>
           <DialogTitle>แก้ไขข้อมูลสมาชิก</DialogTitle>
           <DialogDescription>
-            ปรับชื่อ อีเมล หรือกรอกรหัสผ่านใหม่เพื่อ reset รหัสผ่าน
+            ปรับชื่อ ชื่อผู้ใช้ หรือกรอกรหัสผ่านใหม่เพื่อ reset รหัสผ่าน
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4 px-4 pb-4" onSubmit={handleSubmit}>
@@ -5822,12 +5753,12 @@ function MemberEditDialog({
             />
           </div>
           <div>
-            <Label className="mb-2 block">อีเมล</Label>
+            <Label className="mb-2 block">ชื่อผู้ใช้</Label>
             <Input
-              type="email"
               className="h-11"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
             />
           </div>
           <div className="rounded-lg border border-border p-3">
@@ -6018,9 +5949,11 @@ function ReportsView({ store }: { store: Store }) {
               <TabsTrigger value="purchase" className="h-8 px-3 sm:h-9">
                 ยอดซื้อ
               </TabsTrigger>
-              <TabsTrigger value="cashflow" className="h-8 px-3 sm:h-9">
-                เงินสด
-              </TabsTrigger>
+              {isCashFlowReportTabEnabled && (
+                <TabsTrigger value="cashflow" className="h-8 px-3 sm:h-9">
+                  เงินสด
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -6030,9 +5963,11 @@ function ReportsView({ store }: { store: Store }) {
               label="ยอดซื้อรายวัน"
             />
           </TabsContent>
-          <TabsContent value="cashflow">
-            <CashFlowList metrics={store.reportCashFlowMetrics} />
-          </TabsContent>
+          {isCashFlowReportTabEnabled && (
+            <TabsContent value="cashflow">
+              <CashFlowList metrics={store.reportCashFlowMetrics} />
+            </TabsContent>
+          )}
         </Tabs>
       </section>
     </div>

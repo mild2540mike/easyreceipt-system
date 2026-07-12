@@ -103,7 +103,7 @@ export function serializeMember(member: Member) {
     organizationId: member.organizationId,
     primaryBranchId: member.primaryBranchId,
     name: member.name,
-    email: member.email,
+    username: member.username,
     role: member.role,
     status: member.status,
     lastActiveAt: member.lastActiveAt,

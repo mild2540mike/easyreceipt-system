@@ -71,7 +71,7 @@ const members = [
   {
     id: "member-owner",
     name: "Owner",
-    email: "owner@easyreceipt.local",
+    username: "owner",
     role: "owner",
     status: "active",
     primaryBranchId: "branch-wat-sakaeo",
@@ -80,7 +80,7 @@ const members = [
   {
     id: "member-manager",
     name: "Manager",
-    email: "manager@easyreceipt.local",
+    username: "manager",
     role: "manager",
     status: "active",
     primaryBranchId: "branch-wat-sakaeo",
@@ -89,7 +89,7 @@ const members = [
   {
     id: "member-staff",
     name: "Staff",
-    email: "staff@easyreceipt.local",
+    username: "staff",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-wat-sakaeo",
@@ -98,7 +98,7 @@ const members = [
   {
     id: "member-staff-1",
     name: "Staff1",
-    email: "staff1@easyreceipt.local",
+    username: "staff1",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-wat-sakaeo",
@@ -107,7 +107,7 @@ const members = [
   {
     id: "member-staff-2",
     name: "Staff2",
-    email: "staff2@easyreceipt.local",
+    username: "staff2",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-keha",
@@ -116,7 +116,7 @@ const members = [
   {
     id: "member-staff-3",
     name: "Staff3",
-    email: "staff3@easyreceipt.local",
+    username: "staff3",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-ban-khok-sung",
@@ -125,7 +125,7 @@ const members = [
   {
     id: "member-staff-4",
     name: "Staff4",
-    email: "staff4@easyreceipt.local",
+    username: "staff4",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-chokchai",
@@ -134,7 +134,7 @@ const members = [
   {
     id: "member-staff-5",
     name: "Staff5",
-    email: "staff5@easyreceipt.local",
+    username: "staff5",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-chakkarat",
@@ -143,7 +143,7 @@ const members = [
   {
     id: "member-staff-6",
     name: "Staff6",
-    email: "staff6@easyreceipt.local",
+    username: "staff6",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-kham-thale-so",
@@ -152,7 +152,7 @@ const members = [
   {
     id: "member-staff-7",
     name: "Staff7",
-    email: "staff7@easyreceipt.local",
+    username: "staff7",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-huai-thalaeng",
@@ -161,7 +161,7 @@ const members = [
   {
     id: "member-staff-8",
     name: "Staff8",
-    email: "staff8@easyreceipt.local",
+    username: "staff8",
     role: "staff",
     status: "active",
     primaryBranchId: "branch-school-total",
@@ -886,8 +886,6 @@ async function clearDatabase(tx) {
 }
 
 async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
-  const reservationTotals = new Map()
-
   for (const item of stockSeedItems) {
     await tx.branchInventory.create({
       data: {
@@ -902,7 +900,7 @@ async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
   }
 
   for (const template of templates) {
-    const recipe = await tx.recipe.create({
+    await tx.recipe.create({
       data: {
         id: `${branch.id}-recipe-${template.slug}`,
         branchId: branch.id,
@@ -916,54 +914,6 @@ async function seedBranchWorkspace(tx, branch, branchIndex, templates) {
             quantity: item.quantity,
           })),
         },
-      },
-      include: {
-        items: true,
-      },
-    })
-
-    const plan = await tx.recipePlan.create({
-      data: {
-        id: `${recipe.id}-plan`,
-        branchId: branch.id,
-        recipeId: recipe.id,
-        plannedByMemberId: "member-owner",
-        status: "pinned",
-        batchCount: 1,
-      },
-    })
-
-    for (const recipeItem of recipe.items) {
-      await tx.stockReservation.create({
-        data: {
-          branchId: branch.id,
-          recipePlanId: plan.id,
-          ingredientId: recipeItem.ingredientId,
-          quantity: recipeItem.quantity,
-          status: "active",
-        },
-      })
-
-      reservationTotals.set(
-        recipeItem.ingredientId,
-        round(
-          (reservationTotals.get(recipeItem.ingredientId) ?? 0) +
-            Number(recipeItem.quantity)
-        )
-      )
-    }
-  }
-
-  for (const [ingredientId, reservedQuantity] of reservationTotals.entries()) {
-    await tx.branchInventory.update({
-      where: {
-        branchId_ingredientId: {
-          branchId: branch.id,
-          ingredientId,
-        },
-      },
-      data: {
-        reservedQuantity,
       },
     })
   }
@@ -1004,7 +954,7 @@ async function main() {
             organizationId: organization.id,
             primaryBranchId: member.primaryBranchId,
             name: member.name,
-            email: member.email,
+            username: member.username,
             passwordHash: "prototype:123456",
             role: member.role,
             status: member.status,

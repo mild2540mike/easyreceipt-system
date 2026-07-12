@@ -89,9 +89,12 @@ purchasesRouter.get(
           include: {
             ingredient: true,
           },
+          orderBy: {
+            createdAt: "asc",
+          },
         },
       },
-      orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ purchaseDate: "asc" }, { createdAt: "asc" }],
       take: 50,
     })
 

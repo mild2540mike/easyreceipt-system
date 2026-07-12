@@ -109,7 +109,7 @@ export const openApiDocument = {
           organizationId: { type: "string" },
           primaryBranchId: { type: ["string", "null"], example: "branch-hq" },
           name: { type: "string", example: "คุณยานาร์" },
-          email: { type: "string", format: "email", example: "owner@easyreceipt.local" },
+          username: { type: "string", example: "owner" },
           role: {
             type: "string",
             enum: ["owner", "manager", "staff", "viewer"],
@@ -215,10 +215,10 @@ export const openApiDocument = {
       },
       MemberInput: {
         type: "object",
-        required: ["name", "email", "password", "role", "branchIds"],
+        required: ["name", "username", "password", "role", "branchIds"],
         properties: {
           name: { type: "string", example: "พนักงานใหม่" },
-          email: { type: "string", format: "email", example: "staff2@easyreceipt.local" },
+          username: { type: "string", example: "staff2" },
           password: { type: "string", minLength: 6, example: "123456" },
           role: {
             type: "string",
@@ -320,12 +320,11 @@ export const openApiDocument = {
             "application/json": {
               schema: {
                 type: "object",
-                required: ["email", "password"],
+                required: ["username", "password"],
                 properties: {
-                  email: {
+                  username: {
                     type: "string",
-                    format: "email",
-                    example: "owner@easyreceipt.local",
+                    example: "owner",
                   },
                   password: { type: "string", example: "123456" },
                 },

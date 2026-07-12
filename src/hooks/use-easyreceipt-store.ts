@@ -92,7 +92,7 @@ export type BranchPurchaseSeriesItem = {
 
 export type MemberFormInput = {
   name: string
-  email: string
+  username: string
   password: string
   role: MemberRole
   branchIds: string[]
@@ -100,7 +100,7 @@ export type MemberFormInput = {
 
 export type MemberProfileInput = {
   name: string
-  email: string
+  username: string
   password?: string
 }
 
@@ -110,6 +110,7 @@ export type NewIngredientFromPurchaseInput = {
   name: string
   unit: string
   unitPrice: number
+  supplier?: string
 }
 
 export type InventoryEditInput = {
@@ -444,13 +445,6 @@ function buildReportMetrics(
       value: report.purchaseTotal,
       delta: 0,
       kind: "expense",
-    },
-    {
-      id: "cooking-count",
-      label: "รายการปรุงสำเร็จ",
-      value: report.cookingCount,
-      delta: 0,
-      kind: "income",
     },
     {
       id: "stock-movement-count",
@@ -1629,10 +1623,10 @@ export function useEasyReceiptStore() {
     }))
   }
 
-  async function login(email: string, password: string) {
+  async function login(username: string, password: string) {
     const session = await loginMutation
       .mutateAsync({
-        email: email.trim().toLowerCase(),
+        username: username.trim().toLowerCase(),
         password,
       })
       .catch(() => null)
@@ -1687,18 +1681,12 @@ export function useEasyReceiptStore() {
 
   function addPurchaseItem() {
     updateActiveWorkspace((workspace) => {
-      const ingredient = workspace.ingredients[0]
-
-      if (!ingredient) {
-        return workspace
-      }
-
       const nextItem = {
         id: `${workspace.branchId}-draft-${Date.now()}`,
-        ingredientId: ingredient.id,
-        quantity: 1,
-        unit: ingredient.unit,
-        unitPrice: ingredient.defaultPrice,
+        ingredientId: "",
+        quantity: 0,
+        unit: "",
+        unitPrice: 0,
       }
 
       return {
@@ -1714,43 +1702,24 @@ export function useEasyReceiptStore() {
     }
 
     updateActiveWorkspace((workspace) => {
-      const purchaseItems = [...workspace.purchaseItems]
-      const firstItemIndexByIngredientId = new Map<string, number>()
-
-      purchaseItems.forEach((item, index) => {
-        if (!firstItemIndexByIngredientId.has(item.ingredientId)) {
-          firstItemIndexByIngredientId.set(item.ingredientId, index)
-        }
-      })
-
-      lowStockItems.forEach((row, index) => {
-        const existingIndex = firstItemIndexByIngredientId.get(row.ingredientId)
-
-        if (existingIndex === undefined) {
-          purchaseItems.push({
-            id: `${workspace.branchId}-suggested-${Date.now()}-${index}`,
-            ingredientId: row.ingredientId,
-            quantity: roundQuantity(row.suggestedPurchaseQuantity),
-            unit: row.ingredient.unit,
-            unitPrice: row.ingredient.defaultPrice,
-          })
-          return
-        }
-
-        const currentItem = purchaseItems[existingIndex]
-        purchaseItems[existingIndex] = {
-          ...currentItem,
-          quantity: roundQuantity(
-            Math.max(currentItem.quantity, row.suggestedPurchaseQuantity)
-          ),
-          unit: currentItem.unit || row.ingredient.unit,
-          unitPrice: currentItem.unitPrice || row.ingredient.defaultPrice,
-        }
-      })
+      const existingIngredientIds = new Set(
+        workspace.purchaseItems
+          .map((item) => item.ingredientId)
+          .filter(Boolean)
+      )
+      const suggestedItems = lowStockItems
+        .filter((row) => !existingIngredientIds.has(row.ingredientId))
+        .map((row, index) => ({
+          id: `${workspace.branchId}-suggested-${Date.now()}-${index}`,
+          ingredientId: row.ingredientId,
+          quantity: roundQuantity(row.suggestedPurchaseQuantity),
+          unit: row.ingredient.unit,
+          unitPrice: row.ingredient.defaultPrice,
+        }))
 
       return {
         ...workspace,
-        purchaseItems,
+        purchaseItems: [...workspace.purchaseItems, ...suggestedItems],
       }
     })
 
@@ -1987,6 +1956,7 @@ export function useEasyReceiptStore() {
     const name = input.name.trim()
     const unit = input.unit.trim() || "กก."
     const unitPrice = Math.max(input.unitPrice, 0)
+    const supplier = input.supplier?.trim() || "ยังไม่ระบุ"
 
     if (!name || !activeBranchId) {
       return null
@@ -2005,7 +1975,7 @@ export function useEasyReceiptStore() {
     try {
       const row = await createIngredientMutation.mutateAsync({
         branchId: activeBranchId,
-        input: { name, unit, unitPrice },
+        input: { name, unit, unitPrice, supplier },
       })
 
       return row.ingredient
@@ -2353,12 +2323,12 @@ export function useEasyReceiptStore() {
   }
 
   async function addMember(input: MemberFormInput): Promise<boolean> {
-    const trimmedEmail = input.email.trim().toLowerCase()
+    const trimmedUsername = input.username.trim().toLowerCase()
     const branchIds = sanitizeBranchIds(input.branchIds, input.role)
 
     if (
       !input.name.trim() ||
-      !trimmedEmail ||
+      !trimmedUsername ||
       input.password.trim().length < 6 ||
       branchIds.length === 0
     ) {
@@ -2368,7 +2338,7 @@ export function useEasyReceiptStore() {
     try {
       await addMemberMutation.mutateAsync({
         name: input.name.trim(),
-        email: trimmedEmail,
+        username: trimmedUsername,
         password: input.password.trim(),
         role: input.role,
         branchIds,
@@ -2439,10 +2409,14 @@ export function useEasyReceiptStore() {
     input: MemberProfileInput
   ): Promise<boolean> {
     const nextName = input.name.trim()
-    const nextEmail = input.email.trim().toLowerCase()
+    const nextUsername = input.username.trim().toLowerCase()
     const nextPassword = input.password?.trim() ?? ""
 
-    if (!nextName || !nextEmail || (nextPassword && nextPassword.length < 6)) {
+    if (
+      !nextName ||
+      !nextUsername ||
+      (nextPassword && nextPassword.length < 6)
+    ) {
       return false
     }
 
@@ -2452,7 +2426,7 @@ export function useEasyReceiptStore() {
           ? {
               ...member,
               name: nextName,
-              email: nextEmail,
+              username: nextUsername,
             }
           : member
       )
@@ -2462,7 +2436,7 @@ export function useEasyReceiptStore() {
         ? {
             ...member,
             name: nextName,
-            email: nextEmail,
+            username: nextUsername,
           }
         : member
     )
@@ -2472,7 +2446,7 @@ export function useEasyReceiptStore() {
         memberId,
         input: {
           name: nextName,
-          email: nextEmail,
+          username: nextUsername,
           ...(nextPassword ? { password: nextPassword } : {}),
         },
       })

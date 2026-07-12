@@ -54,7 +54,7 @@ model Member {
   organizationId  String    @db.NVarChar(64)
   primaryBranchId String?   @db.NVarChar(64)
   name            String    @db.NVarChar(160)
-  email           String    @db.NVarChar(180)
+  username        String    @db.NVarChar(80)
   passwordHash    String    @db.NVarChar(255)
   role            String    @db.NVarChar(24)
   status          String    @db.NVarChar(24)
@@ -72,7 +72,7 @@ model Member {
   stockMovements StockMovement[]      @relation("StockMovementCreatedBy")
   auditLogs      AuditLog[]           @relation("AuditLogActor")
 
-  @@unique([organizationId, email])
+  @@unique([organizationId, username])
   @@index([organizationId, role, status])
   @@index([primaryBranchId])
   @@map("members")
