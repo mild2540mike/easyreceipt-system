@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -894,7 +895,7 @@ export function EasyReceiptPortalPage({
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur">
+          <header className="sticky top-0 z-50 isolate border-b border-border/70 bg-background">
             <div className="flex min-h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
               <div
                 className={cn(
@@ -950,7 +951,7 @@ export function EasyReceiptPortalPage({
             </div>
           </header>
 
-          <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
+          <main className="relative z-0 isolate flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
             {!activeViewIsAllowed ? (
               <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
                 กำลังนำทางไปยังเมนูที่บัญชีนี้มีสิทธิ์ใช้งาน
@@ -1013,9 +1014,11 @@ function FreezableTable({
   className,
   onClick,
   onKeyDown,
+  style,
   ...props
 }: Parameters<typeof Table>[0]) {
   const [frozenColumn, setFrozenColumn] = useState<number | null>(null)
+  const [frozenColumnLeft, setFrozenColumnLeft] = useState(0)
 
   function toggleFrozenColumn(target: EventTarget | null) {
     if (!(target instanceof Element)) {
@@ -1035,14 +1038,24 @@ function FreezableTable({
     }
 
     const nextColumn = header.cellIndex + 1
-    setFrozenColumn((current) => (current === nextColumn ? null : nextColumn))
+    setFrozenColumn((current) => {
+      const nextFrozenColumn = current === nextColumn ? null : nextColumn
+      setFrozenColumnLeft(nextFrozenColumn ? header.offsetLeft : 0)
+      return nextFrozenColumn
+    })
   }
+
+  const tableStyle = {
+    ...style,
+    "--frozen-column-left": `${frozenColumnLeft}px`,
+  } as CSSProperties & Record<"--frozen-column-left", string>
 
   return (
     <Table
       {...props}
       data-frozen-column={frozenColumn ?? undefined}
       className={cn("freezable-table", className)}
+      style={tableStyle}
       onClick={(event: ReactMouseEvent<HTMLTableElement>) => {
         onClick?.(event)
 
@@ -3686,11 +3699,9 @@ function UsageReasonCombobox({
     const viewportPadding = 8
     const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
     const availableBelow = window.innerHeight - rect.bottom - viewportPadding
-    const availableAbove = rect.top - viewportPadding
-    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
     const maxHeight = Math.max(
-      160,
-      Math.min(280, shouldOpenAbove ? availableAbove : availableBelow)
+      120,
+      Math.min(280, availableBelow)
     )
 
     setDropdownPosition({
@@ -3698,7 +3709,7 @@ function UsageReasonCombobox({
         Math.max(viewportPadding, rect.left),
         window.innerWidth - dropdownWidth - viewportPadding
       ),
-      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
+      top: rect.bottom + 4,
       width: dropdownWidth,
       maxHeight,
     })

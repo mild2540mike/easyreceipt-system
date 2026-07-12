@@ -130,10 +130,12 @@
   }
 
   @media (max-width: 767px) {
-    input[data-slot="input"],
+    input,
     select,
-    textarea {
-      font-size: 16px;
+    textarea,
+    [data-slot="input"],
+    [data-slot="select-trigger"] {
+      font-size: 16px !important;
     }
   }
 }
@@ -162,8 +164,8 @@
   .freezable-table[data-frozen-column="9"] tr > :nth-child(9),
   .freezable-table[data-frozen-column="10"] tr > :nth-child(10) {
     position: sticky;
-    left: 0;
-    z-index: 20;
+    left: var(--frozen-column-left, 0);
+    z-index: 2;
     background: var(--background);
     box-shadow:
       1px 0 0 var(--border),
@@ -181,7 +183,7 @@
   .freezable-table[data-frozen-column="8"] thead tr > :nth-child(8),
   .freezable-table[data-frozen-column="9"] thead tr > :nth-child(9),
   .freezable-table[data-frozen-column="10"] thead tr > :nth-child(10) {
-    z-index: 30;
+    z-index: 3;
     color: var(--primary);
     background: color-mix(in oklch, var(--primary) 8%, var(--background));
   }
