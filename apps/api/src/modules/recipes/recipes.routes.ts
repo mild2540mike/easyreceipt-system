@@ -7,10 +7,14 @@ import { z } from "zod"
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
-import { badRequest, notFound } from "../../utils/http-error"
+import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
-import { assertBranchAccess } from "../common/permissions"
+import {
+  assertBranchAccess,
+  memberCanEditMenu,
+  memberCanViewMenu,
+} from "../common/permissions"
 
 const recipeItemSchema = z.object({
   ingredientId: z.string().min(1),
@@ -200,7 +204,12 @@ recipesRouter.get(
     const branchId = routeParam(req.params.branchId, "branchId")
     const today = bangkokDayRange()
 
-    await assertBranchAccess(prisma, member.id, branchId)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanViewMenu(access.member, "recipes")) {
+      throw forbidden("Member does not have permission to view recipes.")
+    }
+
     await prisma.$transaction(async (tx) => {
       await releaseStalePinnedPlans(tx, branchId)
     })
@@ -238,7 +247,11 @@ recipesRouter.post(
     const input = recipeInputSchema.parse(req.body)
 
     const recipe = await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "recipes")) {
+        throw forbidden("Member does not have permission to edit recipes.")
+      }
 
       const recipeId = `recipe-${randomUUID()}`
       const now = new Date()
@@ -311,7 +324,11 @@ recipesRouter.patch(
     const input = recipeInputSchema.parse(req.body)
 
     const recipe = await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "recipes")) {
+        throw forbidden("Member does not have permission to edit recipes.")
+      }
 
       const existingRecipe = await tx.recipe.findFirst({
         where: { id: recipeId, branchId, isActive: true },
@@ -393,7 +410,11 @@ recipesRouter.delete(
     const recipeId = routeParam(req.params.recipeId, "recipeId")
 
     await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "recipes")) {
+        throw forbidden("Member does not have permission to edit recipes.")
+      }
 
       const recipe = await tx.recipe.findFirst({
         where: { id: recipeId, branchId, isActive: true },
@@ -452,7 +473,12 @@ recipesRouter.post(
 
     const plan = await prisma.$transaction(
       async (tx) => {
-        await assertBranchAccess(tx, member.id, branchId)
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "recipes")) {
+          throw forbidden("Member does not have permission to edit recipes.")
+        }
+
         await releaseStalePinnedPlans(tx, branchId)
         const today = bangkokDayRange()
 
@@ -528,7 +554,11 @@ recipesRouter.post(
 
     await prisma.$transaction(
       async (tx) => {
-        await assertBranchAccess(tx, member.id, branchId)
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "recipes")) {
+          throw forbidden("Member does not have permission to edit recipes.")
+        }
 
         const recipe = await tx.recipe.findFirst({
           where: { id: recipeId, branchId, isActive: true },
@@ -588,7 +618,11 @@ recipePlansRouter.post(
 
     const cookingRun = await prisma.$transaction(
       async (tx) => {
-        await assertBranchAccess(tx, member.id, branchId)
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "recipes")) {
+          throw forbidden("Member does not have permission to edit recipes.")
+        }
 
         const plan = (await tx.recipePlan.findFirst({
           where: { id: planId, branchId, status: "pinned" },

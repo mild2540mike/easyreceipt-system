@@ -79,7 +79,7 @@ const members = [
   },
   {
     id: "member-manager",
-    name: "Manager",
+    name: "ผู้ดูแลระบบ",
     username: "manager",
     role: "manager",
     status: "active",
@@ -168,6 +168,34 @@ const members = [
     branchIds: ["branch-school-total"],
   },
 ]
+
+const menuPermissionKeys = [
+  "purchase",
+  "usage",
+  "stock",
+  "recipes",
+  "reports",
+  "members",
+  "budgets",
+]
+
+function defaultMemberPermissions(role) {
+  if (role === "owner" || role === "manager") {
+    return Object.fromEntries(
+      menuPermissionKeys.map((key) => [key, { view: true, edit: true }])
+    )
+  }
+
+  return {
+    purchase: { view: true, edit: true },
+    usage: { view: true, edit: true },
+    stock: { view: true, edit: false },
+    recipes: { view: true, edit: true },
+    reports: { view: false, edit: false },
+    members: { view: false, edit: false },
+    budgets: { view: false, edit: false },
+  }
+}
 
 const recipeTemplatesByBranch = {
   "branch-wat-sakaeo": [
@@ -958,6 +986,7 @@ async function main() {
             passwordHash: "prototype:123456",
             role: member.role,
             status: member.status,
+            permissionsJson: JSON.stringify(defaultMemberPermissions(member.role)),
             joinedAt: new Date("2026-06-01T08:00:00+07:00"),
           },
         })

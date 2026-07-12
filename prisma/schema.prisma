@@ -58,6 +58,7 @@ model Member {
   passwordHash    String    @db.NVarChar(255)
   role            String    @db.NVarChar(24)
   status          String    @db.NVarChar(24)
+  permissionsJson String?   @db.NVarChar(4000)
   lastActiveAt    DateTime? @db.DateTime2
   joinedAt        DateTime  @default(now()) @db.DateTime2
   createdAt       DateTime  @default(now()) @db.DateTime2

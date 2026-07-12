@@ -3,6 +3,27 @@ import type { Branch, Member, Prisma, PrismaClient } from "@prisma/client"
 import { forbidden, notFound } from "../../utils/http-error"
 
 type PrismaExecutor = Prisma.TransactionClient | PrismaClient
+export type MenuPermissionKey =
+  | "purchase"
+  | "usage"
+  | "stock"
+  | "recipes"
+  | "reports"
+  | "members"
+  | "budgets"
+type MenuPermission = { view: boolean; edit: boolean }
+export type MemberMenuPermissions = Partial<Record<MenuPermissionKey, MenuPermission>>
+
+export const menuPermissionKeys: MenuPermissionKey[] = [
+  "purchase",
+  "usage",
+  "stock",
+  "recipes",
+  "reports",
+  "members",
+  "budgets",
+]
+
 export type MemberWithBranchAccess = Prisma.MemberGetPayload<{
   include: { branchAccess: true }
 }>
@@ -77,7 +98,7 @@ export async function assertManageMembers(
   tx: PrismaExecutor,
   actor: Member
 ) {
-  if (actor.role !== "owner" && actor.role !== "manager") {
+  if (!memberCanEditMenu(actor, "members")) {
     throw forbidden("Member does not have permission to manage members.")
   }
 
@@ -97,6 +118,74 @@ export async function assertManageMembers(
   return persistedActor
 }
 
+export function defaultMemberPermissions(role: string): MemberMenuPermissions {
+  const fullAccess = role === "owner" || role === "manager"
+
+  if (fullAccess) {
+    return Object.fromEntries(
+      menuPermissionKeys.map((key) => [key, { view: true, edit: true }])
+    ) as MemberMenuPermissions
+  }
+
+  return {
+    purchase: { view: true, edit: true },
+    usage: { view: true, edit: true },
+    stock: { view: true, edit: false },
+    recipes: { view: true, edit: true },
+    reports: { view: false, edit: false },
+    members: { view: false, edit: false },
+    budgets: { view: false, edit: false },
+  }
+}
+
+export function normalizeMemberPermissions(
+  role: string,
+  rawPermissions?: string | null | unknown
+): MemberMenuPermissions {
+  const defaults = defaultMemberPermissions(role)
+  const parsed =
+    typeof rawPermissions === "string"
+      ? (() => {
+          try {
+            return JSON.parse(rawPermissions) as unknown
+          } catch {
+            return null
+          }
+        })()
+      : rawPermissions
+
+  if (!parsed || typeof parsed !== "object") {
+    return defaults
+  }
+
+  const permissions = { ...defaults }
+  const record = parsed as Record<string, unknown>
+
+  for (const key of menuPermissionKeys) {
+    const value = record[key]
+
+    if (!value || typeof value !== "object") {
+      continue
+    }
+
+    const permission = value as Partial<MenuPermission>
+    permissions[key] = {
+      view: Boolean(permission.view),
+      edit: Boolean(permission.edit),
+    }
+  }
+
+  return permissions
+}
+
+export function memberCanViewMenu(member: Pick<Member, "role" | "permissionsJson">, key: MenuPermissionKey) {
+  return normalizeMemberPermissions(member.role, member.permissionsJson)[key]?.view ?? false
+}
+
+export function memberCanEditMenu(member: Pick<Member, "role" | "permissionsJson">, key: MenuPermissionKey) {
+  return normalizeMemberPermissions(member.role, member.permissionsJson)[key]?.edit ?? false
+}
+
 export function serializeMember(member: Member) {
   return {
     id: member.id,
@@ -106,6 +195,7 @@ export function serializeMember(member: Member) {
     username: member.username,
     role: member.role,
     status: member.status,
+    permissions: normalizeMemberPermissions(member.role, member.permissionsJson),
     lastActiveAt: member.lastActiveAt,
     joinedAt: member.joinedAt,
   }

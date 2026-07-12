@@ -9,6 +9,7 @@ import { routeParam } from "../../utils/route-param"
 import {
   assertBranchAccess,
   getAccessibleBranches,
+  memberCanEditMenu,
   serializeBranch,
 } from "../common/permissions"
 
@@ -38,7 +39,7 @@ branchesRouter.patch(
     const branch = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (access.member.role !== "owner" && access.member.role !== "manager") {
+      if (!memberCanEditMenu(access.member, "budgets")) {
         throw forbidden("Member does not have permission to update branch budget.")
       }
 

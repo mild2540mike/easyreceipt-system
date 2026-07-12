@@ -8,7 +8,11 @@ import { asyncHandler } from "../../utils/async-handler"
 import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
-import { assertBranchAccess } from "../common/permissions"
+import {
+  assertBranchAccess,
+  memberCanEditMenu,
+  memberCanViewMenu,
+} from "../common/permissions"
 
 const purchaseItemSchema = z.object({
   ingredientId: z.string().min(1),
@@ -71,7 +75,11 @@ purchasesRouter.get(
     const branchId = routeParam(req.params.branchId, "branchId")
     const query = purchaseQuerySchema.parse(req.query)
 
-    await assertBranchAccess(prisma, member.id, branchId)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanViewMenu(access.member, "purchase")) {
+      throw forbidden("Member does not have permission to view purchases.")
+    }
 
     const where: Prisma.PurchaseWhereInput = { branchId }
 
@@ -121,7 +129,11 @@ purchasesRouter.delete(
     const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
 
     await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "purchase")) {
+        throw forbidden("Member does not have permission to edit purchases.")
+      }
 
       const purchase = await tx.purchase.findFirst({
         where: {
@@ -167,7 +179,11 @@ purchasesRouter.delete(
     const itemId = routeParam(req.params.itemId, "itemId")
 
     await prisma.$transaction(async (tx) => {
-      await assertBranchAccess(tx, member.id, branchId)
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "purchase")) {
+        throw forbidden("Member does not have permission to edit purchases.")
+      }
 
       const purchase = await tx.purchase.findFirst({
         where: {
@@ -256,6 +272,10 @@ purchasesRouter.post(
       async (tx) => {
         const access = await assertBranchAccess(tx, member.id, branchId)
         const purchaseDate = new Date(input.purchaseDate)
+
+        if (!memberCanEditMenu(access.member, "purchase")) {
+          throw forbidden("Member does not have permission to edit purchases.")
+        }
 
         if (Number.isNaN(purchaseDate.getTime())) {
           throw badRequest("Invalid purchase date.")

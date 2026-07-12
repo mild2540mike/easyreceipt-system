@@ -9,16 +9,21 @@ import {
   type Ingredient,
   type InventoryItem,
   type Member,
+  type MemberMenuPermissions,
   type MemberRole,
   type MemberStatus,
   type PurchaseItem,
   type Recipe,
   type ViewId,
+  memberCanEditMenu,
+  memberCanViewMenu,
+  normalizeMemberPermissions,
 } from "@/lib/easyreceipt-data"
 import {
   apiAddMember,
   apiCookBranchRecipePlan,
   apiCreateBranchIngredientFromPurchase,
+  apiCreateBranchUsage,
   apiCreateBranchStockOut,
   apiCreateBranchPurchase,
   apiCreateBranchRecipe,
@@ -28,6 +33,7 @@ import {
   apiGetBranchDashboard,
   apiGetBranches,
   apiGetBranchInventory,
+  apiGetBranchInventoryMovements,
   apiGetBranchPurchases,
   apiGetBranchRecipes,
   apiGetCurrentMember,
@@ -47,8 +53,10 @@ import {
   type NormalizedInventorySnapshot,
   type NormalizedRecipePlan,
   type NormalizedRecipeSnapshot,
+  type NormalizedStockMovement,
   type ReportSummary,
   type StockOutApiInput,
+  type UsageApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 
@@ -102,6 +110,7 @@ export type MemberProfileInput = {
   name: string
   username: string
   password?: string
+  permissions?: MemberMenuPermissions
 }
 
 export type RecipeFormInput = Omit<Recipe, "id">
@@ -111,6 +120,12 @@ export type NewIngredientFromPurchaseInput = {
   unit: string
   unitPrice: number
   supplier?: string
+}
+
+export type UsageDraftItem = {
+  id: string
+  ingredientId: string
+  quantity: number
 }
 
 export type InventoryEditInput = {
@@ -127,6 +142,7 @@ export type InventoryEditInput = {
 }
 
 export type StockOutInput = StockOutApiInput
+export type UsageInput = UsageApiInput
 
 type ActionResult = {
   ok: boolean
@@ -153,6 +169,8 @@ export type BranchWorkspace = {
   recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
   purchaseDate: Date
   purchaseItems: PurchaseItem[]
+  usageDate: Date
+  usageItems: UsageDraftItem[]
   purchaseOrderDraftItems: PurchaseItem[]
   purchaseOrderDraftSavedAt: string | null
 }
@@ -174,6 +192,8 @@ const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
+const usageMovementsQueryKey = (branchId: string, dateKey: string) =>
+  ["easyreceipt", "inventory", "usage", branchId, dateKey] as const
 const purchasesQueryKey = (branchId: string, dateKey: string) =>
   ["easyreceipt", "purchases", branchId, dateKey] as const
 const recipesQueryKey = (branchId: string) =>
@@ -326,6 +346,8 @@ function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
     recipePlanByRecipeId: {},
     purchaseDate: new Date(),
     purchaseItems: [],
+    usageDate: new Date(),
+    usageItems: [],
     purchaseOrderDraftItems: [],
     purchaseOrderDraftSavedAt: null,
   }
@@ -411,7 +433,7 @@ function getMemberBranchIds(member: Member | null) {
   const branchIds = member.branchIds.filter(Boolean)
 
   if (branchIds.length > 0) {
-    if (member.role === "staff" || member.role === "viewer") {
+    if (member.role === "staff") {
       return branchIds.slice(0, 1)
     }
 
@@ -456,9 +478,10 @@ function buildReportMetrics(
   ] satisfies CashFlowMetric[]
 }
 
-export function useEasyReceiptStore() {
+export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const queryClient = useQueryClient()
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
+  const effectiveActiveView = routeActiveView ?? activeView
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [branches, setBranches] = useState<Branch[]>([])
@@ -587,7 +610,7 @@ export function useEasyReceiptStore() {
     if (nextBranchId) {
       saveBranchSession(nextBranchId)
     }
-    setActiveView("dashboard")
+    setActiveView("purchase")
   }, [])
 
   const clearAuthenticatedMember = useCallback(() => {
@@ -599,12 +622,69 @@ export function useEasyReceiptStore() {
     setMembers([])
     setActiveBranchId("")
     setBranchWorkspaces({})
-    setActiveView("dashboard")
+    setActiveView("purchase")
   }, [clearAccountQueryCache])
 
   const activePurchaseDate =
     activeWorkspace.purchaseDate ?? createEmptyBranchWorkspace("").purchaseDate
   const purchaseDateKey = bangkokDateKey(activePurchaseDate)
+  const activeUsageDate =
+    activeWorkspace.usageDate ?? createEmptyBranchWorkspace("").usageDate
+  const usageDateKey = bangkokDateKey(activeUsageDate)
+  const canViewPurchase = memberCanViewMenu(currentMember, "purchase")
+  const canViewUsage = memberCanViewMenu(currentMember, "usage")
+  const canViewStock = memberCanViewMenu(currentMember, "stock")
+  const canViewRecipes = memberCanViewMenu(currentMember, "recipes")
+  const canViewReports = memberCanViewMenu(currentMember, "reports")
+  const canViewMembers = memberCanViewMenu(currentMember, "members")
+  const canViewBudgets = memberCanViewMenu(currentMember, "budgets")
+  const hasPortalView = Boolean(routeActiveView)
+  const shouldLoadDashboard = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      effectiveActiveView === "dashboard"
+  )
+  const shouldLoadPurchases = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      canViewPurchase &&
+      effectiveActiveView === "purchase"
+  )
+  const shouldLoadUsageMovements = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      canViewUsage &&
+      effectiveActiveView === "usage"
+  )
+  const shouldLoadRecipes = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      canViewRecipes &&
+      effectiveActiveView === "recipes"
+  )
+  const shouldLoadInventory = Boolean(
+    hasPortalView &&
+      currentMember &&
+      activeBranchId &&
+      ((effectiveActiveView === "purchase" && canViewPurchase) ||
+        (effectiveActiveView === "usage" && canViewUsage) ||
+        (effectiveActiveView === "stock" && canViewStock) ||
+        (effectiveActiveView === "recipes" && canViewRecipes))
+  )
+  const shouldLoadReports = Boolean(
+    hasPortalView &&
+      currentMember &&
+      canViewReports &&
+      (effectiveActiveView === "reports" ||
+        (effectiveActiveView === "budgets" && canViewBudgets))
+  )
+  const shouldLoadMembers = Boolean(
+    hasPortalView && currentMember && canViewMembers && effectiveActiveView === "members"
+  )
 
   const authSessionQuery = useQuery({
     queryKey: authSessionQueryKey,
@@ -622,42 +702,53 @@ export function useEasyReceiptStore() {
   const dashboardQuery = useQuery({
     queryKey: dashboardQueryKey(activeBranchId),
     queryFn: () => apiGetBranchDashboard(activeBranchId),
-    enabled: Boolean(currentMember && activeBranchId),
+    enabled: shouldLoadDashboard,
     staleTime: 15_000,
   })
 
   const inventoryQuery = useQuery({
     queryKey: inventoryQueryKey(activeBranchId),
     queryFn: () => apiGetBranchInventory(activeBranchId),
-    enabled: Boolean(currentMember && activeBranchId),
+    enabled: shouldLoadInventory,
     staleTime: 15_000,
   })
 
   const purchasesQuery = useQuery({
     queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
     queryFn: () => apiGetBranchPurchases(activeBranchId, { date: purchaseDateKey }),
-    enabled: Boolean(currentMember && activeBranchId),
+    enabled: shouldLoadPurchases,
+    staleTime: 15_000,
+  })
+
+  const usageMovementsQuery = useQuery({
+    queryKey: usageMovementsQueryKey(activeBranchId, usageDateKey),
+    queryFn: () =>
+      apiGetBranchInventoryMovements(activeBranchId, {
+        date: usageDateKey,
+        movementType: "usage_out",
+      }),
+    enabled: shouldLoadUsageMovements,
     staleTime: 15_000,
   })
 
   const recipesQuery = useQuery({
     queryKey: recipesQueryKey(activeBranchId),
     queryFn: () => apiGetBranchRecipes(activeBranchId),
-    enabled: Boolean(currentMember && activeBranchId),
+    enabled: shouldLoadRecipes,
     staleTime: 15_000,
   })
 
   const reportsQuery = useQuery({
     queryKey: reportsQueryKey,
     queryFn: apiGetReportSummary,
-    enabled: Boolean(currentMember),
+    enabled: shouldLoadReports,
     staleTime: 15_000,
   })
 
   const membersQuery = useQuery({
     queryKey: membersQueryKey(currentMember?.id ?? ""),
     queryFn: apiGetMembers,
-    enabled: Boolean(currentMember),
+    enabled: shouldLoadMembers,
     staleTime: 30_000,
   })
 
@@ -784,6 +875,39 @@ export function useEasyReceiptStore() {
     onError: (error) => {
       setInventoryMutationError(
         errorMessage(error, "ไม่สามารถตัดสต็อกได้")
+      )
+    },
+  })
+
+  const createUsageMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      input,
+    }: {
+      branchId: string
+      input: UsageInput
+    }) => apiCreateBranchUsage(branchId, input),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+    onSuccess: (result, variables) => {
+      for (const row of result.inventoryRows) {
+        syncBranchInventoryRow(variables.branchId, row)
+      }
+      void queryClient.invalidateQueries({
+        queryKey: inventoryQueryKey(variables.branchId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: dashboardQueryKey(variables.branchId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: usageMovementsQueryKey(variables.branchId, usageDateKey),
+      })
+      void queryClient.invalidateQueries({ queryKey: reportsQueryKey })
+    },
+    onError: (error) => {
+      setInventoryMutationError(
+        errorMessage(error, "ไม่สามารถบันทึกของใช้ไปได้")
       )
     },
   })
@@ -1127,6 +1251,8 @@ export function useEasyReceiptStore() {
   const recipePlanByRecipeId = activeWorkspace.recipePlanByRecipeId
   const purchaseDate = activeWorkspace.purchaseDate
   const purchaseItems = activeWorkspace.purchaseItems
+  const usageDate = activeWorkspace.usageDate
+  const usageItems = activeWorkspace.usageItems
   const purchaseHistory = useMemo(
     () => purchasesQuery.data ?? [],
     [purchasesQuery.data]
@@ -1152,6 +1278,10 @@ export function useEasyReceiptStore() {
     [latestDraftPurchase]
   )
   const purchaseOrderDraftSavedAt = latestDraftPurchase?.purchasedAt ?? null
+  const usageMovements = useMemo<NormalizedStockMovement[]>(
+    () => usageMovementsQuery.data ?? [],
+    [usageMovementsQuery.data]
+  )
   const savedPurchaseTotalForDate = useMemo(
     () =>
       savedPurchaseHistory.reduce(
@@ -1456,11 +1586,13 @@ export function useEasyReceiptStore() {
     }
   }, [members])
 
-  const canManageMembers =
-    currentMember?.role === "owner" || currentMember?.role === "manager"
-  const canManageBranchBudget = canManageMembers
-  const canEditInventory =
-    currentMember?.role === "owner" || currentMember?.role === "manager"
+  const canManageMembers = memberCanEditMenu(currentMember, "members")
+  const canManageMenuPermissions = currentMember?.role === "owner"
+  const canManageBranchBudget = memberCanEditMenu(currentMember, "budgets")
+  const canEditPurchase = memberCanEditMenu(currentMember, "purchase")
+  const canEditInventory = memberCanEditMenu(currentMember, "stock")
+  const canEditRecipes = memberCanEditMenu(currentMember, "recipes")
+  const canEditUsage = memberCanEditMenu(currentMember, "usage")
 
   const reportPurchaseSeries = useMemo<PurchaseSeriesItem[]>(() => {
     if (savedPurchaseHistory.length > 0) {
@@ -1573,6 +1705,14 @@ export function useEasyReceiptStore() {
     (purchasesQuery.isError
       ? errorMessage(purchasesQuery.error, "ไม่สามารถโหลดข้อมูลใบซื้อได้")
       : "")
+  const usageError =
+    inventoryMutationError ||
+    (usageMovementsQuery.isError
+      ? errorMessage(
+          usageMovementsQuery.error,
+          "ไม่สามารถโหลดประวัติของใช้ไปได้"
+        )
+      : "")
   const recipeError =
     recipeMutationError ||
     (recipesQuery.isError
@@ -1588,14 +1728,16 @@ export function useEasyReceiptStore() {
       : "")
 
   const isDashboardLoading =
-    dashboardQuery.isPending && Boolean(currentMember && activeBranchId)
+    dashboardQuery.isPending && shouldLoadDashboard
   const isInventoryLoading =
-    inventoryQuery.isPending && Boolean(currentMember && activeBranchId)
+    inventoryQuery.isPending && shouldLoadInventory
   const isPurchasesLoading =
-    purchasesQuery.isPending && Boolean(currentMember && activeBranchId)
-  const isReportsLoading = reportsQuery.isPending && Boolean(currentMember)
+    purchasesQuery.isPending && shouldLoadPurchases
+  const isUsageMovementsLoading =
+    usageMovementsQuery.isPending && shouldLoadUsageMovements
+  const isReportsLoading = reportsQuery.isPending && shouldLoadReports
   const isRecipesLoading =
-    recipesQuery.isPending && Boolean(currentMember && activeBranchId)
+    recipesQuery.isPending && shouldLoadRecipes
   const isRecipeSaving =
     createRecipeMutation.isPending ||
     updateRecipeMutation.isPending ||
@@ -1620,6 +1762,13 @@ export function useEasyReceiptStore() {
     updateActiveWorkspace((workspace) => ({
       ...workspace,
       purchaseDate: date,
+    }))
+  }
+
+  function setUsageDate(date: Date) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageDate: date,
     }))
   }
 
@@ -1696,6 +1845,39 @@ export function useEasyReceiptStore() {
     })
   }
 
+  function updateUsageItem(
+    itemId: string,
+    patch: Partial<Omit<UsageDraftItem, "id">>
+  ) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageItems: workspace.usageItems.map((item) =>
+        item.id === itemId ? { ...item, ...patch } : item
+      ),
+    }))
+  }
+
+  function addUsageItem() {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageItems: [
+        ...workspace.usageItems,
+        {
+          id: `${workspace.branchId}-usage-${Date.now()}`,
+          ingredientId: "",
+          quantity: 0,
+        },
+      ],
+    }))
+  }
+
+  function removeUsageItem(itemId: string) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageItems: workspace.usageItems.filter((item) => item.id !== itemId),
+    }))
+  }
+
   function addSuggestedPurchaseItems() {
     if (lowStockItems.length === 0) {
       return false
@@ -1738,6 +1920,13 @@ export function useEasyReceiptStore() {
       return {
         ok: false,
         error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditPurchase) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์บันทึกของมาเพิ่ม",
       }
     }
 
@@ -1789,6 +1978,13 @@ export function useEasyReceiptStore() {
     }
 
     try {
+      if (!canEditPurchase) {
+        return {
+          ok: false,
+          error: "บัญชีนี้ไม่มีสิทธิ์ลบฉบับร่างของมาเพิ่ม",
+        }
+      }
+
       await deletePurchaseDraftMutation.mutateAsync({
         branchId: activeBranchId,
         purchaseId,
@@ -1823,6 +2019,13 @@ export function useEasyReceiptStore() {
     }
 
     try {
+      if (!canEditPurchase) {
+        return {
+          ok: false,
+          error: "บัญชีนี้ไม่มีสิทธิ์ลบรายการของมาเพิ่ม",
+        }
+      }
+
       await deletePurchaseDraftItemMutation.mutateAsync({
         branchId: activeBranchId,
         purchaseId,
@@ -1851,6 +2054,13 @@ export function useEasyReceiptStore() {
       return {
         ok: false,
         error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditPurchase) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์บันทึกของมาเพิ่ม",
       }
     }
 
@@ -1970,6 +2180,10 @@ export function useEasyReceiptStore() {
 
     if (existingIngredient) {
       return existingIngredient
+    }
+
+    if (!canEditPurchase) {
+      return null
     }
 
     try {
@@ -2099,6 +2313,98 @@ export function useEasyReceiptStore() {
     }
   }
 
+  async function submitUsageDraft(reason: string): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditUsage) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์ตัดคลังวัตถุดิบ",
+      }
+    }
+
+    const cleanItems = usageItems
+      .map((item) => ({
+        ingredientId: item.ingredientId,
+        quantity: Math.max(item.quantity, 0),
+      }))
+      .filter((item) => item.ingredientId && item.quantity > 0)
+
+    if (cleanItems.length === 0) {
+      return {
+        ok: false,
+        error: "กรุณาเพิ่มรายการของใช้ไปอย่างน้อย 1 รายการ",
+      }
+    }
+
+    const cleanReason = reason.trim()
+
+    if (!cleanReason) {
+      return {
+        ok: false,
+        error: "กรุณาระบุเหตุผลของการใช้วัตถุดิบ",
+      }
+    }
+
+    const quantityByIngredientId = new Map<string, number>()
+
+    for (const item of cleanItems) {
+      quantityByIngredientId.set(
+        item.ingredientId,
+        roundQuantity(
+          (quantityByIngredientId.get(item.ingredientId) ?? 0) + item.quantity
+        )
+      )
+    }
+
+    for (const [ingredientId, quantity] of quantityByIngredientId) {
+      const inventoryRow = inventoryRowByIngredientId.get(ingredientId)
+
+      if (!inventoryRow) {
+        return {
+          ok: false,
+          error: "กรุณาเลือกวัตถุดิบให้ครบทุกแถว",
+        }
+      }
+
+      if (quantity > inventoryRow.onHand) {
+        return {
+          ok: false,
+          error: `${inventoryRow.ingredient.name} คงเหลือไม่พอสำหรับตัดคลัง`,
+        }
+      }
+    }
+
+    try {
+      const usageTimestamp = purchaseTimestampForSelectedDate(usageDate)
+
+      await createUsageMutation.mutateAsync({
+        branchId: activeBranchId,
+        input: {
+          occurredAt: usageTimestamp.toISOString(),
+          reason: cleanReason,
+          items: cleanItems,
+        },
+      })
+      updateActiveWorkspace((workspace) => ({
+        ...workspace,
+        usageItems: [],
+      }))
+
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถบันทึกของใช้ไปได้"),
+      }
+    }
+  }
+
   async function refreshRecipeAndInventory(branchId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
@@ -2113,6 +2419,13 @@ export function useEasyReceiptStore() {
       return {
         ok: false,
         error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditRecipes) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์เพิ่ม ลบ หรือแก้ไขสูตรอาหาร",
       }
     }
 
@@ -2313,7 +2626,7 @@ export function useEasyReceiptStore() {
     const allowed = new Set(allowedBranchIds)
     const sanitized = branchIds.filter((branchId) => allowed.has(branchId))
     const roleScoped =
-      role === "staff" || role === "viewer" ? sanitized.slice(0, 1) : sanitized
+      role === "staff" ? sanitized.slice(0, 1) : sanitized
 
     return roleScoped.length > 0
       ? roleScoped
@@ -2352,11 +2665,27 @@ export function useEasyReceiptStore() {
   function updateMemberRole(memberId: string, role: MemberRole) {
     setMembers((items) =>
       items.map((member) =>
-        member.id === memberId ? { ...member, role } : member
+        member.id === memberId
+          ? {
+              ...member,
+              role,
+              permissions: canManageMenuPermissions
+                ? normalizeMemberPermissions(role)
+                : member.permissions,
+            }
+          : member
       )
     )
     setCurrentMember((member) =>
-      member?.id === memberId ? { ...member, role } : member
+      member?.id === memberId
+        ? {
+            ...member,
+            role,
+            permissions: canManageMenuPermissions
+              ? normalizeMemberPermissions(role)
+              : member.permissions,
+          }
+        : member
     )
     updateMemberMutation.mutate({ memberId, input: { role } })
   }
@@ -2410,12 +2739,12 @@ export function useEasyReceiptStore() {
   ): Promise<boolean> {
     const nextName = input.name.trim()
     const nextUsername = input.username.trim().toLowerCase()
-    const nextPassword = input.password?.trim() ?? ""
+    const nextPassword = input.password?.trim()
 
     if (
       !nextName ||
       !nextUsername ||
-      (nextPassword && nextPassword.length < 6)
+      (input.password !== undefined && (!nextPassword || nextPassword.length < 6))
     ) {
       return false
     }
@@ -2427,6 +2756,7 @@ export function useEasyReceiptStore() {
               ...member,
               name: nextName,
               username: nextUsername,
+              permissions: input.permissions ?? member.permissions,
             }
           : member
       )
@@ -2437,6 +2767,7 @@ export function useEasyReceiptStore() {
             ...member,
             name: nextName,
             username: nextUsername,
+            permissions: input.permissions ?? member.permissions,
           }
         : member
     )
@@ -2448,6 +2779,7 @@ export function useEasyReceiptStore() {
           name: nextName,
           username: nextUsername,
           ...(nextPassword ? { password: nextPassword } : {}),
+          ...(input.permissions ? { permissions: input.permissions } : {}),
         },
       })
       return true
@@ -2458,7 +2790,7 @@ export function useEasyReceiptStore() {
 
 
   return {
-    activeView,
+    activeView: effectiveActiveView,
     setActiveView,
     currentMember,
     isAuthReady,
@@ -2477,10 +2809,20 @@ export function useEasyReceiptStore() {
     setPurchaseDate,
     purchaseItems,
     purchaseDateKey,
+    usageDate,
+    usageDateKey,
+    usageItems,
+    usageMovements,
+    setUsageDate,
+    updateUsageItem,
+    addUsageItem,
+    removeUsageItem,
+    submitUsageDraft,
     draftPurchasesForDate: draftPurchaseHistory,
     savedPurchasesForDate: savedPurchaseHistory,
     savedPurchaseTotalForDate,
     purchaseBudgetStatus,
+    canEditPurchase,
     updatePurchaseItem,
     addPurchaseItem,
     addSuggestedPurchaseItems,
@@ -2490,11 +2832,14 @@ export function useEasyReceiptStore() {
     deletePurchaseDraftItem,
     submitPurchase,
     isPurchasesLoading,
+    isUsageMovementsLoading,
     isPurchaseSaving: createPurchaseMutation.isPending,
+    isUsageSaving: createUsageMutation.isPending,
     isPurchaseDraftDeleting:
       deletePurchaseDraftMutation.isPending ||
       deletePurchaseDraftItemMutation.isPending,
     purchaseError,
+    usageError,
     canManageBranchBudget,
     isBranchBudgetSaving: updateBranchBudgetMutation.isPending,
     updateBranchBudget,
@@ -2508,6 +2853,8 @@ export function useEasyReceiptStore() {
     isStockOutSaving: createStockOutMutation.isPending,
     inventoryError,
     canEditInventory,
+    canEditRecipes,
+    canEditUsage,
     addIngredientFromPurchase,
     updateInventoryItem,
     recordStockOut,
@@ -2541,8 +2888,9 @@ export function useEasyReceiptStore() {
     members,
     memberStats,
     canManageMembers,
+    canManageMenuPermissions,
     memberError,
-    isMembersLoading: membersQuery.isPending && Boolean(currentMember),
+    isMembersLoading: membersQuery.isPending && shouldLoadMembers,
     isMemberSaving: addMemberMutation.isPending || updateMemberMutation.isPending,
     addMember,
     updateMemberRole,

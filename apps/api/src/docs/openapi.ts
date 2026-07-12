@@ -112,7 +112,7 @@ export const openApiDocument = {
           username: { type: "string", example: "owner" },
           role: {
             type: "string",
-            enum: ["owner", "manager", "staff", "viewer"],
+            enum: ["owner", "manager", "staff"],
             example: "owner",
           },
           status: {
@@ -222,7 +222,7 @@ export const openApiDocument = {
           password: { type: "string", minLength: 6, example: "123456" },
           role: {
             type: "string",
-            enum: ["owner", "manager", "staff", "viewer"],
+            enum: ["owner", "manager", "staff"],
             example: "staff",
           },
           branchIds: {
@@ -238,7 +238,7 @@ export const openApiDocument = {
         properties: {
           role: {
             type: "string",
-            enum: ["owner", "manager", "staff", "viewer"],
+            enum: ["owner", "manager", "staff"],
           },
           status: {
             type: "string",

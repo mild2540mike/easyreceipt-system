@@ -595,9 +595,7 @@ export async function addMemberAction(input: MemberActionInput) {
       actorBranchIds.has(branchId)
     )
     const branchIds =
-      input.role === "staff" || input.role === "viewer"
-        ? requestedBranchIds.slice(0, 1)
-        : requestedBranchIds
+      input.role === "staff" ? requestedBranchIds.slice(0, 1) : requestedBranchIds
 
     if (
       !input.name.trim() ||

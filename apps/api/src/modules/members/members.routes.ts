@@ -5,18 +5,39 @@ import bcrypt from "bcryptjs"
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
-import { badRequest, notFound } from "../../utils/http-error"
+import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { routeParam } from "../../utils/route-param"
 import {
   assertManageMembers,
   getAccessibleBranchIds,
+  menuPermissionKeys,
+  memberCanViewMenu,
+  normalizeMemberPermissions,
   type MemberWithBranchAccess,
   type MemberWithBranches,
   serializeMember,
 } from "../common/permissions"
 
-const roleSchema = z.enum(["owner", "manager", "staff", "viewer"])
+const roleSchema = z.enum(["owner", "manager", "staff"])
 const statusSchema = z.enum(["active", "invited", "suspended"])
+const menuPermissionsSchema = z
+  .object(
+    Object.fromEntries(
+      menuPermissionKeys.map((key) => [
+        key,
+        z
+          .object({
+            view: z.boolean(),
+            edit: z.boolean(),
+          })
+          .optional(),
+      ])
+    ) as Record<
+      (typeof menuPermissionKeys)[number],
+      z.ZodOptional<z.ZodObject<{ view: z.ZodBoolean; edit: z.ZodBoolean }>>
+    >
+  )
+  .partial()
 
 const addMemberSchema = z.object({
   name: z.string().min(1),
@@ -24,6 +45,7 @@ const addMemberSchema = z.object({
   password: z.string().min(6),
   role: roleSchema,
   branchIds: z.array(z.string().min(1)).min(1),
+  permissions: menuPermissionsSchema.optional(),
 })
 
 const updateMemberSchema = z.object({
@@ -33,6 +55,7 @@ const updateMemberSchema = z.object({
   role: roleSchema.optional(),
   status: statusSchema.optional(),
   branchIds: z.array(z.string().min(1)).optional(),
+  permissions: menuPermissionsSchema.optional(),
 })
 
 export const membersRouter = Router()
@@ -44,8 +67,7 @@ function sanitizeBranchIds(
 ) {
   const allowed = new Set(allowedBranchIds)
   const branchIds = requestedBranchIds.filter((branchId) => allowed.has(branchId))
-  const roleScoped =
-    role === "staff" || role === "viewer" ? branchIds.slice(0, 1) : branchIds
+  const roleScoped = role === "staff" ? branchIds.slice(0, 1) : branchIds
 
   return roleScoped
 }
@@ -58,6 +80,11 @@ membersRouter.get(
   "/",
   asyncHandler(async (req, res) => {
     const actor = getAuthMember(req)
+
+    if (!memberCanViewMenu(actor, "members")) {
+      throw forbidden("Member does not have permission to view members.")
+    }
+
     const accessibleBranchIds = await getAccessibleBranchIds(prisma, actor.id)
     const members = await prisma.member.findMany({
       where: {
@@ -134,6 +161,10 @@ membersRouter.post(
         throw badRequest("Member username already exists.")
       }
 
+      if (manager.role !== "owner" && input.permissions !== undefined) {
+        throw forbidden("Only owners can edit menu permissions.")
+      }
+
       const createdMember = await tx.member.create({
         data: {
           organizationId: manager.organizationId,
@@ -142,6 +173,12 @@ membersRouter.post(
           username,
           role: input.role,
           status: "invited",
+          permissionsJson: JSON.stringify(
+            normalizeMemberPermissions(
+              input.role,
+              manager.role === "owner" ? input.permissions : undefined
+            )
+          ),
           passwordHash: await bcrypt.hash(input.password, 10),
         },
       })
@@ -185,7 +222,19 @@ membersRouter.patch(
         throw notFound("Member not found.")
       }
 
+      if (manager.role !== "owner" && input.permissions !== undefined) {
+        throw forbidden("Only owners can edit menu permissions.")
+      }
+
       const nextRole = input.role ?? target.role
+      const nextPermissions =
+        manager.role !== "owner"
+          ? normalizeMemberPermissions(nextRole, target.permissionsJson)
+          : input.permissions === undefined
+            ? input.role
+              ? normalizeMemberPermissions(nextRole)
+              : normalizeMemberPermissions(nextRole, target.permissionsJson)
+            : normalizeMemberPermissions(nextRole, input.permissions)
       const allowedBranchIds =
         manager.role === "owner"
           ? (
@@ -254,6 +303,7 @@ membersRouter.patch(
             : target.passwordHash,
           role: nextRole,
           status: input.status ?? target.status,
+          permissionsJson: JSON.stringify(nextPermissions),
           primaryBranchId: nextBranchIds[0],
         },
       })

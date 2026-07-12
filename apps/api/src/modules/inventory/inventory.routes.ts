@@ -11,7 +11,7 @@ import { asyncHandler } from "../../utils/async-handler"
 import { badRequest, forbidden, notFound } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
 import { routeParam } from "../../utils/route-param"
-import { assertBranchAccess } from "../common/permissions"
+import { assertBranchAccess, memberCanEditMenu } from "../common/permissions"
 
 const updateInventorySchema = z.object({
   name: z.string().min(1),
@@ -33,7 +33,7 @@ const createIngredientSchema = z.object({
 
 const stockOutSchema = z.object({
   ingredientId: z.string().min(1),
-  movementType: z.enum(["waste_out", "sale_out"]),
+  movementType: z.enum(["waste_out", "sale_out", "usage_out"]),
   quantity: z.coerce.number().positive(),
   reason: z.string().min(1),
   photo: z.object({
@@ -44,10 +44,32 @@ const stockOutSchema = z.object({
   }),
 })
 
+const movementQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  movementType: z.enum(["waste_out", "sale_out", "usage_out", "purchase_in", "cook_out"]).optional(),
+})
+
+const usageSchema = z.object({
+  occurredAt: z.coerce.date().optional(),
+  reason: z.string().min(1),
+  items: z
+    .array(
+      z.object({
+        ingredientId: z.string().min(1),
+        quantity: z.coerce.number().positive(),
+      })
+    )
+    .min(1),
+})
+
 export const inventoryRouter = Router({ mergeParams: true })
 
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
   include: { ingredient: true }
+}>
+
+type StockMovementWithDetails = Prisma.StockMovementGetPayload<{
+  include: { ingredient: true; createdBy: true }
 }>
 
 const stockOutUploadDir = path.join(
@@ -69,6 +91,76 @@ function safeFileStem(filename: string) {
   const stem = path.parse(filename).name.trim()
 
   return stem.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 48) || "stock-out"
+}
+
+function bangkokDateRange(date: string) {
+  return {
+    start: new Date(`${date}T00:00:00.000+07:00`),
+    end: new Date(`${date}T23:59:59.999+07:00`),
+  }
+}
+
+function serializeInventoryRow(row: InventoryRowWithIngredient) {
+  return {
+    id: row.id,
+    branchId: row.branchId,
+    ingredientId: row.ingredientId,
+    ingredient: row.ingredient,
+    onHand: Number(row.onHand),
+    reservedQuantity: Number(row.reservedQuantity),
+    reorderPoint: Number(row.reorderPoint),
+    costPerUnit: Number(row.costPerUnit),
+    available: Math.max(Number(row.onHand) - Number(row.reservedQuantity), 0),
+    suggestedPurchaseQuantity: Math.max(
+      Number(row.reservedQuantity) - Number(row.onHand),
+      0
+    ),
+    lastUpdatedAt: row.lastUpdatedAt,
+  }
+}
+
+function auditReason(metadataJson: string | null) {
+  if (!metadataJson) {
+    return ""
+  }
+
+  try {
+    const metadata = JSON.parse(metadataJson) as { reason?: unknown }
+
+    return typeof metadata.reason === "string" ? metadata.reason : ""
+  } catch {
+    return ""
+  }
+}
+
+function serializeStockMovement(
+  row: StockMovementWithDetails,
+  reasonByMovementId = new Map<string, string>()
+) {
+  return {
+    id: row.id,
+    branchId: row.branchId,
+    ingredientId: row.ingredientId,
+    ingredient: row.ingredient,
+    createdByMemberId: row.createdByMemberId,
+    createdBy: row.createdBy
+      ? {
+          id: row.createdBy.id,
+          name: row.createdBy.name,
+          username: row.createdBy.username,
+        }
+      : null,
+    movementType: row.movementType,
+    quantity: Number(row.quantity),
+    unit: row.unit,
+    unitCost: Number(row.unitCost),
+    beforeQuantity: Number(row.beforeQuantity),
+    afterQuantity: Number(row.afterQuantity),
+    referenceType: row.referenceType,
+    referenceId: row.referenceId,
+    reason: reasonByMovementId.get(row.id) ?? "",
+    occurredAt: row.occurredAt,
+  }
 }
 
 async function saveStockOutPhoto(input: z.infer<typeof stockOutSchema>["photo"]) {
@@ -124,22 +216,69 @@ inventoryRouter.get(
     })
 
     res.json({
-      inventory: (rows as InventoryRowWithIngredient[]).map((row) => ({
-        id: row.id,
-        branchId: row.branchId,
-        ingredientId: row.ingredientId,
-        ingredient: row.ingredient,
-        onHand: Number(row.onHand),
-        reservedQuantity: Number(row.reservedQuantity),
-        reorderPoint: Number(row.reorderPoint),
-        costPerUnit: Number(row.costPerUnit),
-        available: Math.max(Number(row.onHand) - Number(row.reservedQuantity), 0),
-        suggestedPurchaseQuantity: Math.max(
-          Number(row.reservedQuantity) - Number(row.onHand),
-          0
-        ),
-        lastUpdatedAt: row.lastUpdatedAt,
-      })),
+      inventory: (rows as InventoryRowWithIngredient[]).map(serializeInventoryRow),
+    })
+  })
+)
+
+inventoryRouter.get(
+  "/movements",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const query = movementQuerySchema.parse(req.query)
+
+    await assertBranchAccess(prisma, member.id, branchId)
+
+    const where: Prisma.StockMovementWhereInput = { branchId }
+
+    if (query.movementType) {
+      where.movementType = query.movementType
+    }
+
+    if (query.date) {
+      const range = bangkokDateRange(query.date)
+      where.occurredAt = {
+        gte: range.start,
+        lte: range.end,
+      }
+    }
+
+    const movements = await prisma.stockMovement.findMany({
+      where,
+      include: {
+        ingredient: true,
+        createdBy: true,
+      },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: 100,
+    })
+    const movementIds = movements.map((movement) => movement.id)
+    const auditLogs =
+      movementIds.length > 0
+        ? await prisma.auditLog.findMany({
+            where: {
+              branchId,
+              entityType: "stock_movement",
+              entityId: {
+                in: movementIds,
+              },
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : []
+    const reasonByMovementId = new Map<string, string>()
+
+    for (const log of auditLogs) {
+      if (!reasonByMovementId.has(log.entityId)) {
+        reasonByMovementId.set(log.entityId, auditReason(log.metadataJson))
+      }
+    }
+
+    res.json({
+      movements: (movements as StockMovementWithDetails[]).map(
+        (movement) => serializeStockMovement(movement, reasonByMovementId)
+      ),
     })
   })
 )
@@ -153,6 +292,11 @@ inventoryRouter.post(
 
     const inventory = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "purchase")) {
+        throw forbidden("Member does not have permission to edit purchases.")
+      }
+
       const name = input.name.trim()
       const unit = input.unit.trim() || "กก."
       const unitPrice = roundMoney(input.unitPrice)
@@ -209,6 +353,180 @@ inventoryRouter.post(
 )
 
 inventoryRouter.post(
+  "/usage",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = usageSchema.parse(req.body)
+
+    const result = await prisma.$transaction(async (tx) => {
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "usage")) {
+        throw forbidden("Member does not have permission to adjust stock.")
+      }
+
+      const quantityByIngredientId = new Map<string, number>()
+
+      for (const item of input.items) {
+        const currentQuantity = quantityByIngredientId.get(item.ingredientId) ?? 0
+        quantityByIngredientId.set(
+          item.ingredientId,
+          roundQuantity(currentQuantity + item.quantity)
+        )
+      }
+
+      const usageItems = Array.from(quantityByIngredientId.entries()).map(
+        ([ingredientId, quantity]) => ({
+          ingredientId,
+          quantity,
+        })
+      )
+      const inventoryRows = await tx.branchInventory.findMany({
+        where: {
+          branchId,
+          ingredientId: {
+            in: usageItems.map((item) => item.ingredientId),
+          },
+        },
+        include: {
+          ingredient: true,
+        },
+      })
+      const inventoryByIngredientId = new Map(
+        inventoryRows.map((row) => [row.ingredientId, row] as const)
+      )
+
+      for (const item of usageItems) {
+        const inventory = inventoryByIngredientId.get(item.ingredientId)
+
+        if (!inventory) {
+          throw notFound(`Inventory item ${item.ingredientId} not found.`)
+        }
+
+        const beforeQuantity = Number(inventory.onHand)
+
+        if (item.quantity > beforeQuantity) {
+          throw badRequest(
+            `${inventory.ingredient.name} does not have enough stock.`
+          )
+        }
+      }
+
+      const occurredAt = input.occurredAt ?? new Date()
+      const updatedInventory: InventoryRowWithIngredient[] = []
+      const movements: StockMovementWithDetails[] = []
+
+      for (const item of usageItems) {
+        const inventory = inventoryByIngredientId.get(item.ingredientId)
+
+        if (!inventory) {
+          throw notFound(`Inventory item ${item.ingredientId} not found.`)
+        }
+
+        const beforeQuantity = Number(inventory.onHand)
+        const afterQuantity = roundQuantity(beforeQuantity - item.quantity)
+        const movement = await tx.stockMovement.create({
+          data: {
+            branchId,
+            ingredientId: item.ingredientId,
+            createdByMemberId: member.id,
+            movementType: "usage_out",
+            quantity: item.quantity,
+            unit: inventory.ingredient.unit,
+            unitCost: inventory.costPerUnit,
+            beforeQuantity,
+            afterQuantity,
+            referenceType: "manual_usage_out",
+            referenceId: member.id,
+            occurredAt,
+          },
+          include: {
+            ingredient: true,
+            createdBy: true,
+          },
+        })
+        const updatedRow = await tx.branchInventory.update({
+          where: {
+            branchId_ingredientId: {
+              branchId,
+              ingredientId: item.ingredientId,
+            },
+          },
+          data: {
+            onHand: afterQuantity,
+            lastUpdatedAt: new Date(),
+          },
+          include: {
+            ingredient: true,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "usage_out",
+            entityType: "stock_movement",
+            entityId: movement.id,
+            metadataJson: JSON.stringify({
+              reason: input.reason.trim(),
+              ingredientId: item.ingredientId,
+              ingredientName: inventory.ingredient.name,
+              quantity: item.quantity,
+              unit: inventory.ingredient.unit,
+              beforeQuantity,
+              afterQuantity,
+            }).slice(0, 4000),
+          },
+        })
+
+        movements.push(movement as StockMovementWithDetails)
+        updatedInventory.push(updatedRow as InventoryRowWithIngredient)
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: access.branch.organizationId,
+          branchId,
+          memberId: member.id,
+          action: "usage_out",
+          entityType: "stock_movement_batch",
+          entityId: movements[0]?.id ?? branchId,
+          metadataJson: JSON.stringify({
+            reason: input.reason.trim(),
+            occurredAt: occurredAt.toISOString(),
+            items: usageItems.map((item) => {
+              const inventory = inventoryByIngredientId.get(item.ingredientId)
+
+              return {
+                ingredientId: item.ingredientId,
+                ingredientName: inventory?.ingredient.name,
+                quantity: item.quantity,
+                unit: inventory?.ingredient.unit,
+              }
+            }),
+          }).slice(0, 4000),
+        },
+      })
+
+      return {
+        inventory: updatedInventory,
+        movements,
+      }
+    })
+
+    res.status(201).json({
+      inventory: result.inventory.map(serializeInventoryRow),
+      movements: result.movements.map((movement) =>
+        serializeStockMovement(movement)
+      ),
+    })
+  })
+)
+
+inventoryRouter.post(
   "/movements",
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
@@ -218,7 +536,7 @@ inventoryRouter.post(
     const inventory = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (access.member.role !== "owner" && access.member.role !== "manager") {
+      if (!memberCanEditMenu(access.member, "stock")) {
         throw forbidden("Member does not have permission to adjust stock.")
       }
 
@@ -316,7 +634,7 @@ inventoryRouter.patch(
     const inventory = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (access.member.role !== "owner" && access.member.role !== "manager") {
+      if (!memberCanEditMenu(access.member, "stock")) {
         throw forbidden("Member does not have permission to edit inventory.")
       }
 

@@ -3,6 +3,7 @@ import type {
   Ingredient,
   InventoryItem,
   Member,
+  MemberMenuPermissions,
   MemberRole,
   MemberStatus,
   Recipe,
@@ -10,7 +11,6 @@ import type {
 } from "@/lib/easyreceipt-data"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_EASYRECEIPT_API_URL
-  ?? "http://localhost:4000/api/v1"
 
 type ApiMember = {
   id: string
@@ -20,6 +20,7 @@ type ApiMember = {
   username: string
   role: string
   status: string
+  permissions?: MemberMenuPermissions
   lastActiveAt: string | null
   joinedAt: string
 }
@@ -38,6 +39,7 @@ export type AddMemberApiInput = {
   password: string
   role: string
   branchIds: string[]
+  permissions?: MemberMenuPermissions
 }
 
 export type UpdateMemberApiInput = {
@@ -47,6 +49,7 @@ export type UpdateMemberApiInput = {
   role?: string
   status?: string
   branchIds?: string[]
+  permissions?: MemberMenuPermissions
 }
 
 type ApiAuthResponse = {
@@ -174,6 +177,26 @@ export type ApiInventoryResponse = {
   inventory: ApiInventoryRow[]
 }
 
+type ApiStockMovement = {
+  id: string
+  branchId: string
+  ingredientId: string
+  ingredient?: ApiIngredient
+  createdBy?: {
+    id: string
+    name: string
+    username: string
+  } | null
+  movementType: string
+  quantity: number | string
+  unit: string
+  unitCost: number | string
+  beforeQuantity: number | string
+  afterQuantity: number | string
+  reason?: string
+  occurredAt: string
+}
+
 export type UpdateInventoryApiInput = {
   name: string
   category: string
@@ -194,7 +217,7 @@ export type CreateIngredientFromPurchaseApiInput = {
 
 export type StockOutApiInput = {
   ingredientId: string
-  movementType: "waste_out" | "sale_out"
+  movementType: "waste_out" | "sale_out" | "usage_out"
   quantity: number
   reason: string
   photo: {
@@ -203,6 +226,15 @@ export type StockOutApiInput = {
     size: number
     dataUrl: string
   }
+}
+
+export type UsageApiInput = {
+  occurredAt?: string
+  reason: string
+  items: {
+    ingredientId: string
+    quantity: number
+  }[]
 }
 
 export type UpdateBranchBudgetApiInput = {
@@ -217,6 +249,22 @@ export type NormalizedInventorySnapshot = {
 export type NormalizedInventoryRow = {
   ingredient: Ingredient
   inventoryItem: InventoryItem
+}
+
+export type NormalizedStockMovement = {
+  id: string
+  branchId: string
+  ingredientId: string
+  ingredient?: Ingredient
+  createdByName: string
+  movementType: string
+  quantity: number
+  unit: string
+  unitCost: number
+  beforeQuantity: number
+  afterQuantity: number
+  reason: string
+  occurredAt: string
 }
 
 export type ApiRecipeItem = {
@@ -276,8 +324,7 @@ function isMemberRole(role: string): role is MemberRole {
   return (
     role === "owner" ||
     role === "manager" ||
-    role === "staff" ||
-    role === "viewer"
+    role === "staff"
   )
 }
 
@@ -310,6 +357,7 @@ function normalizeMember(member: ApiMember, branchIds: string[]): Member {
     password: "",
     branchIds,
     primaryBranchId: member.primaryBranchId ?? branchIds[0] ?? "",
+    permissions: member.permissions ?? {},
   }
 }
 
@@ -406,6 +454,24 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
       costPerUnit: toNumber(row.costPerUnit),
       lastUpdated: formatApiDate(row.lastUpdatedAt),
     },
+  }
+}
+
+function normalizeStockMovement(row: ApiStockMovement): NormalizedStockMovement {
+  return {
+    id: row.id,
+    branchId: row.branchId,
+    ingredientId: row.ingredientId,
+    ingredient: row.ingredient ? normalizeIngredient(row.ingredient) : undefined,
+    createdByName: row.createdBy?.name ?? row.createdBy?.username ?? "-",
+    movementType: row.movementType,
+    quantity: toNumber(row.quantity),
+    unit: row.unit,
+    unitCost: toNumber(row.unitCost),
+    beforeQuantity: toNumber(row.beforeQuantity),
+    afterQuantity: toNumber(row.afterQuantity),
+    reason: row.reason ?? "",
+    occurredAt: row.occurredAt,
   }
 }
 
@@ -657,6 +723,64 @@ export async function apiCreateBranchStockOut(
   const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
 
   return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiGetBranchInventoryMovements(
+  branchId: string,
+  input: { date?: string; movementType?: string } = {}
+): Promise<NormalizedStockMovement[]> {
+  const params = new URLSearchParams()
+
+  if (input.date) {
+    params.set("date", input.date)
+  }
+
+  if (input.movementType) {
+    params.set("movementType", input.movementType)
+  }
+
+  const query = params.toString()
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/movements${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  )
+  const data = await parseJsonResponse<{ movements: ApiStockMovement[] }>(
+    response
+  )
+
+  return data.movements.map(normalizeStockMovement)
+}
+
+export async function apiCreateBranchUsage(
+  branchId: string,
+  input: UsageApiInput
+): Promise<{
+  inventoryRows: NormalizedInventoryRow[]
+  movements: NormalizedStockMovement[]
+}> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{
+    inventory: ApiInventoryRow[]
+    movements: ApiStockMovement[]
+  }>(response)
+
+  return {
+    inventoryRows: data.inventory.map(normalizeInventoryRow),
+    movements: data.movements.map(normalizeStockMovement),
+  }
 }
 
 export async function apiGetBranchPurchases(

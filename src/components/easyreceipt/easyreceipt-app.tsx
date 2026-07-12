@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -119,9 +120,17 @@ import {
   type RecipeFormInput,
   type RecipeImpact,
   type StockStatus,
+  type UsageDraftItem,
 } from "@/hooks/use-easyreceipt-store"
 import { useEasyReceipt } from "@/components/easyreceipt/easyreceipt-provider"
+import {
+  menuPermissionKeys,
+  memberCanViewMenu,
+  normalizeMemberPermissions,
+} from "@/lib/easyreceipt-data"
 import type {
+  MenuPermissionKey,
+  MemberMenuPermissions,
   MemberRole,
   MemberStatus,
   PurchaseItem,
@@ -140,7 +149,7 @@ type NavItem = {
   color: string
 }
 
-const isBudgetManagementPageEnabled = false
+const isBudgetManagementPageEnabled = true
 const isCashFlowReportTabEnabled = false
 const isDashboardPageEnabled = false
 
@@ -162,6 +171,15 @@ const navItems: NavItem[] = [
     href: "/portal/purchase",
     icon: Plus,
     color: "text-amber-700 bg-amber-50 border-amber-200",
+  },
+  {
+    id: "usage",
+    label: "บันทึกของใช้ไป",
+    shortLabel: "ของใช้ไป",
+    description: "บันทึกวัตถุดิบที่ใช้และตัดคลังทันที",
+    href: "/portal/usage",
+    icon: Minus,
+    color: "text-rose-700 bg-rose-50 border-rose-200",
   },
   {
     id: "stock",
@@ -211,17 +229,70 @@ const navItems: NavItem[] = [
 ]
 
 function canAccessMemberManagement(member: Store["currentMember"]) {
-  return member?.role === "owner" || member?.role === "manager"
+  return memberCanViewMenu(member, "members")
 }
 
 function canAccessBudgetManagement(member: Store["currentMember"]) {
-  return member?.role === "owner" || member?.role === "manager"
+  return memberCanViewMenu(member, "budgets")
+}
+
+function canAccessReports(member: Store["currentMember"]) {
+  return memberCanViewMenu(member, "reports")
+}
+
+function canAccessPurchase(member: Store["currentMember"]) {
+  return memberCanViewMenu(member, "purchase")
+}
+
+function canAccessStock(member: Store["currentMember"]) {
+  return memberCanViewMenu(member, "stock")
+}
+
+function canAccessView(view: ViewId, member: Store["currentMember"]) {
+  if (view === "dashboard") {
+    return isDashboardPageEnabled
+  }
+
+  if (view === "purchase") {
+    return canAccessPurchase(member)
+  }
+
+  if (view === "usage") {
+    return memberCanViewMenu(member, "usage")
+  }
+
+  if (view === "stock") {
+    return canAccessStock(member)
+  }
+
+  if (view === "recipes") {
+    return memberCanViewMenu(member, "recipes")
+  }
+
+  if (view === "reports") {
+    return canAccessReports(member)
+  }
+
+  if (view === "members") {
+    return canAccessMemberManagement(member)
+  }
+
+  if (view === "budgets") {
+    return isBudgetManagementPageEnabled && canAccessBudgetManagement(member)
+  }
+
+  return true
 }
 
 function visibleNavItems(member: Store["currentMember"]) {
   return navItems.filter(
     (item) =>
       (item.id !== "dashboard" || isDashboardPageEnabled) &&
+      (item.id !== "purchase" || canAccessPurchase(member)) &&
+      (item.id !== "usage" || memberCanViewMenu(member, "usage")) &&
+      (item.id !== "stock" || canAccessStock(member)) &&
+      (item.id !== "recipes" || memberCanViewMenu(member, "recipes")) &&
+      (item.id !== "reports" || canAccessReports(member)) &&
       (item.id !== "members" || canAccessMemberManagement(member)) &&
       (item.id !== "budgets" ||
         (isBudgetManagementPageEnabled && canAccessBudgetManagement(member)))
@@ -321,14 +392,10 @@ function memberRoleLabel(role: MemberRole) {
   }
 
   if (role === "manager") {
-    return "ผู้จัดการ"
+    return "ผู้ดูแลระบบ"
   }
 
-  if (role === "staff") {
-    return "พนักงาน"
-  }
-
-  return "ผู้ดูรายงาน"
+  return "พนักงาน"
 }
 
 function memberStatusLabel(status: MemberStatus) {
@@ -768,17 +835,17 @@ export function EasyReceiptPortalPage({
   }, [router, store.currentMember, store.isAuthReady])
 
   useEffect(() => {
+    if (!store.isAuthReady || !store.currentMember) {
+      return
+    }
+
+    const fallbackItem = visibleNavItems(store.currentMember)[0]
+
     if (
-      store.isAuthReady &&
-      store.currentMember &&
-      ((activeView === "dashboard" && !isDashboardPageEnabled) ||
-        (activeView === "members" &&
-        !canAccessMemberManagement(store.currentMember)) ||
-        (activeView === "budgets" &&
-          (!isBudgetManagementPageEnabled ||
-            !canAccessBudgetManagement(store.currentMember))))
+      fallbackItem &&
+      !canAccessView(activeView, store.currentMember)
     ) {
-      router.replace("/portal/purchase")
+      router.replace(fallbackItem.href)
     }
   }, [activeView, router, store.currentMember, store.isAuthReady])
 
@@ -792,12 +859,27 @@ export function EasyReceiptPortalPage({
   }
 
   const memberCanAccessMembers = canAccessMemberManagement(store.currentMember)
+  const memberCanAccessReports = canAccessReports(store.currentMember)
   const memberCanAccessBudgets =
     isBudgetManagementPageEnabled &&
     canAccessBudgetManagement(store.currentMember)
   const currentNavItems = visibleNavItems(store.currentMember)
+  const activeViewIsAllowed = canAccessView(activeView, store.currentMember)
   const activeItem =
     currentNavItems.find((item) => item.id === activeView) ?? currentNavItems[0]
+
+  if (!activeItem) {
+    return (
+      <div className="min-h-screen bg-[var(--app-bg)] p-4 text-foreground">
+        <div className="mx-auto flex min-h-[60vh] max-w-md items-center">
+          <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+            บัญชีนี้ยังไม่มีสิทธิ์มองเห็นเมนูใด ๆ กรุณาติดต่อผู้ดูแลระบบ
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const ActiveIcon = activeItem.icon
 
   return (
@@ -867,10 +949,10 @@ export function EasyReceiptPortalPage({
           </header>
 
           <main className="flex-1 px-4 py-5 pb-28 sm:px-6 lg:px-8 lg:pb-8">
-            {(activeView === "dashboard" && !isDashboardPageEnabled) ||
-            (activeView === "members" && !memberCanAccessMembers) ||
-            (activeView === "budgets" && !memberCanAccessBudgets) ? (
-              <PurchaseView store={store} />
+            {!activeViewIsAllowed ? (
+              <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+                กำลังนำทางไปยังเมนูที่บัญชีนี้มีสิทธิ์ใช้งาน
+              </div>
             ) : (
               children ?? (
                 <>
@@ -878,9 +960,12 @@ export function EasyReceiptPortalPage({
                     <DashboardView store={store} />
                   )}
                   {activeView === "purchase" && <PurchaseView store={store} />}
+                  {activeView === "usage" && <UsageView store={store} />}
                   {activeView === "stock" && <StockView store={store} />}
                   {activeView === "recipes" && <RecipesView store={store} />}
-                  {activeView === "reports" && <ReportsView store={store} />}
+                  {activeView === "reports" && memberCanAccessReports && (
+                    <ReportsView store={store} />
+                  )}
                   {activeView === "budgets" && memberCanAccessBudgets && (
                     <BudgetsView store={store} />
                   )}
@@ -909,8 +994,49 @@ function AuthLoadingScreen() {
 }
 
 type Store = EasyReceiptStore
+type SavedPurchaseRow = {
+  purchase: Store["savedPurchasesForDate"][number]
+  item: Store["savedPurchasesForDate"][number]["items"][number]
+}
+type SavedPurchaseSupplierGroup = {
+  supplier: string
+  total: number
+  rows: (SavedPurchaseRow & { index: number })[]
+}
 type WidgetPosition = { right: number; bottom: number }
 const maxStockOutPhotoSize = 5 * 1024 * 1024
+const customUsageReasonsKey = "easyreceipt.customUsageReasons"
+const defaultUsageReasons = [
+  "ใช้ผลิตประจำวัน",
+  "เบิกใช้หน้าร้าน",
+  "เตรียมวัตถุดิบล่วงหน้า",
+  "ทดลองเมนู",
+  "ใช้สำหรับงานพิเศษ",
+]
+
+function loadCustomUsageReasons() {
+  if (typeof window === "undefined") {
+    return []
+  }
+
+  try {
+    const storedReasons = JSON.parse(
+      window.localStorage.getItem(customUsageReasonsKey) ?? "[]"
+    ) as unknown
+
+    if (!Array.isArray(storedReasons)) {
+      return []
+    }
+
+    return storedReasons
+      .filter((reason): reason is string => typeof reason === "string")
+      .map((reason) => reason.trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
 type WidgetDragState = {
   pointerId: number
   startX: number
@@ -2181,10 +2307,14 @@ function PurchaseView({ store }: { store: Store }) {
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
+  const savedPurchaseGroups = groupSavedPurchaseRowsBySupplier(
+    savedPurchaseRows,
+    store
+  )
   const draftPurchaseRows = store.draftPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
-  const newItemIndexOffset = savedPurchaseRows.length + draftPurchaseRows.length
+  const newItemIndexOffset = draftPurchaseRows.length
   const budgetStatus = store.purchaseBudgetStatus
   const hasPurchasesToSubmit =
     store.purchaseItems.some((item) => item.ingredientId && item.quantity > 0) ||
@@ -2253,6 +2383,12 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
+      {!store.canEditPurchase && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          บัญชีนี้มีสิทธิ์ดูบันทึกของมาเพิ่ม แต่ไม่มีสิทธิ์เพิ่ม ลบ หรือแก้ไขรายการ
+        </div>
+      )}
+
       {(store.purchaseError || purchaseMessage) && (
         <div
           className={cn(
@@ -2270,24 +2406,14 @@ function PurchaseView({ store }: { store: Store }) {
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
             <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
-              <ShoppingCart className="size-4 text-amber-600 sm:size-5" />
-              <h2 className="text-base font-semibold sm:text-lg">ใบสรุปการซื้อของ</h2>
+              <Plus className="size-4 text-amber-600 sm:size-5" />
+              <h2 className="text-base font-semibold sm:text-lg">
+                บันทึกของมาเพิ่ม
+              </h2>
             </div>
             <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
-              กรอกวัตถุดิบ ปริมาณ และราคาต่อหน่วย ระบบจะรวมยอดให้ทันที
+              เลือกวัตถุดิบ จำนวน และราคาต่อหน่วย ระบบจะบันทึกประวัติและเพิ่มเข้าคลังเมื่อกดบันทึก
             </p>
-            <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
-              <Badge variant="secondary" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
-                ร่าง {store.purchaseItems.length} รายการ
-              </Badge>
-              <Badge variant="outline" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
-                ฉบับร่าง {store.draftPurchasesForDate.length} ใบ
-              </Badge>
-              <Badge variant="outline" className="h-6 px-2.5 text-xs sm:h-7 sm:px-3">
-                บันทึกแล้ว {store.savedPurchasesForDate.length} ใบ /{" "}
-                {formatCurrency(store.savedPurchaseTotalForDate)}
-              </Badge>
-            </div>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -2322,137 +2448,95 @@ function PurchaseView({ store }: { store: Store }) {
           </div>
         </div>
 
-        <div className="overflow-x-auto overflow-y-visible rounded-lg border border-border">
-          <Table className="min-w-[52rem] text-xs sm:text-sm lg:min-w-0">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12 text-center sm:w-16">#</TableHead>
-                <TableHead className="w-80 sm:w-96">ชื่อวัตถุดิบ</TableHead>
-                <TableHead className="w-24 sm:w-36">ปริมาณ</TableHead>
-                <TableHead className="w-20 sm:w-28">หน่วย</TableHead>
-                <TableHead className="w-28 sm:w-40">ราคาต่อหน่วย</TableHead>
-                <TableHead className="w-24 text-right sm:w-36">ราคารวม</TableHead>
-                <TableHead className="w-12 sm:w-16" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {savedPurchaseRows.map(({ purchase, item }, itemIndex) => (
-                <SavedPurchaseTableRow
-                  key={`${purchase.id}-${item.id}`}
-                  purchase={purchase}
-                  item={item}
-                  index={itemIndex}
-                  store={store}
-                />
-              ))}
-              {draftPurchaseRows.map(({ purchase, item }, itemIndex) => (
-                <DraftPurchaseTableRow
-                  key={`${purchase.id}-${item.id}`}
-                  purchase={purchase}
-                  item={item}
-                  index={savedPurchaseRows.length + itemIndex}
-                  store={store}
-                  onDelete={handleDeletePurchaseDraftItem}
-                />
-              ))}
-              {store.purchaseItems.map((item, index) => (
-                <PurchaseTableRow
-                  key={item.id}
-                  index={newItemIndexOffset + index}
-                  item={item}
-                  store={store}
-                />
-              ))}
-              {savedPurchaseRows.length === 0 &&
-                draftPurchaseRows.length === 0 &&
-                store.purchaseItems.length === 0 && (
+        <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+          <div className="overflow-x-auto overflow-y-visible rounded-lg border border-border">
+            <Table className="w-full min-w-[45rem] table-fixed text-xs sm:text-sm">
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-56" />
+                <col className="w-20" />
+                <col className="w-20" />
+                <col className="w-[5.5rem]" />
+                <col className="w-24" />
+                <col className="w-28" />
+              </colgroup>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="h-16 text-center text-sm text-muted-foreground"
-                  >
-                    ยังไม่มีใบซื้อที่บันทึกในวันที่เลือก
-                  </TableCell>
+                  <TableHead className="text-center">#</TableHead>
+                  <TableHead>ชื่อวัตถุดิบ</TableHead>
+                  <TableHead>ปริมาณ</TableHead>
+                  <TableHead>หน่วย</TableHead>
+                  <TableHead>ราคาต่อหน่วย</TableHead>
+                  <TableHead className="text-right">ราคารวม</TableHead>
+                  <TableHead />
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-            <Button
-              className="col-span-2 h-12 min-w-0 justify-center px-3 text-[0px] sm:col-span-1 sm:h-11"
-              onClick={store.addPurchaseItem}
-              title="เพิ่มแถวรายการวัตถุดิบ"
-            >
-              <Plus className="size-4" />
-              <span className="truncate text-sm">เพิ่มแถว</span>
-              เพิ่มรายการ
-            </Button>
-            <Button
-              variant="outline"
-              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
-              onClick={handleSavePurchaseDraft}
-              disabled={store.purchaseItems.length === 0 || store.isPurchaseSaving}
-              title="บันทึกรายการเป็นฉบับร่าง"
-            >
-              {store.isPurchaseSaving ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <ReceiptText className="size-4" />
-              )}
-              <span className="truncate text-sm">เก็บร่าง</span>
-              บันทึกฉบับร่าง
-            </Button>
-            <Button
-              className="h-12 min-w-0 justify-center px-3 text-[0px] sm:h-11"
-              onClick={() => setIsPurchaseConfirmOpen(true)}
-              disabled={
-                store.isPurchaseSaving ||
-                budgetStatus.isOverBudget ||
-                !hasPurchasesToSubmit
-              }
-              title="บันทึกใบซื้อและอัปเดตคลัง"
-            >
-              {store.isPurchaseSaving ? (
-                <>
-                  <LoaderCircle className="size-4 animate-spin" />
-                  <span className="truncate text-sm">กำลังบันทึก</span>
-                  กำลังบันทึก...
-                </>
-              ) : (
-                <>
-                  <Save className="size-4" />
-                  <span className="truncate text-sm">บันทึกซื้อ</span>
-                  บันทึกใบซื้อ
-                </>
-              )}
-            </Button>
+              </TableHeader>
+              <TableBody>
+                {draftPurchaseRows.map(({ purchase, item }, itemIndex) => (
+                  <DraftPurchaseTableRow
+                    key={`${purchase.id}-${item.id}`}
+                    purchase={purchase}
+                    item={item}
+                    index={itemIndex}
+                    store={store}
+                    onDelete={handleDeletePurchaseDraftItem}
+                  />
+                ))}
+                {store.purchaseItems.map((item, index) => (
+                  <PurchaseTableRow
+                    key={item.id}
+                    index={newItemIndexOffset + index}
+                    item={item}
+                    store={store}
+                  />
+                ))}
+                {draftPurchaseRows.length === 0 &&
+                  store.purchaseItems.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="h-16 text-center text-sm text-muted-foreground"
+                    >
+                      กดเพิ่มแถวเพื่อเริ่มบันทึกของมาเพิ่ม
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
 
           <div
             className={cn(
-              "rounded-lg border p-4 sm:min-w-80",
+              "rounded-lg border p-2.5 sm:p-4",
               budgetStatus.isOverBudget
                 ? "border-red-200 bg-red-50 text-red-950"
                 : "border-sky-200 bg-sky-50 text-sky-950"
             )}
           >
-            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-              <span className="font-semibold">ราคาร่างใบซื้อ</span>
-              <span className="text-xl font-bold">
-                {formatCurrency(store.currentPurchaseTotal)}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-base font-semibold leading-tight">
+                สรุปของมาเพิ่ม
               </span>
+              <Badge variant="secondary" className="h-6 shrink-0 text-xs sm:h-7 sm:text-sm">
+                {store.purchaseItems.length} รายการ
+              </Badge>
+            </div>
+            <div className="mt-2 border-t border-sky-200 pt-2 sm:mt-3 sm:pt-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">ยอดซื้อ</span>
+                <span className="text-base font-bold leading-none sm:text-lg">
+                  {formatCurrency(budgetStatus.projected)}
+                </span>
+              </div>
             </div>
             <div
               className={cn(
-                "mt-2 space-y-2 border-t pt-2 text-sm",
-                budgetStatus.isOverBudget ? "border-red-200" : "border-sky-200"
+                "hidden sm:mt-3 sm:block sm:space-y-2 sm:text-sm",
+                budgetStatus.isOverBudget ? "text-red-900" : "text-sky-900"
               )}
             >
               <div className="flex items-center justify-between gap-4">
-                <span className="font-medium">งบรายวัน</span>
+                <span>งบของวัน</span>
                 <span className="font-semibold">
                   {budgetStatus.isLimited
                     ? formatCurrency(budgetStatus.budget ?? 0)
@@ -2460,37 +2544,150 @@ function PurchaseView({ store }: { store: Store }) {
                 </span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="font-medium">ใช้ไปแล้วของวันที่เลือก</span>
+                <span>บันทึกแล้ว</span>
                 <span className="font-semibold">
                   {formatCurrency(budgetStatus.used)}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="font-medium">ร่างใบซื้อปัจจุบัน</span>
+                <span>ยังไม่บันทึก</span>
                 <span className="font-semibold">
                   {formatCurrency(budgetStatus.draft)}
                 </span>
               </div>
               {budgetStatus.isLimited && (
                 <div className="flex items-center justify-between gap-4">
-                  <span className="font-medium">คงเหลือหลังบันทึก</span>
+                  <span>คงเหลือหลังบันทึก</span>
                   <span className="font-semibold">
                     {formatCurrency(budgetStatus.remaining ?? 0)}
                   </span>
                 </div>
               )}
             </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:mt-3">
+              <Button
+                variant="outline"
+                className="h-9 bg-background text-sm sm:h-10"
+                onClick={store.addPurchaseItem}
+                disabled={!store.canEditPurchase}
+                title="เพิ่มแถวรายการวัตถุดิบ"
+              >
+                <Plus className="size-4" />
+                เพิ่มแถว
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 bg-background text-sm sm:h-10"
+                onClick={handleSavePurchaseDraft}
+                disabled={
+                  !store.canEditPurchase ||
+                  store.purchaseItems.length === 0 ||
+                  store.isPurchaseSaving
+                }
+                title="บันทึกรายการเป็นฉบับร่าง"
+              >
+                {store.isPurchaseSaving ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <ReceiptText className="size-4" />
+                )}
+                เก็บร่าง
+              </Button>
+              <Button
+                className="col-span-2 h-9 text-sm sm:h-10"
+                onClick={() => setIsPurchaseConfirmOpen(true)}
+                disabled={
+                  !store.canEditPurchase ||
+                  store.isPurchaseSaving ||
+                  budgetStatus.isOverBudget ||
+                  !hasPurchasesToSubmit
+                }
+                title="บันทึกใบซื้อและอัปเดตคลัง"
+              >
+                {store.isPurchaseSaving ? (
+                  <>
+                    <LoaderCircle className="size-4 animate-spin" />
+                    กำลังบันทึก
+                  </>
+                ) : (
+                  <>
+                    <Save className="size-4" />
+                    บันทึกซื้อ
+                  </>
+                )}
+              </Button>
+            </div>
             <p
               className={cn(
-                "mt-2 text-sm",
+                "mt-3 hidden text-sm sm:block",
                 budgetStatus.isOverBudget ? "text-red-700" : "text-sky-700"
               )}
             >
               {budgetStatus.isOverBudget
                 ? "ระบบจะไม่บันทึกใบซื้อที่เกินงบประมาณรายวันของสาขา"
-                : "ระบบใช้ยอดนี้ไปคำนวณรายงานและอัปเดตคงเหลือในคลัง"}
+                : "ระบบจะบันทึกใบซื้อและเพิ่มคงเหลือในคลังวัตถุดิบทันที"}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex flex-col gap-2 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold">ประวัติของมาเพิ่มวันนี้</h2>
+            <p className="text-sm text-muted-foreground">
+              รายการที่บันทึกแล้วของวันที่เลือก แยกตามซัพพลายเออร์
+            </p>
+          </div>
+          <Badge variant="secondary" className="h-7 w-fit">
+            {savedPurchaseRows.length} รายการ
+          </Badge>
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[52rem] text-sm">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-24 text-center">เวลา</TableHead>
+                <TableHead>วัตถุดิบ</TableHead>
+                <TableHead>ปริมาณ</TableHead>
+                <TableHead>หน่วย</TableHead>
+                <TableHead>ราคาต่อหน่วย</TableHead>
+                <TableHead className="text-right">รวม</TableHead>
+                <TableHead className="w-28">สถานะ</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {savedPurchaseGroups.map((group) => (
+                <Fragment key={group.supplier}>
+                  <PurchaseSupplierGroupHeader
+                    supplier={group.supplier}
+                    count={group.rows.length}
+                    total={group.total}
+                  />
+                  {group.rows.map(({ purchase, item }) => (
+                    <SavedPurchaseTableRow
+                      key={`${purchase.id}-${item.id}`}
+                      purchase={purchase}
+                      item={item}
+                      store={store}
+                    />
+                  ))}
+                </Fragment>
+              ))}
+              {savedPurchaseRows.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="h-16 text-center text-sm text-muted-foreground"
+                  >
+                    {store.isPurchasesLoading
+                      ? "กำลังโหลดประวัติของมาเพิ่ม"
+                      : "ยังไม่มีรายการของมาเพิ่มในวันที่เลือก"}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
       </section>
 
@@ -2575,15 +2772,85 @@ function PurchaseView({ store }: { store: Store }) {
   )
 }
 
+function savedPurchaseRowSupplier(row: SavedPurchaseRow, store: Store) {
+  const ingredient =
+    row.item.ingredient ?? store.ingredientById.get(row.item.ingredientId)
+
+  return ingredient?.supplier?.trim() || "ไม่ระบุซัพพลายเออร์"
+}
+
+function groupSavedPurchaseRowsBySupplier(
+  rows: SavedPurchaseRow[],
+  store: Store
+): SavedPurchaseSupplierGroup[] {
+  const groupsBySupplier = new Map<
+    string,
+    Omit<SavedPurchaseSupplierGroup, "rows"> & { rows: SavedPurchaseRow[] }
+  >()
+
+  for (const row of rows) {
+    const supplier = savedPurchaseRowSupplier(row, store)
+    const existingGroup = groupsBySupplier.get(supplier)
+
+    if (existingGroup) {
+      existingGroup.rows.push(row)
+      existingGroup.total += row.item.lineTotal
+      continue
+    }
+
+    groupsBySupplier.set(supplier, {
+      supplier,
+      total: row.item.lineTotal,
+      rows: [row],
+    })
+  }
+
+  let nextIndex = 0
+
+  return Array.from(groupsBySupplier.values()).map((group) => ({
+    ...group,
+    rows: group.rows.map((row) => ({ ...row, index: nextIndex++ })),
+  }))
+}
+
+function PurchaseSupplierGroupHeader({
+  supplier,
+  count,
+  total,
+}: {
+  supplier: string
+  count: number
+  total: number
+}) {
+  return (
+    <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
+      <TableCell colSpan={7} className="px-3 py-2 sm:px-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Building2 className="size-4 shrink-0 text-sky-700" />
+            <span className="truncate font-semibold text-sky-950">
+              {supplier}
+            </span>
+            <Badge variant="secondary" className="h-6 shrink-0">
+              {count} รายการ
+            </Badge>
+          </div>
+          <div className="shrink-0 text-right text-sm font-semibold text-sky-950">
+            รวม {formatCurrency(total)}
+          </div>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 function SavedPurchaseTableRow({
   purchase,
   item,
-  index,
   store,
 }: {
   purchase: Store["savedPurchasesForDate"][number]
   item: Store["savedPurchasesForDate"][number]["items"][number]
-  index: number
   store: Store
 }) {
   const ingredient = item.ingredient ?? store.ingredientById.get(item.ingredientId)
@@ -2591,10 +2858,7 @@ function SavedPurchaseTableRow({
   return (
     <TableRow className="bg-muted/30">
       <TableCell className="text-center align-top">
-        <div className="font-medium">{index + 1}</div>
-        <div className="text-xs text-muted-foreground">
-          {formatThaiTime(purchase.purchasedAt)}
-        </div>
+        {formatThaiTime(purchase.purchasedAt)}
       </TableCell>
       <TableCell>
         <div className="font-medium">{ingredient?.name ?? "วัตถุดิบ"}</div>
@@ -2662,7 +2926,7 @@ function DraftPurchaseTableRow({
             size="icon-lg"
             className="h-9 w-9 text-red-600 hover:bg-red-50 hover:text-red-700 sm:h-11 sm:w-11"
             onClick={() => onDelete(purchase.id, item.id)}
-            disabled={store.isPurchaseDraftDeleting}
+            disabled={!store.canEditPurchase || store.isPurchaseDraftDeleting}
           >
             {store.isPurchaseDraftDeleting ? (
               <LoaderCircle className="size-4 animate-spin" />
@@ -2694,6 +2958,7 @@ function PurchaseTableRow({
           key={`${item.id}-${item.ingredientId}`}
           item={item}
           store={store}
+          className="w-full min-w-0 sm:min-w-0"
         />
       </TableCell>
       <TableCell>
@@ -2707,16 +2972,18 @@ function PurchaseTableRow({
               quantity: toNumber(event.target.value),
             })
           }
-          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
+          className="h-9 w-full px-2 text-sm sm:h-10"
+          disabled={!store.canEditPurchase}
         />
       </TableCell>
       <TableCell>
         <Input
-          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
+          className="h-9 w-full px-2 text-sm sm:h-10"
           value={item.unit}
           onChange={(event) =>
             store.updatePurchaseItem(item.id, { unit: event.target.value })
           }
+          disabled={!store.canEditPurchase}
         />
       </TableCell>
       <TableCell>
@@ -2730,7 +2997,8 @@ function PurchaseTableRow({
               unitPrice: toNumber(event.target.value),
             })
           }
-          className="h-9 px-2 text-sm sm:h-11 sm:px-3"
+          className="h-9 w-full px-2 text-sm sm:h-10"
+          disabled={!store.canEditPurchase}
         />
       </TableCell>
       <TableCell className="text-right font-semibold">
@@ -2742,6 +3010,7 @@ function PurchaseTableRow({
           size="icon-lg"
           className="h-9 w-9 sm:h-11 sm:w-11"
           onClick={() => store.removePurchaseItem(item.id)}
+          disabled={!store.canEditPurchase}
         >
           <Trash2 className="size-4" />
           <span className="sr-only">ลบรายการ</span>
@@ -2850,6 +3119,10 @@ function IngredientSelect({
   }, [isOpen])
 
   function handleSelectIngredient(ingredientId: string) {
+    if (!store.canEditPurchase) {
+      return
+    }
+
     const ingredient = store.ingredientById.get(ingredientId)
 
     if (!ingredient) {
@@ -2862,7 +3135,7 @@ function IngredientSelect({
   }
 
   async function handleAddIngredient() {
-    if (isAdding || store.isIngredientSaving) {
+    if (!store.canEditPurchase || isAdding || store.isIngredientSaving) {
       return
     }
 
@@ -2891,20 +3164,37 @@ function IngredientSelect({
       <div ref={inputAnchorRef} className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          type="search"
+          name={`purchase-ingredient-search-${item.id}`}
           className="h-11 pl-9 text-sm"
           value={query}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          disabled={!store.canEditPurchase}
           onFocus={() => {
+            if (!store.canEditPurchase) {
+              return
+            }
+
+            updateDropdownPosition()
             setIsOpen(true)
-            window.requestAnimationFrame(updateDropdownPosition)
           }}
           onBlur={() => {
             window.setTimeout(() => setIsOpen(false), 120)
           }}
           onChange={(event) => {
+            if (!store.canEditPurchase) {
+              return
+            }
+
             setQuery(event.target.value)
+            updateDropdownPosition()
             setIsOpen(true)
-            window.requestAnimationFrame(updateDropdownPosition)
           }}
         />
       </div>
@@ -3006,6 +3296,769 @@ function FieldNumber({
         disabled={disabled}
         className="h-11"
       />
+    </div>
+  )
+}
+
+function UsageView({ store }: { store: Store }) {
+  const [usageReason, setUsageReason] = useState("")
+  const [usageMessage, setUsageMessage] = useState("")
+  const usageMessageIsError =
+    Boolean(store.usageError) ||
+    usageMessage.includes("ไม่") ||
+    usageMessage.includes("กรุณา")
+  const draftRows = store.usageItems
+  const readyRows = draftRows.filter((item) => item.ingredientId && item.quantity > 0)
+  const invalidRows = draftRows.filter((item) => {
+    if (!item.ingredientId || item.quantity <= 0) {
+      return false
+    }
+
+    const inventory = store.inventoryRows.find(
+      (row) => row.ingredientId === item.ingredientId
+    )
+
+    return !inventory || item.quantity > inventory.onHand
+  })
+  const usageReasonOptions = Array.from(
+    new Set(
+      [
+        ...defaultUsageReasons,
+        ...store.usageMovements.map((movement) => movement.reason),
+      ]
+        .map((reason) => reason.trim())
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right, "th"))
+  const canSubmitUsage =
+    store.canEditUsage &&
+    readyRows.length > 0 &&
+    invalidRows.length === 0 &&
+    Boolean(usageReason.trim()) &&
+    !store.isUsageSaving
+
+  async function handleSubmitUsage() {
+    setUsageMessage("")
+    const result = await store.submitUsageDraft(usageReason)
+
+    if (!result.ok) {
+      setUsageMessage(result.error ?? "ไม่สามารถบันทึกของใช้ไปได้")
+      return
+    }
+
+    setUsageReason("")
+    setUsageMessage("บันทึกของใช้ไปและตัดคลังวัตถุดิบเรียบร้อย")
+  }
+
+  return (
+    <div className="space-y-5">
+      {(store.usageError || usageMessage) && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3 text-sm",
+            usageMessageIsError
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          )}
+        >
+          {store.usageError || usageMessage}
+        </div>
+      )}
+
+      {!store.canEditUsage && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          บัญชีนี้ดูข้อมูลได้ แต่ไม่มีสิทธิ์บันทึกของใช้ไปและตัดคลังวัตถุดิบ
+        </div>
+      )}
+
+      <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+              <Minus className="size-4 text-rose-600 sm:size-5" />
+              <h2 className="text-base font-semibold sm:text-lg">
+                บันทึกของใช้ไป
+              </h2>
+            </div>
+            <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
+              เลือกวัตถุดิบและจำนวนที่ใช้ ระบบจะบันทึกประวัติและตัดคลังทันทีเมื่อกดบันทึก
+            </p>
+          </div>
+
+          <div className="min-w-52">
+            <Label className="mb-2 block">วันที่ใช้</Label>
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    className="h-11 w-full justify-start px-3 text-left"
+                  />
+                }
+              >
+                <CalendarIcon className="size-4 text-muted-foreground" />
+                {formatThaiDate(store.usageDate)}
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={store.usageDate}
+                  onSelect={(date) => {
+                    if (date) {
+                      store.setUsageDate(date)
+                    }
+                  }}
+                  locale={th}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <Table className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-60" />
+                <col className="w-20" />
+                <col className="w-20" />
+                <col className="w-14" />
+                <col className="w-20" />
+                <col className="w-12" />
+              </colgroup>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-center">#</TableHead>
+                  <TableHead>วัตถุดิบ</TableHead>
+                  <TableHead className="text-right">คงเหลือ</TableHead>
+                  <TableHead>จำนวนที่ใช้</TableHead>
+                  <TableHead>หน่วย</TableHead>
+                  <TableHead className="text-right">หลังบันทึก</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {draftRows.map((item, index) => (
+                  <UsageDraftTableRow
+                    key={item.id}
+                    index={index}
+                    item={item}
+                    store={store}
+                  />
+                ))}
+                {draftRows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="h-16 text-center text-sm text-muted-foreground"
+                    >
+                      กดเพิ่มแถวเพื่อเริ่มบันทึกของใช้ไป
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-base font-semibold leading-tight">
+                สรุปของใช้ไป
+              </span>
+              <Badge variant="secondary" className="h-6 shrink-0 text-xs sm:h-7 sm:text-sm">
+                {readyRows.length} รายการ
+              </Badge>
+            </div>
+            <div className="mt-3">
+              <Label className="mb-1.5 block text-sm">เหตุผลรวมของรอบนี้</Label>
+              <UsageReasonCombobox
+                value={usageReason}
+                options={usageReasonOptions}
+                onChange={setUsageReason}
+                disabled={!store.canEditUsage}
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                className="h-10 bg-background"
+                onClick={store.addUsageItem}
+                disabled={!store.canEditUsage}
+              >
+                <Plus className="size-4" />
+                เพิ่มแถว
+              </Button>
+              <Button
+                className="h-10"
+                onClick={handleSubmitUsage}
+                disabled={!canSubmitUsage}
+              >
+                {store.isUsageSaving ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
+                บันทึกใช้ไป
+              </Button>
+            </div>
+            <p className="mt-3 hidden text-sm text-sky-700 sm:block">
+              ระบบจะสร้างประวัติบันทึกของใช้ไปและตัดคงเหลือในคลังวัตถุดิบทันที
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex flex-col gap-2 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold">ประวัติของใช้ไปวันนี้</h2>
+            <p className="text-sm text-muted-foreground">
+              เฉพาะรายการบันทึกของใช้ไปของวันที่เลือก
+            </p>
+          </div>
+          <Badge variant="secondary" className="h-7 w-fit">
+            {store.usageMovements.length} รายการ
+          </Badge>
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[52rem] text-sm">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-24">เวลา</TableHead>
+                <TableHead>วัตถุดิบ</TableHead>
+                <TableHead className="text-right">จำนวน</TableHead>
+                <TableHead>ผู้บันทึก</TableHead>
+                <TableHead>เหตุผล</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {store.usageMovements.map((movement) => (
+                <TableRow key={movement.id}>
+                  <TableCell>{formatThaiTime(movement.occurredAt)}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">
+                      {movement.ingredient?.name ?? "วัตถุดิบ"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      หลังตัดเหลือ {formatNumber(movement.afterQuantity)}{" "}
+                      {movement.unit}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatNumber(movement.quantity)} {movement.unit}
+                  </TableCell>
+                  <TableCell>{movement.createdByName}</TableCell>
+                  <TableCell className="max-w-80 truncate">
+                    {movement.reason || "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {store.usageMovements.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="h-16 text-center text-sm text-muted-foreground"
+                  >
+                    {store.isUsageMovementsLoading
+                      ? "กำลังโหลดประวัติของใช้ไป"
+                      : "ยังไม่มีรายการของใช้ไปในวันที่เลือก"}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function UsageReasonCombobox({
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [customReasons, setCustomReasons] = useState<string[]>(
+    loadCustomUsageReasons
+  )
+  const [dropdownPosition, setDropdownPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 320,
+    maxHeight: 280,
+  })
+  const searchTerm = normalizeSearch(value)
+  const allReasons = Array.from(
+    new Set(
+      [...options, ...customReasons]
+        .map((reason) => reason.trim())
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right, "th"))
+  const filteredReasons = allReasons
+    .filter((reason) => !searchTerm || normalizeSearch(reason).includes(searchTerm))
+    .sort((left, right) => {
+      const leftName = normalizeSearch(left)
+      const rightName = normalizeSearch(right)
+      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+
+      if (leftStarts !== rightStarts) {
+        return leftStarts - rightStarts
+      }
+
+      return left.localeCompare(right, "th")
+    })
+    .slice(0, 8)
+  const cleanValue = value.trim()
+  const hasExactReason = allReasons.some(
+    (reason) => normalizeSearch(reason) === normalizeSearch(cleanValue)
+  )
+  const canAddReason = Boolean(cleanValue) && !hasExactReason
+
+  function updateDropdownPosition() {
+    const anchor = inputAnchorRef.current
+
+    if (!anchor) {
+      return
+    }
+
+    const rect = anchor.getBoundingClientRect()
+    const viewportPadding = 8
+    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
+    const availableAbove = rect.top - viewportPadding
+    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
+    const maxHeight = Math.max(
+      160,
+      Math.min(280, shouldOpenAbove ? availableAbove : availableBelow)
+    )
+
+    setDropdownPosition({
+      left: Math.min(
+        Math.max(viewportPadding, rect.left),
+        window.innerWidth - dropdownWidth - viewportPadding
+      ),
+      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
+      width: dropdownWidth,
+      maxHeight,
+    })
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    updateDropdownPosition()
+    window.addEventListener("resize", updateDropdownPosition)
+    window.addEventListener("scroll", updateDropdownPosition, true)
+
+    return () => {
+      window.removeEventListener("resize", updateDropdownPosition)
+      window.removeEventListener("scroll", updateDropdownPosition, true)
+    }
+  }, [isOpen])
+
+  function persistCustomReasons(nextReasons: string[]) {
+    setCustomReasons(nextReasons)
+
+    if (typeof window === "undefined") {
+      return
+    }
+
+    try {
+      window.localStorage.setItem(
+        customUsageReasonsKey,
+        JSON.stringify(nextReasons)
+      )
+    } catch {
+      // Remembering custom reasons is a convenience, not required to submit.
+    }
+  }
+
+  function selectReason(reason: string) {
+    onChange(reason)
+    setIsOpen(false)
+  }
+
+  function addCurrentReason() {
+    if (!canAddReason) {
+      return
+    }
+
+    const nextReason = cleanValue
+    const nextReasons = Array.from(new Set([...customReasons, nextReason]))
+
+    persistCustomReasons(nextReasons)
+    selectReason(nextReason)
+  }
+
+  return (
+    <div className="relative">
+      <div ref={inputAnchorRef} className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          className="h-10 bg-background pl-9 pr-3"
+          value={value}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          onFocus={() => {
+            updateDropdownPosition()
+            setIsOpen(true)
+          }}
+          onBlur={() => {
+            window.setTimeout(() => setIsOpen(false), 120)
+          }}
+          onChange={(event) => {
+            onChange(event.target.value)
+            updateDropdownPosition()
+            setIsOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && canAddReason) {
+              event.preventDefault()
+              addCurrentReason()
+            }
+          }}
+          placeholder="ค้นหาหรือเพิ่มเหตุผล"
+          disabled={disabled}
+        />
+      </div>
+
+      {isOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-50 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
+          style={{
+            left: dropdownPosition.left,
+            top: dropdownPosition.top,
+            width: dropdownPosition.width,
+            maxHeight: dropdownPosition.maxHeight,
+          }}
+        >
+          {filteredReasons.map((reason) => (
+            <button
+              key={reason}
+              type="button"
+              className={cn(
+                "flex min-h-10 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-muted",
+                normalizeSearch(reason) === normalizeSearch(value) && "bg-muted"
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectReason(reason)}
+            >
+              <span className="min-w-0 truncate font-medium">{reason}</span>
+              {customReasons.includes(reason) && (
+                <Badge variant="secondary" className="h-6 shrink-0 text-xs">
+                  เพิ่มเอง
+                </Badge>
+              )}
+            </button>
+          ))}
+
+          {canAddReason && (
+            <button
+              type="button"
+              className="mt-1 flex min-h-10 w-full items-center gap-2 rounded-md border border-dashed border-sky-300 bg-sky-50 px-3 py-2 text-left text-sm text-sky-900 hover:bg-sky-100"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={addCurrentReason}
+            >
+              <Plus className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">
+                เพิ่มเหตุผล “{cleanValue}”
+              </span>
+            </button>
+          )}
+
+          {filteredReasons.length === 0 && !canAddReason && (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              พิมพ์เพื่อค้นหาหรือเพิ่มเหตุผลใหม่
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+}
+
+function UsageDraftTableRow({
+  index,
+  item,
+  store,
+}: {
+  index: number
+  item: UsageDraftItem
+  store: Store
+}) {
+  const inventoryRow = store.inventoryRows.find(
+    (row) => row.ingredientId === item.ingredientId
+  )
+  const afterQuantity = inventoryRow
+    ? Math.max(inventoryRow.onHand - item.quantity, 0)
+    : 0
+  const isOverStock = Boolean(
+    inventoryRow && item.quantity > inventoryRow.onHand
+  )
+
+  return (
+    <TableRow className={cn(isOverStock && "bg-red-50/60")}>
+      <TableCell className="text-center align-top">{index + 1}</TableCell>
+      <TableCell>
+        <UsageIngredientSelect
+          value={item.ingredientId}
+          store={store}
+          onChange={(ingredientId) =>
+            store.updateUsageItem(item.id, { ingredientId })
+          }
+          disabled={!store.canEditUsage}
+          className="w-full min-w-0"
+        />
+      </TableCell>
+      <TableCell className="text-right">
+        {inventoryRow
+          ? `${formatNumber(inventoryRow.onHand)} ${inventoryRow.ingredient.unit}`
+          : "-"}
+      </TableCell>
+      <TableCell>
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          className="h-9 w-full px-2 text-sm sm:h-10"
+          value={item.quantity === 0 ? "" : item.quantity}
+          onChange={(event) =>
+            store.updateUsageItem(item.id, {
+              quantity: toNumber(event.target.value),
+            })
+          }
+          disabled={!store.canEditUsage}
+        />
+      </TableCell>
+      <TableCell>{inventoryRow?.ingredient.unit ?? "-"}</TableCell>
+      <TableCell
+        className={cn(
+          "text-right font-semibold",
+          isOverStock && "text-red-700"
+        )}
+      >
+        {inventoryRow
+          ? `${formatNumber(afterQuantity)} ${inventoryRow.ingredient.unit}`
+          : "-"}
+      </TableCell>
+      <TableCell className="text-right">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="text-red-600 hover:bg-red-50 hover:text-red-700"
+          onClick={() => store.removeUsageItem(item.id)}
+          disabled={!store.canEditUsage}
+        >
+          <Trash2 className="size-4" />
+          <span className="sr-only">ลบรายการของใช้ไป</span>
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+function UsageIngredientSelect({
+  value,
+  store,
+  onChange,
+  disabled = false,
+  className,
+}: {
+  value: string
+  store: Store
+  onChange: (ingredientId: string) => void
+  disabled?: boolean
+  className?: string
+}) {
+  const selectedRow = store.inventoryRows.find((row) => row.ingredientId === value)
+  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
+  const [query, setQuery] = useState(selectedRow?.ingredient.name ?? "")
+  const [isOpen, setIsOpen] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 320,
+    maxHeight: 320,
+  })
+  const searchTerm = normalizeSearch(query)
+  const filteredRows = store.inventoryRows
+    .filter((row) => {
+      if (!searchTerm) {
+        return true
+      }
+
+      return [
+        row.ingredient.name,
+        row.ingredient.category,
+        row.ingredient.supplier,
+        row.ingredient.unit,
+      ]
+        .map(normalizeSearch)
+        .some((item) => item.includes(searchTerm))
+    })
+    .sort((left, right) => {
+      const leftName = normalizeSearch(left.ingredient.name)
+      const rightName = normalizeSearch(right.ingredient.name)
+      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+
+      if (leftStarts !== rightStarts) {
+        return leftStarts - rightStarts
+      }
+
+      return left.ingredient.name.localeCompare(right.ingredient.name, "th")
+    })
+    .slice(0, 12)
+
+  function updateDropdownPosition() {
+    const anchor = inputAnchorRef.current
+
+    if (!anchor) {
+      return
+    }
+
+    const rect = anchor.getBoundingClientRect()
+    const viewportPadding = 8
+    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
+    const availableAbove = rect.top - viewportPadding
+    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
+    const maxHeight = Math.max(
+      160,
+      Math.min(320, shouldOpenAbove ? availableAbove : availableBelow)
+    )
+
+    setDropdownPosition({
+      left: Math.min(
+        Math.max(viewportPadding, rect.left),
+        window.innerWidth - dropdownWidth - viewportPadding
+      ),
+      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
+      width: dropdownWidth,
+      maxHeight,
+    })
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    updateDropdownPosition()
+    window.addEventListener("resize", updateDropdownPosition)
+    window.addEventListener("scroll", updateDropdownPosition, true)
+
+    return () => {
+      window.removeEventListener("resize", updateDropdownPosition)
+      window.removeEventListener("scroll", updateDropdownPosition, true)
+    }
+  }, [isOpen])
+
+  function handleSelectIngredient(ingredientId: string) {
+    const row = store.inventoryRows.find((item) => item.ingredientId === ingredientId)
+
+    if (!row) {
+      return
+    }
+
+    onChange(row.ingredientId)
+    setQuery(row.ingredient.name)
+    setIsOpen(false)
+  }
+
+  return (
+    <div className={cn("relative min-w-72", className)}>
+      <div ref={inputAnchorRef} className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          name="usage-ingredient-search"
+          className="h-9 pl-9 text-sm sm:h-10"
+          value={query}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          onFocus={() => {
+            updateDropdownPosition()
+            setIsOpen(true)
+          }}
+          onBlur={() => {
+            window.setTimeout(() => setIsOpen(false), 120)
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            updateDropdownPosition()
+            setIsOpen(true)
+          }}
+          placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
+          disabled={disabled}
+        />
+      </div>
+
+      {isOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-50 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
+          style={{
+            left: dropdownPosition.left,
+            top: dropdownPosition.top,
+            width: dropdownPosition.width,
+            maxHeight: dropdownPosition.maxHeight,
+          }}
+        >
+          {filteredRows.map((row) => (
+            <button
+              key={row.ingredientId}
+              type="button"
+              className={cn(
+                "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-muted",
+                row.ingredientId === value && "bg-muted"
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleSelectIngredient(row.ingredientId)}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {row.ingredient.name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {row.ingredient.category} · {row.ingredient.supplier}
+                </span>
+              </span>
+              <Badge variant="secondary" className="h-6 shrink-0">
+                {formatNumber(row.onHand)} {row.ingredient.unit}
+              </Badge>
+            </button>
+          ))}
+          {filteredRows.length === 0 && (
+            <div className="px-3 py-4 text-sm text-muted-foreground">
+              ไม่พบวัตถุดิบที่ตรงกับคำค้น
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -3917,6 +4970,11 @@ function RecipesView({ store }: { store: Store }) {
             {store.recipeError}
           </div>
         )}
+        {!store.canEditRecipes && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            บัญชีนี้ดูสูตรอาหารได้ แต่ไม่มีสิทธิ์เพิ่ม ลบ แก้ไข ปักหมุด หรือปรุงรายการอาหาร
+          </div>
+        )}
       </section>
 
       <section className="grid gap-2 sm:gap-3 lg:grid-cols-2">
@@ -3927,9 +4985,10 @@ function RecipesView({ store }: { store: Store }) {
             store={store}
             onUnpin={handleUnpinRecipe}
             isSaving={store.isRecipeSaving}
+            canEdit={store.canEditRecipes}
           />
         ))}
-        <RecipeAddCard />
+        {store.canEditRecipes && <RecipeAddCard />}
       </section>
     </div>
   )
@@ -4252,6 +5311,38 @@ function RecipeFormView({
     )
   }
 
+  if (!store.canEditRecipes) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardAction>
+              <span className="flex size-10 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700">
+                <LockKeyhole className="size-5" />
+              </span>
+            </CardAction>
+            <CardTitle>ไม่มีสิทธิ์แก้ไขสูตรอาหาร</CardTitle>
+            <CardDescription>
+              บัญชีนี้มีสิทธิ์ดูสูตรอาหาร แต่ไม่มีสิทธิ์เพิ่ม ลบ แก้ไข ปักหมุด หรือปรุงรายการอาหาร
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/portal/recipes"
+              className={buttonVariants({
+                variant: "outline",
+                className: "h-11",
+              })}
+            >
+              <ArrowLeft className="size-4" />
+              กลับหน้าทดลองสูตรอาหาร
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full max-w-4xl space-y-4 pb-20 sm:pb-0">
       <Link
@@ -4474,11 +5565,13 @@ function RecipeCard({
   store,
   onUnpin,
   isSaving,
+  canEdit,
 }: {
   recipe: RecipeImpact
   store: Store
   onUnpin: (recipeId: string) => void
   isSaving: boolean
+  canEdit: boolean
 }) {
   const recipeStatusLabel = recipe.isCooked
     ? "ปรุงแล้ว"
@@ -4506,7 +5599,7 @@ function RecipeCard({
               variant="outline"
               className="h-9 border-rose-200 px-3 text-sm text-rose-700 hover:bg-rose-50 hover:text-rose-800 sm:w-9 sm:px-0"
               onClick={() => onUnpin(recipe.id)}
-              disabled={isSaving || recipe.isCooked}
+              disabled={!canEdit || isSaving || recipe.isCooked}
             >
               {isSaving ? (
                 <LoaderCircle className="size-4 animate-spin" />
@@ -4633,9 +5726,17 @@ function RecipeIngredientSelect({
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          type="search"
+          name={`recipe-ingredient-search-${value || "new"}`}
           className="h-11 pl-9"
           value={isOpen ? query : (selectedIngredient?.name ?? query)}
           placeholder="ค้นหาวัตถุดิบ"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
           onFocus={() => {
             setQuery(selectedIngredient?.name ?? query)
             setIsOpen(true)
@@ -4869,7 +5970,7 @@ function BranchAccessCell({
           <p className="font-semibold">สาขาที่เข้าถึง</p>
           <p className="text-xs text-muted-foreground">
             {selectionMode === "multiple"
-              ? "เลือกได้หลายสาขาสำหรับ Manager"
+              ? "เลือกได้หลายสาขาสำหรับผู้ดูแลระบบ"
               : "เลือกได้ 1 สาขาสำหรับพนักงาน"}
           </p>
         </div>
@@ -5080,6 +6181,11 @@ function BudgetsView({ store }: { store: Store }) {
           <p className="mt-1 text-sm text-muted-foreground">
             กำหนด budget ต่อวันเพื่อควบคุม cost ของใบสั่งซื้อวัตถุดิบแต่ละสาขา
           </p>
+          {!store.canManageBranchBudget && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              บัญชีนี้ดูงบรายวันได้ แต่ไม่มีสิทธิ์แก้ไขงบของสาขา
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
@@ -5157,6 +6263,7 @@ function BudgetsView({ store }: { store: Store }) {
                               ? "border-sky-300 bg-sky-50 text-sky-800"
                               : "border-border text-muted-foreground"
                           )}
+                          disabled={!store.canManageBranchBudget}
                           onClick={() =>
                             setUnlimitedDrafts((current) => ({
                               ...current,
@@ -5171,7 +6278,7 @@ function BudgetsView({ store }: { store: Store }) {
                           min="0"
                           step="0.01"
                           className="h-10"
-                          disabled={isUnlimited}
+                          disabled={isUnlimited || !store.canManageBranchBudget}
                           value={budgetValue}
                           onChange={(event) =>
                             setBudgetDrafts((current) => ({
@@ -5186,7 +6293,10 @@ function BudgetsView({ store }: { store: Store }) {
                       <Button
                         type="button"
                         className="h-10"
-                        disabled={store.isBranchBudgetSaving}
+                        disabled={
+                          !store.canManageBranchBudget ||
+                          store.isBranchBudgetSaving
+                        }
                         onClick={() => handleSaveBudget(branch.id)}
                       >
                         {store.isBranchBudgetSaving ? (
@@ -5253,7 +6363,7 @@ function MembersView({ store }: { store: Store }) {
         <MetricCard
           label="ผู้ดูแล"
           value={`${store.memberStats.managers} คน`}
-          helper="Owner และ Manager"
+          helper="Owner และผู้ดูแลระบบ"
           icon={ShieldCheck}
           tone="border-sky-200 bg-sky-50 text-sky-800"
         />
@@ -5680,6 +6790,9 @@ function MemberEditDialog({
   const [username, setUsername] = useState(member.username)
   const [password, setPassword] = useState("")
   const [resetPassword, setResetPassword] = useState(false)
+  const [permissions, setPermissions] = useState<MemberMenuPermissions>(() =>
+    normalizeMemberPermissions(member.role, member.permissions)
+  )
   const [message, setMessage] = useState("")
 
   function openEditor() {
@@ -5687,6 +6800,7 @@ function MemberEditDialog({
     setUsername(member.username)
     setPassword("")
     setResetPassword(false)
+    setPermissions(normalizeMemberPermissions(member.role, member.permissions))
     setMessage("")
     setOpen(true)
   }
@@ -5699,16 +6813,24 @@ function MemberEditDialog({
       return
     }
 
+    const nextPassword = resetPassword ? password.trim() : undefined
+
+    if (resetPassword && (!nextPassword || nextPassword.length < 6)) {
+      setMessage("กรุณากรอกรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร")
+      return
+    }
+
     const ok = await store.updateMemberProfile(member.id, {
       name,
       username,
-      password: resetPassword ? password.trim() : undefined,
+      password: nextPassword,
+      ...(store.canManageMenuPermissions ? { permissions } : {}),
     })
 
     if (!ok) {
       setMessage(
         store.memberError ||
-          "กรุณากรอกชื่อ ชื่อผู้ใช้ และรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
+          "กรุณาตรวจสอบชื่อสมาชิก ชื่อผู้ใช้ หรือใช้ชื่อผู้ใช้ที่ยังไม่ซ้ำ"
       )
       return
     }
@@ -5811,6 +6933,13 @@ function MemberEditDialog({
             )}
           </div>
 
+          {store.canManageMenuPermissions && (
+            <MemberMenuPermissionEditor
+              permissions={permissions}
+              onChange={setPermissions}
+            />
+          )}
+
           {message && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {message}
@@ -5845,6 +6974,127 @@ function MemberEditDialog({
   )
 }
 
+function MemberMenuPermissionEditor({
+  permissions,
+  onChange,
+}: {
+  permissions: MemberMenuPermissions
+  onChange: (permissions: MemberMenuPermissions) => void
+}) {
+  function updatePermission(
+    key: MenuPermissionKey,
+    patch: Partial<{ view: boolean; edit: boolean }>
+  ) {
+    const currentPermission = permissions[key] ?? { view: false, edit: false }
+    const nextPermission = {
+      ...currentPermission,
+      ...patch,
+    }
+
+    if (!nextPermission.view) {
+      nextPermission.edit = false
+    }
+
+    if (nextPermission.edit) {
+      nextPermission.view = true
+    }
+
+    onChange({
+      ...permissions,
+      [key]: nextPermission,
+    })
+  }
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="mb-3">
+        <Label className="block">สิทธิ์รายเมนู</Label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          กำหนดการมองเห็นและการเพิ่ม ลบ แก้ไข ในแต่ละเมนู
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {menuPermissionKeys.map((key) => {
+          const navItem = navItems.find((item) => item.id === key)
+          const permission = permissions[key] ?? { view: false, edit: false }
+          const Icon = navItem?.icon ?? ShieldCheck
+
+          return (
+            <div
+              key={key}
+              className="rounded-lg border border-border bg-muted/30 p-3"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">
+                    {navItem?.label ?? key}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {navItem?.description ?? "กำหนดสิทธิ์ใช้งานเมนูนี้"}
+                  </div>
+                </div>
+                <Icon className="size-4 shrink-0 text-sky-700" />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <PermissionToggle
+                  label="มองเห็น"
+                  checked={permission.view}
+                  onChange={(checked) => updatePermission(key, { view: checked })}
+                />
+                <PermissionToggle
+                  label="เพิ่ม ลบ แก้ไข"
+                  checked={permission.edit}
+                  onChange={(checked) => updatePermission(key, { edit: checked })}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PermissionToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      className={cn(
+        "flex h-10 items-center justify-between gap-3 rounded-lg border px-3 text-left text-sm",
+        checked
+          ? "border-sky-200 bg-sky-50 text-sky-900"
+          : "border-border bg-background text-muted-foreground"
+      )}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="font-medium">{label}</span>
+      <span
+        className={cn(
+          "relative h-5 w-9 rounded-full border transition",
+          checked ? "border-sky-600 bg-sky-600" : "border-border bg-muted"
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-background shadow-sm transition",
+            checked ? "left-4" : "left-0.5"
+          )}
+        />
+      </span>
+    </button>
+  )
+}
+
 function RoleSelect({
   value,
   onChange,
@@ -5861,7 +7111,7 @@ function RoleSelect({
         <SelectValue>{(nextValue) => memberRoleLabel(String(nextValue) as MemberRole)}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start">
-        {(["owner", "manager", "staff", "viewer"] as MemberRole[]).map(
+        {(["owner", "manager", "staff"] as MemberRole[]).map(
           (item) => (
             <SelectItem key={item} value={item} label={memberRoleLabel(item)}>
               {memberRoleLabel(item)}

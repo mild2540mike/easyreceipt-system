@@ -3,7 +3,11 @@ import { Router } from "express"
 import { prisma } from "../../db/prisma"
 import { getAuthMember } from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
-import { getAccessibleBranchIds } from "../common/permissions"
+import { forbidden } from "../../utils/http-error"
+import {
+  getAccessibleBranchIds,
+  memberCanViewMenu,
+} from "../common/permissions"
 
 export const reportsRouter = Router()
 
@@ -25,6 +29,11 @@ reportsRouter.get(
   "/summary",
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
+
+    if (!memberCanViewMenu(member, "reports")) {
+      throw forbidden("Member does not have permission to view reports.")
+    }
+
     const branchIds = await getAccessibleBranchIds(prisma, member.id)
 
     const [branches, purchases, dailyPurchases, cookingCount, stockMovementCount] =
