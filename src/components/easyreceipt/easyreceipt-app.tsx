@@ -2,7 +2,9 @@
 
 import {
   Fragment,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -1007,8 +1009,107 @@ type SavedPurchaseSupplierGroup = {
   rows: (SavedPurchaseRow & { index: number })[]
 }
 type WidgetPosition = { right: number; bottom: number }
+type DropdownPosition = {
+  left: number
+  top: number
+  width: number
+  maxHeight: number
+}
 const maxStockOutPhotoSize = 5 * 1024 * 1024
 const customUsageReasonsKey = "easyreceipt.customUsageReasons"
+const dropdownViewportPadding = 8
+const dropdownGap = 4
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function measureDropdownBelow(
+  anchor: HTMLElement,
+  {
+    desktopMinWidth,
+    maxHeight,
+    minHeight,
+  }: {
+    desktopMinWidth: number
+    maxHeight: number
+    minHeight: number
+  }
+): DropdownPosition {
+  const rect = anchor.getBoundingClientRect()
+  const dropdownWidth = Math.max(
+    rect.width,
+    window.innerWidth < 640 ? rect.width : desktopMinWidth
+  )
+  const availableBelow =
+    window.innerHeight - rect.bottom - dropdownViewportPadding
+  const resolvedMaxHeight = clampNumber(availableBelow, minHeight, maxHeight)
+  const maxLeft = Math.max(
+    dropdownViewportPadding,
+    window.innerWidth - dropdownWidth - dropdownViewportPadding
+  )
+
+  return {
+    left: clampNumber(rect.left, dropdownViewportPadding, maxLeft),
+    top: rect.bottom + dropdownGap,
+    width: dropdownWidth,
+    maxHeight: resolvedMaxHeight,
+  }
+}
+
+function useAnchoredDropdownPosition({
+  isOpen,
+  desktopMinWidth = 320,
+  maxHeight = 320,
+  minHeight = 120,
+}: {
+  isOpen: boolean
+  desktopMinWidth?: number
+  maxHeight?: number
+  minHeight?: number
+}) {
+  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
+  const [dropdownPosition, setDropdownPosition] =
+    useState<DropdownPosition | null>(null)
+  const updateDropdownPosition = useCallback(() => {
+    const anchor = inputAnchorRef.current
+
+    if (!anchor || typeof window === "undefined") {
+      setDropdownPosition(null)
+      return null
+    }
+
+    const nextPosition = measureDropdownBelow(anchor, {
+      desktopMinWidth,
+      maxHeight,
+      minHeight,
+    })
+
+    setDropdownPosition(nextPosition)
+    return nextPosition
+  }, [desktopMinWidth, maxHeight, minHeight])
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    updateDropdownPosition()
+
+    const animationFrame = window.requestAnimationFrame(updateDropdownPosition)
+
+    window.addEventListener("resize", updateDropdownPosition)
+    window.addEventListener("scroll", updateDropdownPosition, true)
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      window.removeEventListener("resize", updateDropdownPosition)
+      window.removeEventListener("scroll", updateDropdownPosition, true)
+    }
+  }, [isOpen, updateDropdownPosition])
+
+  return { inputAnchorRef, dropdownPosition, updateDropdownPosition }
+}
 
 function FreezableTable({
   className,
@@ -3095,16 +3196,16 @@ function IngredientSelect({
   hideMobileLabel?: boolean
 }) {
   const selectedIngredient = store.ingredientById.get(item.ingredientId)
-  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
   const [query, setQuery] = useState(selectedIngredient?.name ?? "")
   const [isOpen, setIsOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
-  const [dropdownPosition, setDropdownPosition] = useState({
-    left: 0,
-    top: 0,
-    width: 288,
-    maxHeight: 320,
-  })
+  const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
+    useAnchoredDropdownPosition({
+      isOpen,
+      desktopMinWidth: 320,
+      maxHeight: 320,
+      minHeight: 160,
+    })
   const searchTerm = normalizeSearch(query)
   const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
   const exactIngredient = store.ingredients.find(
@@ -3136,50 +3237,6 @@ function IngredientSelect({
     })
     .slice(0, 7)
   const canAddIngredient = Boolean(query.trim()) && !exactIngredient
-
-  function updateDropdownPosition() {
-    const anchor = inputAnchorRef.current
-
-    if (!anchor) {
-      return
-    }
-
-    const rect = anchor.getBoundingClientRect()
-    const viewportPadding = 8
-    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
-    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
-    const availableAbove = rect.top - viewportPadding
-    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
-    const maxHeight = Math.max(
-      160,
-      Math.min(320, shouldOpenAbove ? availableAbove : availableBelow)
-    )
-
-    setDropdownPosition({
-      left: Math.min(
-        Math.max(viewportPadding, rect.left),
-        window.innerWidth - dropdownWidth - viewportPadding
-      ),
-      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
-      width: dropdownWidth,
-      maxHeight,
-    })
-  }
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    updateDropdownPosition()
-    window.addEventListener("resize", updateDropdownPosition)
-    window.addEventListener("scroll", updateDropdownPosition, true)
-
-    return () => {
-      window.removeEventListener("resize", updateDropdownPosition)
-      window.removeEventListener("scroll", updateDropdownPosition, true)
-    }
-  }, [isOpen])
 
   function handleSelectIngredient(ingredientId: string) {
     if (!store.canEditPurchase) {
@@ -3262,7 +3319,7 @@ function IngredientSelect({
         />
       </div>
 
-      {isOpen && typeof document !== "undefined" && createPortal(
+      {isOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
         <div
           className="fixed z-50 max-h-80 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
           style={{
@@ -3648,17 +3705,17 @@ function UsageReasonCombobox({
   onChange: (value: string) => void
   disabled?: boolean
 }) {
-  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
   const [isOpen, setIsOpen] = useState(false)
   const [customReasons, setCustomReasons] = useState<string[]>(
     loadCustomUsageReasons
   )
-  const [dropdownPosition, setDropdownPosition] = useState({
-    left: 0,
-    top: 0,
-    width: 320,
-    maxHeight: 280,
-  })
+  const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
+    useAnchoredDropdownPosition({
+      isOpen,
+      desktopMinWidth: 320,
+      maxHeight: 280,
+      minHeight: 120,
+    })
   const searchTerm = normalizeSearch(value)
   const allReasons = Array.from(
     new Set(
@@ -3687,48 +3744,6 @@ function UsageReasonCombobox({
     (reason) => normalizeSearch(reason) === normalizeSearch(cleanValue)
   )
   const canAddReason = Boolean(cleanValue) && !hasExactReason
-
-  function updateDropdownPosition() {
-    const anchor = inputAnchorRef.current
-
-    if (!anchor) {
-      return
-    }
-
-    const rect = anchor.getBoundingClientRect()
-    const viewportPadding = 8
-    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
-    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
-    const maxHeight = Math.max(
-      120,
-      Math.min(280, availableBelow)
-    )
-
-    setDropdownPosition({
-      left: Math.min(
-        Math.max(viewportPadding, rect.left),
-        window.innerWidth - dropdownWidth - viewportPadding
-      ),
-      top: rect.bottom + 4,
-      width: dropdownWidth,
-      maxHeight,
-    })
-  }
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    updateDropdownPosition()
-    window.addEventListener("resize", updateDropdownPosition)
-    window.addEventListener("scroll", updateDropdownPosition, true)
-
-    return () => {
-      window.removeEventListener("resize", updateDropdownPosition)
-      window.removeEventListener("scroll", updateDropdownPosition, true)
-    }
-  }, [isOpen])
 
   function persistCustomReasons(nextReasons: string[]) {
     setCustomReasons(nextReasons)
@@ -3801,7 +3816,7 @@ function UsageReasonCombobox({
         />
       </div>
 
-      {isOpen && typeof document !== "undefined" && createPortal(
+      {isOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
         <div
           className="fixed z-50 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
           style={{
@@ -3955,15 +3970,15 @@ function UsageIngredientSelect({
   className?: string
 }) {
   const selectedRow = store.inventoryRows.find((row) => row.ingredientId === value)
-  const inputAnchorRef = useRef<HTMLDivElement | null>(null)
   const [query, setQuery] = useState(selectedRow?.ingredient.name ?? "")
   const [isOpen, setIsOpen] = useState(false)
-  const [dropdownPosition, setDropdownPosition] = useState({
-    left: 0,
-    top: 0,
-    width: 320,
-    maxHeight: 320,
-  })
+  const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
+    useAnchoredDropdownPosition({
+      isOpen,
+      desktopMinWidth: 320,
+      maxHeight: 320,
+      minHeight: 160,
+    })
   const searchTerm = normalizeSearch(query)
   const filteredRows = store.inventoryRows
     .filter((row) => {
@@ -3993,50 +4008,6 @@ function UsageIngredientSelect({
       return left.ingredient.name.localeCompare(right.ingredient.name, "th")
     })
     .slice(0, 12)
-
-  function updateDropdownPosition() {
-    const anchor = inputAnchorRef.current
-
-    if (!anchor) {
-      return
-    }
-
-    const rect = anchor.getBoundingClientRect()
-    const viewportPadding = 8
-    const dropdownWidth = Math.max(rect.width, window.innerWidth < 640 ? rect.width : 320)
-    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
-    const availableAbove = rect.top - viewportPadding
-    const shouldOpenAbove = availableBelow < 180 && availableAbove > availableBelow
-    const maxHeight = Math.max(
-      160,
-      Math.min(320, shouldOpenAbove ? availableAbove : availableBelow)
-    )
-
-    setDropdownPosition({
-      left: Math.min(
-        Math.max(viewportPadding, rect.left),
-        window.innerWidth - dropdownWidth - viewportPadding
-      ),
-      top: shouldOpenAbove ? rect.top - maxHeight - 4 : rect.bottom + 4,
-      width: dropdownWidth,
-      maxHeight,
-    })
-  }
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    updateDropdownPosition()
-    window.addEventListener("resize", updateDropdownPosition)
-    window.addEventListener("scroll", updateDropdownPosition, true)
-
-    return () => {
-      window.removeEventListener("resize", updateDropdownPosition)
-      window.removeEventListener("scroll", updateDropdownPosition, true)
-    }
-  }, [isOpen])
 
   function handleSelectIngredient(ingredientId: string) {
     const row = store.inventoryRows.find((item) => item.ingredientId === ingredientId)
@@ -4082,7 +4053,7 @@ function UsageIngredientSelect({
         />
       </div>
 
-      {isOpen && typeof document !== "undefined" && createPortal(
+      {isOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
         <div
           className="fixed z-50 overflow-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
           style={{
