@@ -3216,7 +3216,7 @@ function IngredientSelect({
         <Input
           type="search"
           name={`purchase-ingredient-search-${item.id}`}
-          className="h-11 pl-9 text-sm"
+          className="h-11 pl-9 text-base sm:text-sm"
           value={query}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
           autoComplete="off"
@@ -4046,7 +4046,7 @@ function UsageIngredientSelect({
         <Input
           type="search"
           name="usage-ingredient-search"
-          className="h-9 pl-9 text-sm sm:h-10"
+          className="h-9 pl-9 text-base sm:h-10 sm:text-sm"
           value={query}
           autoComplete="off"
           autoCorrect="off"
