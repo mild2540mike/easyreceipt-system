@@ -164,7 +164,7 @@
   .freezable-table[data-frozen-column="9"] tr > :nth-child(9),
   .freezable-table[data-frozen-column="10"] tr > :nth-child(10) {
     position: sticky;
-    left: var(--frozen-column-left, 0);
+    left: 0;
     z-index: 2;
     background: var(--background);
     box-shadow:

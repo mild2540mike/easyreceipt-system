@@ -7,7 +7,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -1119,7 +1118,6 @@ function FreezableTable({
   ...props
 }: Parameters<typeof Table>[0]) {
   const [frozenColumn, setFrozenColumn] = useState<number | null>(null)
-  const [frozenColumnLeft, setFrozenColumnLeft] = useState(0)
 
   function toggleFrozenColumn(target: EventTarget | null) {
     if (!(target instanceof Element)) {
@@ -1141,22 +1139,16 @@ function FreezableTable({
     const nextColumn = header.cellIndex + 1
     setFrozenColumn((current) => {
       const nextFrozenColumn = current === nextColumn ? null : nextColumn
-      setFrozenColumnLeft(nextFrozenColumn ? header.offsetLeft : 0)
       return nextFrozenColumn
     })
   }
-
-  const tableStyle = {
-    ...style,
-    "--frozen-column-left": `${frozenColumnLeft}px`,
-  } as CSSProperties & Record<"--frozen-column-left", string>
 
   return (
     <Table
       {...props}
       data-frozen-column={frozenColumn ?? undefined}
       className={cn("freezable-table", className)}
-      style={tableStyle}
+      style={style}
       onClick={(event: ReactMouseEvent<HTMLTableElement>) => {
         onClick?.(event)
 
