@@ -1036,21 +1036,38 @@ function measureDropdownBelow(
   }
 ): DropdownPosition {
   const rect = anchor.getBoundingClientRect()
+  const visualViewport = window.visualViewport
+  const viewportLeft = visualViewport?.offsetLeft ?? 0
+  const viewportTop = visualViewport?.offsetTop ?? 0
+  const viewportWidth = visualViewport?.width ?? window.innerWidth
+  const viewportHeight = visualViewport?.height ?? window.innerHeight
+  const viewportRight = viewportLeft + viewportWidth
+  const viewportBottom = viewportTop + viewportHeight
   const dropdownWidth = Math.max(
     rect.width,
-    window.innerWidth < 640 ? rect.width : desktopMinWidth
+    viewportWidth < 640 ? rect.width : desktopMinWidth
   )
-  const availableBelow =
-    window.innerHeight - rect.bottom - dropdownViewportPadding
-  const resolvedMaxHeight = clampNumber(availableBelow, minHeight, maxHeight)
+  const dropdownTop = viewportTop + rect.bottom + dropdownGap
+  const availableBelow = Math.max(
+    0,
+    viewportBottom - dropdownTop - dropdownViewportPadding
+  )
+  const resolvedMaxHeight =
+    availableBelow >= minHeight
+      ? Math.min(maxHeight, availableBelow)
+      : availableBelow
   const maxLeft = Math.max(
-    dropdownViewportPadding,
-    window.innerWidth - dropdownWidth - dropdownViewportPadding
+    viewportLeft + dropdownViewportPadding,
+    viewportRight - dropdownWidth - dropdownViewportPadding
   )
 
   return {
-    left: clampNumber(rect.left, dropdownViewportPadding, maxLeft),
-    top: rect.bottom + dropdownGap,
+    left: clampNumber(
+      viewportLeft + rect.left,
+      viewportLeft + dropdownViewportPadding,
+      maxLeft
+    ),
+    top: dropdownTop,
     width: dropdownWidth,
     maxHeight: resolvedMaxHeight,
   }
@@ -1096,14 +1113,21 @@ function useAnchoredDropdownPosition({
     updateDropdownPosition()
 
     const animationFrame = window.requestAnimationFrame(updateDropdownPosition)
+    const delayedAnimationFrame = window.setTimeout(updateDropdownPosition, 250)
+    const visualViewport = window.visualViewport
 
     window.addEventListener("resize", updateDropdownPosition)
     window.addEventListener("scroll", updateDropdownPosition, true)
+    visualViewport?.addEventListener("resize", updateDropdownPosition)
+    visualViewport?.addEventListener("scroll", updateDropdownPosition)
 
     return () => {
       window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(delayedAnimationFrame)
       window.removeEventListener("resize", updateDropdownPosition)
       window.removeEventListener("scroll", updateDropdownPosition, true)
+      visualViewport?.removeEventListener("resize", updateDropdownPosition)
+      visualViewport?.removeEventListener("scroll", updateDropdownPosition)
     }
   }, [isOpen, updateDropdownPosition])
 
@@ -1974,23 +1998,23 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
             รายการแจ้งเตือนถูกรวมไว้ในใบสั่งซื้อวัตถุดิบบนแดชบอร์ดแล้ว
           </SheetDescription>
         </SheetHeader>
-        <div className="space-y-3 px-4 pb-4">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
-              <div>
-                <p className="font-semibold">
-                  {lowStockItems.length > 0
-                    ? `${lowStockItems.length} รายการรอรวมในใบสั่งซื้อ`
-                    : "ไม่มีรายการแจ้งเตือนวัตถุดิบ"}
-                </p>
-                <p className="mt-1 text-sm text-amber-800">
-                  ดูจำนวนที่ควรซื้อ ราคา และ export ได้จากส่วนใบสั่งซื้อวัตถุดิบ
-                </p>
+        {lowStockItems.length > 0 && (
+          <div className="space-y-3 px-4 pb-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-semibold">
+                    {lowStockItems.length} รายการรอรวมในใบสั่งซื้อ
+                  </p>
+                  <p className="mt-1 text-sm text-amber-800">
+                    ดูจำนวนที่ควรซื้อ ราคา และ export ได้จากส่วนใบสั่งซื้อวัตถุดิบ
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </SheetContent>
     </Sheet>
   )
@@ -4940,31 +4964,6 @@ function RecipesView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <MetricCard
-          label="เมนูที่ปักหมุด"
-          value={`${store.recipeStats.total} สูตร`}
-          helper={`เลือกจากคลังสูตร ${store.recipeStats.saved} สูตร`}
-          icon={Pin}
-          tone="border-rose-200 bg-rose-50 text-rose-800"
-        />
-        <MetricCard
-          label="พร้อมปรุง"
-          value={`${store.recipeStats.ready} สูตร`}
-          helper="วัตถุดิบคงเหลือเพียงพอ"
-          icon={CircleCheck}
-          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
-        />
-        <MetricCard
-          label="วัตถุดิบในสูตร"
-          value={`${store.recipeStats.totalIngredients} รายการ`}
-          helper="รวมทุกเมนู"
-          icon={Package}
-          tone="border-sky-200 bg-sky-50 text-sky-800"
-          className="col-span-2 sm:col-span-1"
-        />
-      </section>
-
       <section className="rounded-lg border border-border bg-background p-3 sm:p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
