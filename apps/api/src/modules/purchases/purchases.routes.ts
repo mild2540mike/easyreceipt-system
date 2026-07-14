@@ -35,6 +35,24 @@ const createPurchaseSchema = z.object({
   }
 )
 
+const purchaseBillSchema = z.object({
+  name: z.string().trim().min(1).max(180),
+  draftPurchaseIds: z.array(z.string().min(1)).optional().default([]),
+  items: z.array(purchaseItemSchema).optional().default([]),
+}).refine(
+  (input) => input.items.length > 0 || input.draftPurchaseIds.length > 0,
+  {
+    message: "Bill must include at least one item or draft purchase.",
+    path: ["items"],
+  }
+)
+
+const createPurchaseBatchSchema = z.object({
+  purchaseDate: z.string().min(1),
+  status: z.enum(["draft", "saved"]).optional(),
+  bills: z.array(purchaseBillSchema).min(1).max(50),
+})
+
 const purchaseQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
@@ -66,6 +84,16 @@ function bangkokDateRange(date: Date) {
     start: new Date(`${key}T00:00:00.000+07:00`),
     end: new Date(`${key}T23:59:59.999+07:00`),
   }
+}
+
+function shouldSyncMarketPrice(
+  marketPrice: Prisma.Decimal,
+  currentCostPerUnit: Prisma.Decimal | null | undefined
+) {
+  const market = Number(marketPrice)
+  const currentCost = Number(currentCostPerUnit ?? 0)
+
+  return market <= 0 || Math.abs(market - currentCost) < 0.005
 }
 
 purchasesRouter.get(
@@ -418,6 +446,18 @@ purchasesRouter.post(
           const beforeQuantity = Number(inventory?.onHand ?? 0)
           const afterQuantity = roundQuantity(beforeQuantity + quantity)
 
+          if (
+            shouldSyncMarketPrice(
+              ingredient.defaultPrice,
+              inventory?.costPerUnit
+            )
+          ) {
+            await tx.ingredient.update({
+              where: { id: ingredient.id },
+              data: { defaultPrice: unitPrice },
+            })
+          }
+
           if (inventory) {
             await tx.branchInventory.update({
               where: {
@@ -511,5 +551,276 @@ purchasesRouter.post(
     }
 
     res.status(201).json({ purchase })
+  })
+)
+
+purchasesRouter.post(
+  "/batch",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = createPurchaseBatchSchema.parse(req.body)
+    const purchaseStatus = input.status ?? "saved"
+    const purchaseDate = new Date(input.purchaseDate)
+
+    if (Number.isNaN(purchaseDate.getTime())) {
+      throw badRequest("Invalid purchase date.")
+    }
+
+    const purchases = await prisma.$transaction(
+      async (tx) => {
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "purchase")) {
+          throw forbidden("Member does not have permission to edit purchases.")
+        }
+
+        const draftPurchaseIds = Array.from(
+          new Set(input.bills.flatMap((bill) => bill.draftPurchaseIds))
+        )
+
+        if (purchaseStatus === "draft" && draftPurchaseIds.length > 0) {
+          throw badRequest("Draft purchases cannot include existing drafts.")
+        }
+
+        const draftPurchases = draftPurchaseIds.length > 0
+          ? await tx.purchase.findMany({
+              where: {
+                branchId,
+                id: { in: draftPurchaseIds },
+                status: "draft",
+              },
+              include: { items: true },
+            })
+          : []
+
+        if (draftPurchases.length !== draftPurchaseIds.length) {
+          throw notFound("Purchase draft not found.")
+        }
+
+        const draftById = new Map(
+          draftPurchases.map((purchase) => [purchase.id, purchase] as const)
+        )
+        const resolvedBills = input.bills.map((bill) => ({
+          name: bill.name,
+          items: [
+            ...bill.draftPurchaseIds.flatMap((purchaseId) =>
+              (draftById.get(purchaseId)?.items ?? []).map((item) => ({
+                ingredientId: item.ingredientId,
+                quantity: Number(item.quantity),
+                unit: item.unit,
+                unitPrice: Number(item.unitPrice),
+              }))
+            ),
+            ...bill.items,
+          ],
+        }))
+
+        if (resolvedBills.some((bill) => bill.items.length === 0)) {
+          throw badRequest("Every bill must include at least one item.")
+        }
+
+        const ingredientIds = Array.from(
+          new Set(
+            resolvedBills.flatMap((bill) =>
+              bill.items.map((item) => item.ingredientId)
+            )
+          )
+        )
+        const ingredients = await tx.ingredient.findMany({
+          where: { id: { in: ingredientIds } },
+        })
+        const ingredientById = new Map(
+          ingredients.map((ingredient) => [ingredient.id, ingredient] as const)
+        )
+
+        if (ingredientById.size !== ingredientIds.length) {
+          throw notFound("One or more ingredients were not found.")
+        }
+
+        const batchTotal = roundMoney(
+          resolvedBills.reduce(
+            (total, bill) =>
+              total +
+              bill.items.reduce(
+                (billTotal, item) =>
+                  billTotal + item.quantity * item.unitPrice,
+                0
+              ),
+            0
+          )
+        )
+        const dailyPurchaseBudget = access.branch.dailyPurchaseBudget === null
+          ? null
+          : Number(access.branch.dailyPurchaseBudget)
+
+        if (purchaseStatus === "saved" && dailyPurchaseBudget !== null) {
+          const purchaseDateRange = bangkokDateRange(purchaseDate)
+          const purchaseTotalForDate = await tx.purchase.aggregate({
+            where: {
+              branchId,
+              status: { in: ["saved", "posted"] },
+              purchaseDate: {
+                gte: purchaseDateRange.start,
+                lte: purchaseDateRange.end,
+              },
+            },
+            _sum: { totalAmount: true },
+          })
+          const usedBudget = Number(purchaseTotalForDate._sum.totalAmount ?? 0)
+
+          if (roundMoney(usedBudget + batchTotal) > dailyPurchaseBudget) {
+            throw badRequest("งบประมาณรายวันของสาขาไม่เพียงพอ", {
+              dailyPurchaseBudget,
+              usedBudget,
+              purchaseTotal: batchTotal,
+              projectedBudget: roundMoney(usedBudget + batchTotal),
+              remainingBudget: Math.max(
+                roundMoney(dailyPurchaseBudget - usedBudget),
+                0
+              ),
+            })
+          }
+        }
+
+        const createdPurchaseIds: string[] = []
+
+        for (const bill of resolvedBills) {
+          const totalAmount = roundMoney(
+            bill.items.reduce(
+              (total, item) => total + item.quantity * item.unitPrice,
+              0
+            )
+          )
+          const createdPurchase = await tx.purchase.create({
+            data: {
+              branchId,
+              createdByMemberId: member.id,
+              purchaseDate,
+              vendor: bill.name,
+              status: purchaseStatus,
+              totalAmount,
+            },
+          })
+          createdPurchaseIds.push(createdPurchase.id)
+
+          for (const item of bill.items) {
+            const ingredient = ingredientById.get(item.ingredientId)
+
+            if (!ingredient) {
+              throw notFound(`Ingredient ${item.ingredientId} not found.`)
+            }
+
+            const quantity = roundQuantity(item.quantity)
+            const unitPrice = roundMoney(item.unitPrice)
+            const unit = item.unit?.trim() || ingredient.unit
+            const lineTotal = roundMoney(quantity * unitPrice)
+            let beforeQuantity = 0
+            let afterQuantity = 0
+
+            if (purchaseStatus === "saved") {
+              const inventory = await tx.branchInventory.findUnique({
+                where: {
+                  branchId_ingredientId: { branchId, ingredientId: item.ingredientId },
+                },
+              })
+              beforeQuantity = Number(inventory?.onHand ?? 0)
+              afterQuantity = roundQuantity(beforeQuantity + quantity)
+
+              if (
+                shouldSyncMarketPrice(
+                  ingredient.defaultPrice,
+                  inventory?.costPerUnit
+                )
+              ) {
+                await tx.ingredient.update({
+                  where: { id: ingredient.id },
+                  data: { defaultPrice: unitPrice },
+                })
+              }
+
+              if (inventory) {
+                await tx.branchInventory.update({
+                  where: {
+                    branchId_ingredientId: { branchId, ingredientId: item.ingredientId },
+                  },
+                  data: {
+                    onHand: afterQuantity,
+                    costPerUnit: unitPrice,
+                    lastUpdatedAt: new Date(),
+                  },
+                })
+              } else {
+                await tx.branchInventory.create({
+                  data: {
+                    branchId,
+                    ingredientId: item.ingredientId,
+                    onHand: afterQuantity,
+                    reservedQuantity: 0,
+                    reorderPoint: 0,
+                    costPerUnit: unitPrice,
+                    lastUpdatedAt: new Date(),
+                  },
+                })
+              }
+            }
+
+            const purchaseItem = await tx.purchaseItem.create({
+              data: {
+                purchaseId: createdPurchase.id,
+                ingredientId: item.ingredientId,
+                quantity,
+                unit,
+                unitPrice,
+                lineTotal,
+              },
+            })
+
+            if (purchaseStatus === "saved") {
+              await tx.stockMovement.create({
+                data: {
+                  branchId,
+                  ingredientId: item.ingredientId,
+                  purchaseItemId: purchaseItem.id,
+                  createdByMemberId: member.id,
+                  movementType: "purchase_in",
+                  quantity,
+                  unit,
+                  unitCost: unitPrice,
+                  beforeQuantity,
+                  afterQuantity,
+                  referenceType: "purchase",
+                  referenceId: createdPurchase.id,
+                },
+              })
+            }
+          }
+        }
+
+        if (purchaseStatus === "saved" && draftPurchaseIds.length > 0) {
+          await tx.purchaseItem.deleteMany({
+            where: { purchaseId: { in: draftPurchaseIds } },
+          })
+          await tx.purchase.deleteMany({
+            where: {
+              id: { in: draftPurchaseIds },
+              branchId,
+              status: "draft",
+            },
+          })
+        }
+
+        return tx.purchase.findMany({
+          where: { id: { in: createdPurchaseIds } },
+          include: {
+            items: { include: { ingredient: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
+
+    res.status(201).json({ purchases })
   })
 )

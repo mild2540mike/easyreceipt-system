@@ -66,6 +66,19 @@ const usageSchema = z.object({
     .min(1),
 })
 
+const usageBatchSchema = z.object({
+  occurredAt: z.coerce.date().optional(),
+  groups: z
+    .array(
+      usageSchema.omit({ occurredAt: true }).extend({
+        batchId: z.string().trim().min(1).max(180),
+        name: z.string().trim().min(1).max(120),
+      })
+    )
+    .min(1)
+    .max(50),
+})
+
 export const inventoryRouter = Router({ mergeParams: true })
 
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
@@ -105,15 +118,21 @@ function bangkokDateRange(date: string) {
 }
 
 function serializeInventoryRow(row: InventoryRowWithIngredient) {
+  const costPerUnit = Number(row.costPerUnit)
+  const marketPrice = Number(row.ingredient.defaultPrice)
+
   return {
     id: row.id,
     branchId: row.branchId,
     ingredientId: row.ingredientId,
-    ingredient: row.ingredient,
+    ingredient: {
+      ...row.ingredient,
+      defaultPrice: marketPrice > 0 ? marketPrice : costPerUnit,
+    },
     onHand: Number(row.onHand),
     reservedQuantity: Number(row.reservedQuantity),
     reorderPoint: Number(row.reorderPoint),
-    costPerUnit: Number(row.costPerUnit),
+    costPerUnit,
     available: Math.max(Number(row.onHand) - Number(row.reservedQuantity), 0),
     suggestedPurchaseQuantity: Math.max(
       Number(row.reservedQuantity) - Number(row.onHand),
@@ -123,24 +142,43 @@ function serializeInventoryRow(row: InventoryRowWithIngredient) {
   }
 }
 
-function auditReason(metadataJson: string | null) {
+type StockMovementAuditMetadata = {
+  reason: string
+  batchId: string
+  batchName: string
+}
+
+function stockMovementAuditMetadata(
+  metadataJson: string | null
+): StockMovementAuditMetadata {
   if (!metadataJson) {
-    return ""
+    return { reason: "", batchId: "", batchName: "" }
   }
 
   try {
-    const metadata = JSON.parse(metadataJson) as { reason?: unknown }
+    const metadata = JSON.parse(metadataJson) as {
+      reason?: unknown
+      batchId?: unknown
+      batchName?: unknown
+    }
 
-    return typeof metadata.reason === "string" ? metadata.reason : ""
+    return {
+      reason: typeof metadata.reason === "string" ? metadata.reason : "",
+      batchId: typeof metadata.batchId === "string" ? metadata.batchId : "",
+      batchName:
+        typeof metadata.batchName === "string" ? metadata.batchName : "",
+    }
   } catch {
-    return ""
+    return { reason: "", batchId: "", batchName: "" }
   }
 }
 
 function serializeStockMovement(
   row: StockMovementWithDetails,
-  reasonByMovementId = new Map<string, string>()
+  metadataByMovementId = new Map<string, StockMovementAuditMetadata>()
 ) {
+  const metadata = metadataByMovementId.get(row.id)
+
   return {
     id: row.id,
     branchId: row.branchId,
@@ -162,7 +200,9 @@ function serializeStockMovement(
     afterQuantity: Number(row.afterQuantity),
     referenceType: row.referenceType,
     referenceId: row.referenceId,
-    reason: reasonByMovementId.get(row.id) ?? "",
+    reason: metadata?.reason ?? "",
+    batchId: metadata?.batchId ?? "",
+    batchName: metadata?.batchName ?? "",
     occurredAt: row.occurredAt,
   }
 }
@@ -271,17 +311,20 @@ inventoryRouter.get(
             orderBy: { createdAt: "desc" },
           })
         : []
-    const reasonByMovementId = new Map<string, string>()
+    const metadataByMovementId = new Map<string, StockMovementAuditMetadata>()
 
     for (const log of auditLogs) {
-      if (!reasonByMovementId.has(log.entityId)) {
-        reasonByMovementId.set(log.entityId, auditReason(log.metadataJson))
+      if (!metadataByMovementId.has(log.entityId)) {
+        metadataByMovementId.set(
+          log.entityId,
+          stockMovementAuditMetadata(log.metadataJson)
+        )
       }
     }
 
     res.json({
       movements: (movements as StockMovementWithDetails[]).map(
-        (movement) => serializeStockMovement(movement, reasonByMovementId)
+        (movement) => serializeStockMovement(movement, metadataByMovementId)
       ),
     })
   })
@@ -553,6 +596,192 @@ inventoryRouter.post(
 
     res.status(201).json({
       inventory: result.inventory.map(serializeInventoryRow),
+      movements: result.movements.map((movement) =>
+        serializeStockMovement(movement)
+      ),
+    })
+  })
+)
+
+inventoryRouter.post(
+  "/usage/batch",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = usageBatchSchema.parse(req.body)
+
+    const result = await prisma.$transaction(async (tx) => {
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (!memberCanEditMenu(access.member, "usage")) {
+        throw forbidden("Member does not have permission to adjust stock.")
+      }
+
+      const groups = input.groups.map((group) => {
+        const quantityByIngredientId = new Map<string, number>()
+
+        for (const item of group.items) {
+          quantityByIngredientId.set(
+            item.ingredientId,
+            roundQuantity(
+              (quantityByIngredientId.get(item.ingredientId) ?? 0) +
+                item.quantity
+            )
+          )
+        }
+
+        return {
+          batchId: group.batchId,
+          name: group.name.trim(),
+          reason: group.reason.trim(),
+          items: Array.from(quantityByIngredientId, ([ingredientId, quantity]) => ({
+            ingredientId,
+            quantity,
+          })),
+        }
+      })
+      const totalByIngredientId = new Map<string, number>()
+
+      for (const item of groups.flatMap((group) => group.items)) {
+        totalByIngredientId.set(
+          item.ingredientId,
+          roundQuantity(
+            (totalByIngredientId.get(item.ingredientId) ?? 0) + item.quantity
+          )
+        )
+      }
+
+      const inventoryRows = await tx.branchInventory.findMany({
+        where: {
+          branchId,
+          ingredientId: { in: Array.from(totalByIngredientId.keys()) },
+        },
+        include: { ingredient: true },
+      })
+      const inventoryByIngredientId = new Map(
+        inventoryRows.map((row) => [row.ingredientId, row] as const)
+      )
+
+      for (const [ingredientId, quantity] of totalByIngredientId) {
+        const inventory = inventoryByIngredientId.get(ingredientId)
+
+        if (!inventory) {
+          throw notFound(`Inventory item ${ingredientId} not found.`)
+        }
+
+        if (quantity > Number(inventory.onHand)) {
+          throw badRequest(
+            `${inventory.ingredient.name} does not have enough stock.`
+          )
+        }
+      }
+
+      const occurredAt = input.occurredAt ?? new Date()
+      const currentQuantityByIngredientId = new Map(
+        inventoryRows.map((row) => [row.ingredientId, Number(row.onHand)] as const)
+      )
+      const movements: StockMovementWithDetails[] = []
+
+      for (const group of groups) {
+        const groupMovements: StockMovementWithDetails[] = []
+
+        for (const item of group.items) {
+          const inventory = inventoryByIngredientId.get(item.ingredientId)
+
+          if (!inventory) {
+            throw notFound(`Inventory item ${item.ingredientId} not found.`)
+          }
+
+          const beforeQuantity = currentQuantityByIngredientId.get(item.ingredientId) ?? 0
+          const afterQuantity = roundQuantity(beforeQuantity - item.quantity)
+          const movement = await tx.stockMovement.create({
+            data: {
+              branchId,
+              ingredientId: item.ingredientId,
+              createdByMemberId: member.id,
+              movementType: "usage_out",
+              quantity: item.quantity,
+              unit: inventory.ingredient.unit,
+              unitCost: inventory.costPerUnit,
+              beforeQuantity,
+              afterQuantity,
+              referenceType: "manual_usage_out",
+              referenceId: member.id,
+              occurredAt,
+            },
+            include: { ingredient: true, createdBy: true },
+          })
+
+          await tx.branchInventory.update({
+            where: {
+              branchId_ingredientId: {
+                branchId,
+                ingredientId: item.ingredientId,
+              },
+            },
+            data: { onHand: afterQuantity, lastUpdatedAt: new Date() },
+          })
+          await tx.auditLog.create({
+            data: {
+              organizationId: access.branch.organizationId,
+              branchId,
+              memberId: member.id,
+              action: "usage_out",
+              entityType: "stock_movement",
+              entityId: movement.id,
+              metadataJson: JSON.stringify({
+                batchId: group.batchId,
+                batchName: group.name,
+                reason: group.reason,
+                ingredientId: item.ingredientId,
+                ingredientName: inventory.ingredient.name,
+                quantity: item.quantity,
+                unit: inventory.ingredient.unit,
+                beforeQuantity,
+                afterQuantity,
+              }).slice(0, 4000),
+            },
+          })
+
+          currentQuantityByIngredientId.set(item.ingredientId, afterQuantity)
+          groupMovements.push(movement as StockMovementWithDetails)
+          movements.push(movement as StockMovementWithDetails)
+        }
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "usage_out",
+            entityType: "stock_movement_batch",
+            entityId: groupMovements[0]?.id ?? branchId,
+            metadataJson: JSON.stringify({
+              batchId: group.batchId,
+              name: group.name,
+              reason: group.reason,
+              occurredAt: occurredAt.toISOString(),
+              items: group.items,
+            }).slice(0, 4000),
+          },
+        })
+      }
+
+      const updatedInventory = await tx.branchInventory.findMany({
+        where: {
+          branchId,
+          ingredientId: { in: Array.from(totalByIngredientId.keys()) },
+        },
+        include: { ingredient: true },
+      })
+
+      return { inventory: updatedInventory, movements }
+    })
+
+    res.status(201).json({
+      inventory: result.inventory.map((row) =>
+        serializeInventoryRow(row as InventoryRowWithIngredient)
+      ),
       movements: result.movements.map((movement) =>
         serializeStockMovement(movement)
       ),

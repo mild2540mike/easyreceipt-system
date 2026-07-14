@@ -19,7 +19,7 @@ import {
 } from "../common/permissions"
 
 const roleSchema = z.enum(["owner", "manager", "staff"])
-const statusSchema = z.enum(["active", "invited", "suspended"])
+const statusSchema = z.enum(["active", "suspended"])
 const menuPermissionsSchema = z
   .object(
     Object.fromEntries(
@@ -172,7 +172,7 @@ membersRouter.post(
           name: input.name.trim(),
           username,
           role: input.role,
-          status: "invited",
+          status: "active",
           permissionsJson: JSON.stringify(
             normalizeMemberPermissions(
               input.role,

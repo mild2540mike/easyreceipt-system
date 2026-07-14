@@ -23,9 +23,9 @@ import {
   apiAddMember,
   apiCookBranchRecipePlan,
   apiCreateBranchIngredientFromPurchase,
-  apiCreateBranchUsage,
+  apiCreateBranchPurchaseBatch,
+  apiCreateBranchUsageBatch,
   apiCreateBranchStockOut,
-  apiCreateBranchPurchase,
   apiCreateBranchRecipe,
   apiDeleteBranchPurchaseDraft,
   apiDeleteBranchPurchaseDraftItem,
@@ -57,7 +57,7 @@ import {
   type NormalizedStockMovement,
   type ReportSummary,
   type StockOutApiInput,
-  type UsageApiInput,
+  type UsageBatchApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 
@@ -127,6 +127,9 @@ export type UsageDraftItem = {
   id: string
   ingredientId: string
   quantity: number
+  batchId?: string
+  batchName?: string
+  reason?: string
 }
 
 export type InventoryEditInput = {
@@ -143,7 +146,7 @@ export type InventoryEditInput = {
 }
 
 export type StockOutInput = StockOutApiInput
-export type UsageInput = UsageApiInput
+export type UsageBatchInput = UsageBatchApiInput
 
 type ActionResult = {
   ok: boolean
@@ -279,8 +282,34 @@ function purchaseItemTotal(item: PurchaseItem) {
   return item.quantity * item.unitPrice
 }
 
+function isPurchaseItemComplete(item: PurchaseItem) {
+  return Boolean(
+    item.billName?.trim() &&
+      item.ingredientId &&
+      item.quantity > 0 &&
+      item.unit.trim() &&
+      item.unitPrice > 0
+  )
+}
+
 function purchaseTotal(items: PurchaseItem[]) {
   return items.reduce((total, item) => total + purchaseItemTotal(item), 0)
+}
+
+function groupPurchaseItemsByBill(items: PurchaseItem[]) {
+  const bills = new Map<string, PurchaseItem[]>()
+
+  for (const item of items) {
+    const billName = item.billName?.trim() ?? ""
+
+    if (!billName || !item.ingredientId || item.quantity <= 0) {
+      continue
+    }
+
+    bills.set(billName, [...(bills.get(billName) ?? []), item])
+  }
+
+  return Array.from(bills, ([name, billItems]) => ({ name, items: billItems }))
 }
 
 function stockStatus(item: InventoryItem) {
@@ -902,8 +931,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       input,
     }: {
       branchId: string
-      input: UsageInput
-    }) => apiCreateBranchUsage(branchId, input),
+      input: UsageBatchInput
+    }) => apiCreateBranchUsageBatch(branchId, input),
     onMutate: () => {
       setInventoryMutationError("")
     },
@@ -937,22 +966,26 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       branchId: string
       input: {
         purchaseDate: string
-        vendor?: string
         status?: "draft" | "saved"
-        draftPurchaseIds?: string[]
-        items: PurchaseItem[]
+        bills: {
+          name: string
+          draftPurchaseIds?: string[]
+          items: PurchaseItem[]
+        }[]
       }
     }) =>
-      apiCreateBranchPurchase(branchId, {
+      apiCreateBranchPurchaseBatch(branchId, {
         purchaseDate: input.purchaseDate,
-        vendor: input.vendor,
         status: input.status,
-        draftPurchaseIds: input.draftPurchaseIds,
-        items: input.items.map((item) => ({
-          ingredientId: item.ingredientId,
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice,
+        bills: input.bills.map((bill) => ({
+          name: bill.name,
+          draftPurchaseIds: bill.draftPurchaseIds,
+          items: bill.items.map((item) => ({
+            ingredientId: item.ingredientId,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+          })),
         })),
       }),
     onMutate: () => {
@@ -1374,15 +1407,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const incomingByIngredient = useMemo(() => {
     const incoming = new Map<string, number>()
 
-    for (const item of purchaseItems) {
+    const draftItems = draftPurchaseHistory.flatMap((purchase) => purchase.items)
+
+    for (const item of [...draftItems, ...purchaseItems]) {
+      if (!item.ingredientId || item.quantity <= 0) {
+        continue
+      }
+
       incoming.set(
         item.ingredientId,
-        (incoming.get(item.ingredientId) ?? 0) + item.quantity
+        roundQuantity(
+          (incoming.get(item.ingredientId) ?? 0) + item.quantity
+        )
       )
     }
 
     return incoming
-  }, [purchaseItems])
+  }, [draftPurchaseHistory, purchaseItems])
 
   const reservedByIngredient = useMemo(() => {
     const reserved = new Map<string, number>()
@@ -1420,7 +1461,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       )
       const available = roundQuantity(Math.max(item.onHand - reserved, 0))
       const suggestedPurchaseQuantity = roundQuantity(
-        Math.max(reserved - item.onHand, 0)
+        Math.max(item.reorderPoint - available, reserved - item.onHand, 0)
       )
       const stockPercent = Math.min(
         Math.round((available / Math.max(item.reorderPoint * 2, 1)) * 100),
@@ -1446,7 +1487,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const lowStockItems = useMemo(
     () =>
       inventoryRows
-        .filter((item) => item.suggestedPurchaseQuantity > 0)
+        .filter((item) => item.status === "low")
         .sort(
           (first, second) =>
             second.suggestedPurchaseQuantity - first.suggestedPurchaseQuantity
@@ -1600,7 +1641,6 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     return {
       total: members.length,
       active: members.filter((member) => member.status === "active").length,
-      invited: members.filter((member) => member.status === "invited").length,
       managers: members.filter(
         (member) => member.role === "owner" || member.role === "manager"
       ).length,
@@ -1851,12 +1891,15 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   function addPurchaseItem() {
     updateActiveWorkspace((workspace) => {
+      const billName =
+        workspace.purchaseItems.at(-1)?.billName?.trim() || ""
       const nextItem = {
         id: `${workspace.branchId}-draft-${Date.now()}`,
         ingredientId: "",
         quantity: 0,
         unit: "",
         unitPrice: 0,
+        billName,
       }
 
       return {
@@ -1864,6 +1907,66 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         purchaseItems: [...workspace.purchaseItems, nextItem],
       }
     })
+  }
+
+  function addPurchaseBill() {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseItems: [
+        ...workspace.purchaseItems,
+        {
+          id: `${workspace.branchId}-bill-${Date.now()}`,
+          ingredientId: "",
+          quantity: 0,
+          unit: "",
+          unitPrice: 0,
+          billName: "",
+        },
+      ],
+    }))
+  }
+
+  function addPurchaseItemToBill(billName: string) {
+    updateActiveWorkspace((workspace) => {
+      const nextItem = {
+        id: `${workspace.branchId}-draft-${Date.now()}`,
+        ingredientId: "",
+        quantity: 0,
+        unit: "",
+        unitPrice: 0,
+        billName,
+      }
+      const firstBillItemIndex = workspace.purchaseItems.findIndex(
+        (item) => item.billName === billName
+      )
+      const purchaseItems = [...workspace.purchaseItems]
+
+      if (firstBillItemIndex === -1) {
+        purchaseItems.push(nextItem)
+      } else {
+        purchaseItems.splice(firstBillItemIndex, 0, nextItem)
+      }
+
+      return { ...workspace, purchaseItems }
+    })
+  }
+
+  function renamePurchaseBill(currentName: string, nextName: string) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseItems: workspace.purchaseItems.map((item) =>
+        item.billName === currentName ? { ...item, billName: nextName } : item
+      ),
+    }))
+  }
+
+  function removePurchaseBill(billName: string) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseItems: workspace.purchaseItems.filter(
+        (item) => item.billName !== billName
+      ),
+    }))
   }
 
   function updateUsageItem(
@@ -1879,16 +1982,98 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   }
 
   function addUsageItem() {
+    updateActiveWorkspace((workspace) => {
+      const batchId = workspace.usageItems[0]?.batchId ?? `${workspace.branchId}-usage-batch-${Date.now()}`
+      const batchName = workspace.usageItems[0]?.batchName ?? ""
+
+      return {
+        ...workspace,
+        usageItems: [
+          {
+            id: `${workspace.branchId}-usage-${Date.now()}`,
+            ingredientId: "",
+            quantity: 0,
+            batchId,
+            batchName,
+            reason: workspace.usageItems[0]?.reason ?? "",
+          },
+          ...workspace.usageItems,
+        ],
+      }
+    })
+  }
+
+  function addUsageBatch() {
+    updateActiveWorkspace((workspace) => {
+      const batchId = `${workspace.branchId}-usage-batch-${Date.now()}`
+
+      return {
+        ...workspace,
+        usageItems: [
+          ...workspace.usageItems,
+          {
+            id: `${batchId}-item-1`,
+            ingredientId: "",
+            quantity: 0,
+            batchId,
+            batchName: "",
+            reason: "",
+          },
+        ],
+      }
+    })
+  }
+
+  function addUsageItemToBatch(batchId: string) {
+    updateActiveWorkspace((workspace) => {
+      const firstBatchItemIndex = workspace.usageItems.findIndex(
+        (item) => (item.batchId ?? "legacy") === batchId
+      )
+      const existingItem = workspace.usageItems[firstBatchItemIndex]
+      const nextItem: UsageDraftItem = {
+        id: `${workspace.branchId}-usage-${Date.now()}`,
+        ingredientId: "",
+        quantity: 0,
+        batchId,
+        batchName: existingItem?.batchName ?? "",
+        reason: existingItem?.reason ?? "",
+      }
+      const usageItems = [...workspace.usageItems]
+
+      if (firstBatchItemIndex === -1) {
+        usageItems.push(nextItem)
+      } else {
+        usageItems.splice(firstBatchItemIndex, 0, nextItem)
+      }
+
+      return { ...workspace, usageItems }
+    })
+  }
+
+  function updateUsageBatchReason(batchId: string, reason: string) {
     updateActiveWorkspace((workspace) => ({
       ...workspace,
-      usageItems: [
-        ...workspace.usageItems,
-        {
-          id: `${workspace.branchId}-usage-${Date.now()}`,
-          ingredientId: "",
-          quantity: 0,
-        },
-      ],
+      usageItems: workspace.usageItems.map((item) =>
+        (item.batchId ?? "legacy") === batchId ? { ...item, reason } : item
+      ),
+    }))
+  }
+
+  function renameUsageBatch(batchId: string, batchName: string) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageItems: workspace.usageItems.map((item) =>
+        (item.batchId ?? "legacy") === batchId ? { ...item, batchName } : item
+      ),
+    }))
+  }
+
+  function removeUsageBatch(batchId: string) {
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      usageItems: workspace.usageItems.filter(
+        (item) => (item.batchId ?? "legacy") !== batchId
+      ),
     }))
   }
 
@@ -1918,6 +2103,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
           quantity: roundQuantity(row.suggestedPurchaseQuantity),
           unit: row.ingredient.unit,
           unitPrice: row.ingredient.defaultPrice,
+          billName:
+            workspace.purchaseItems.at(-1)?.billName?.trim() || "",
         }))
 
       return {
@@ -1951,6 +2138,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
+    if (purchaseItems.some((item) => !isPurchaseItemComplete(item))) {
+      return {
+        ok: false,
+        error: "กรุณากรอกชื่อบิล วัตถุดิบ ปริมาณ หน่วย และราคาต่อหน่วยให้ครบทุกแถว",
+      }
+    }
+
     const items = purchaseItems.filter(
       (item) => item.ingredientId && item.quantity > 0
     )
@@ -1961,6 +2155,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
+    if (items.some((item) => !item.billName?.trim())) {
+      return {
+        ok: false,
+        error: "กรุณาระบุชื่อบิลให้ครบทุกรายการ",
+      }
+    }
+
     try {
       const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
 
@@ -1968,9 +2169,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         branchId: activeBranchId,
         input: {
           purchaseDate: purchaseTimestamp.toISOString(),
-          vendor: "ฉบับร่างจาก EasyReceipt",
           status: "draft",
-          items,
+          bills: groupPurchaseItemsByBill(items),
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -2085,15 +2285,33 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
+    if (purchaseItems.some((item) => !isPurchaseItemComplete(item))) {
+      return {
+        ok: false,
+        error: "กรุณากรอกชื่อบิล วัตถุดิบ ปริมาณ หน่วย และราคาต่อหน่วยให้ครบทุกแถว",
+      }
+    }
+
     const items = purchaseItems.filter(
       (item) => item.ingredientId && item.quantity > 0
     )
-    const draftPurchaseIds = draftPurchaseHistory.map((purchase) => purchase.id)
+    const draftBills = draftPurchaseHistory.map((purchase) => ({
+      name: purchase.vendor.trim() || "ไม่ระบุชื่อบิล",
+      draftPurchaseIds: [purchase.id],
+      items: [] as PurchaseItem[],
+    }))
 
-    if (items.length === 0 && draftPurchaseIds.length === 0) {
+    if (items.length === 0 && draftBills.length === 0) {
       return {
         ok: false,
         error: "กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ",
+      }
+    }
+
+    if (items.some((item) => !item.billName?.trim())) {
+      return {
+        ok: false,
+        error: "กรุณาระบุชื่อบิลให้ครบทุกรายการ",
       }
     }
 
@@ -2111,10 +2329,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         branchId: activeBranchId,
         input: {
           purchaseDate: purchaseTimestamp.toISOString(),
-          vendor: "บันทึกจาก EasyReceipt",
           status: "saved",
-          draftPurchaseIds,
-          items,
+          bills: [...draftBills, ...groupPurchaseItemsByBill(items)],
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -2334,7 +2550,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
   }
 
-  async function submitUsageDraft(reason: string): Promise<ActionResult> {
+  async function submitUsageDraft(): Promise<ActionResult> {
     if (!currentMember || !activeBranchId) {
       return {
         ok: false,
@@ -2349,32 +2565,49 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
-    const cleanItems = usageItems
-      .map((item) => ({
-        ingredientId: item.ingredientId,
-        quantity: Math.max(item.quantity, 0),
-      }))
-      .filter((item) => item.ingredientId && item.quantity > 0)
+    const groupsByBatchId = new Map<string, UsageDraftItem[]>()
 
-    if (cleanItems.length === 0) {
+    for (const item of usageItems) {
+      const batchId = item.batchId ?? "legacy"
+      groupsByBatchId.set(batchId, [...(groupsByBatchId.get(batchId) ?? []), item])
+    }
+
+    const groups = Array.from(groupsByBatchId, ([batchId, items]) => ({
+      batchId,
+      name: items[0]?.batchName?.trim() ?? "",
+      reason: items[0]?.reason?.trim() ?? "",
+      items: items
+        .map((item) => ({
+          ingredientId: item.ingredientId,
+          quantity: Math.max(item.quantity, 0),
+        }))
+        .filter((item) => item.ingredientId && item.quantity > 0),
+    }))
+
+    if (groups.length === 0 || groups.some((group) => group.items.length === 0)) {
       return {
         ok: false,
-        error: "กรุณาเพิ่มรายการของใช้ไปอย่างน้อย 1 รายการ",
+        error: "กรุณาเพิ่มรายการของใช้ไปให้ครบทุกรอบ",
       }
     }
 
-    const cleanReason = reason.trim()
-
-    if (!cleanReason) {
+    if (groups.some((group) => !group.name)) {
       return {
         ok: false,
-        error: "กรุณาระบุเหตุผลของการใช้วัตถุดิบ",
+        error: "กรุณาระบุชื่อให้ครบทุกรอบ",
+      }
+    }
+
+    if (groups.some((group) => !group.reason)) {
+      return {
+        ok: false,
+        error: "กรุณาระบุเหตุผลรวมให้ครบทุกรอบ",
       }
     }
 
     const quantityByIngredientId = new Map<string, number>()
 
-    for (const item of cleanItems) {
+    for (const item of groups.flatMap((group) => group.items)) {
       quantityByIngredientId.set(
         item.ingredientId,
         roundQuantity(
@@ -2408,8 +2641,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         branchId: activeBranchId,
         input: {
           occurredAt: usageTimestamp.toISOString(),
-          reason: cleanReason,
-          items: cleanItems,
+          groups,
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -2838,6 +3070,11 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     setUsageDate,
     updateUsageItem,
     addUsageItem,
+    addUsageBatch,
+    addUsageItemToBatch,
+    renameUsageBatch,
+    updateUsageBatchReason,
+    removeUsageBatch,
     removeUsageItem,
     submitUsageDraft,
     draftPurchasesForDate: draftPurchaseHistory,
@@ -2847,6 +3084,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     canEditPurchase,
     updatePurchaseItem,
     addPurchaseItem,
+    addPurchaseBill,
+    addPurchaseItemToBill,
+    renamePurchaseBill,
+    removePurchaseBill,
     addSuggestedPurchaseItems,
     removePurchaseItem,
     savePurchaseDraft,

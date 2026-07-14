@@ -613,7 +613,7 @@ export async function addMemberAction(input: MemberActionInput) {
         username: input.username.trim().toLowerCase(),
         passwordHash: "prototype:123456",
         role: input.role,
-        status: "invited",
+        status: "active",
       },
     })
 

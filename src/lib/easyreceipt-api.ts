@@ -113,6 +113,16 @@ export type PurchaseApiInput = {
   }[]
 }
 
+export type PurchaseBatchApiInput = {
+  purchaseDate: string
+  status?: "draft" | "saved"
+  bills: {
+    name: string
+    draftPurchaseIds?: string[]
+    items: PurchaseApiInput["items"]
+  }[]
+}
+
 type ApiPurchaseItem = {
   id: string
   ingredientId: string
@@ -194,6 +204,8 @@ type ApiStockMovement = {
   beforeQuantity: number | string
   afterQuantity: number | string
   reason?: string
+  batchId?: string
+  batchName?: string
   occurredAt: string
 }
 
@@ -242,6 +254,16 @@ export type UsageApiInput = {
   }[]
 }
 
+export type UsageBatchApiInput = {
+  occurredAt?: string
+  groups: {
+    batchId: string
+    name: string
+    reason: string
+    items: UsageApiInput["items"]
+  }[]
+}
+
 export type UpdateBranchBudgetApiInput = {
   dailyPurchaseBudget: number | null
 }
@@ -269,6 +291,8 @@ export type NormalizedStockMovement = {
   beforeQuantity: number
   afterQuantity: number
   reason: string
+  batchId: string
+  batchName: string
   occurredAt: string
 }
 
@@ -334,7 +358,7 @@ function isMemberRole(role: string): role is MemberRole {
 }
 
 function isMemberStatus(status: string): status is MemberStatus {
-  return status === "active" || status === "invited" || status === "suspended"
+  return status === "active" || status === "suspended"
 }
 
 function formatLastActive(value: string | null) {
@@ -437,6 +461,30 @@ function formatApiDate(value: string | null | undefined) {
   return `${year}-${month}-${day}`
 }
 
+function formatApiDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "-"
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  const timeParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)
+  const hour = timeParts.find((part) => part.type === "hour")?.value ?? "00"
+  const minute =
+    timeParts.find((part) => part.type === "minute")?.value ?? "00"
+
+  return `${formatApiDate(value)} ${hour}:${minute} น.`
+}
+
 function normalizeIngredient(ingredient: ApiIngredient): Ingredient {
   return {
     id: ingredient.id,
@@ -457,7 +505,7 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
       reserved: toNumber(row.reservedQuantity),
       reorderPoint: toNumber(row.reorderPoint),
       costPerUnit: toNumber(row.costPerUnit),
-      lastUpdated: formatApiDate(row.lastUpdatedAt),
+      lastUpdated: formatApiDateTime(row.lastUpdatedAt),
     },
   }
 }
@@ -476,6 +524,8 @@ function normalizeStockMovement(row: ApiStockMovement): NormalizedStockMovement 
     beforeQuantity: toNumber(row.beforeQuantity),
     afterQuantity: toNumber(row.afterQuantity),
     reason: row.reason ?? "",
+    batchId: row.batchId ?? "",
+    batchName: row.batchName ?? "",
     occurredAt: row.occurredAt,
   }
 }
@@ -803,6 +853,35 @@ export async function apiCreateBranchUsage(
   }
 }
 
+export async function apiCreateBranchUsageBatch(
+  branchId: string,
+  input: UsageBatchApiInput
+): Promise<{
+  inventoryRows: NormalizedInventoryRow[]
+  movements: NormalizedStockMovement[]
+}> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage/batch`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{
+    inventory: ApiInventoryRow[]
+    movements: ApiStockMovement[]
+  }>(response)
+
+  return {
+    inventoryRows: data.inventory.map(normalizeInventoryRow),
+    movements: data.movements.map(normalizeStockMovement),
+  }
+}
+
 export async function apiGetBranchPurchases(
   branchId: string,
   input: { date?: string } = {}
@@ -844,6 +923,26 @@ export async function apiCreateBranchPurchase(
   const data = await parseJsonResponse<{ purchase: ApiPurchase }>(response)
 
   return normalizePurchase(data.purchase)
+}
+
+export async function apiCreateBranchPurchaseBatch(
+  branchId: string,
+  input: PurchaseBatchApiInput
+): Promise<NormalizedPurchase[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/batch`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ purchases: ApiPurchase[] }>(response)
+
+  return data.purchases.map(normalizePurchase)
 }
 
 export async function apiDeleteBranchPurchaseDraft(

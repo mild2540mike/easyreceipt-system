@@ -117,7 +117,7 @@ export const openApiDocument = {
           },
           status: {
             type: "string",
-            enum: ["active", "invited", "suspended"],
+            enum: ["active", "suspended"],
             example: "active",
           },
           lastActiveAt: { type: ["string", "null"], format: "date-time" },
@@ -242,7 +242,7 @@ export const openApiDocument = {
           },
           status: {
             type: "string",
-            enum: ["active", "invited", "suspended"],
+            enum: ["active", "suspended"],
           },
           branchIds: {
             type: "array",
@@ -792,7 +792,7 @@ export const openApiDocument = {
       },
       post: {
         tags: ["Members"],
-        summary: "Invite a new member.",
+        summary: "Create an active member.",
         security: [{ sessionCookie: [] }],
         requestBody: {
           required: true,
@@ -803,7 +803,7 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "201": { description: "Member invited." },
+          "201": { description: "Member created and active." },
           "400": { $ref: "#/components/responses/ValidationError" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

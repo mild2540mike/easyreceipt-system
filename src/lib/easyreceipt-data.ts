@@ -10,7 +10,7 @@ export type ViewId =
 
 export type MemberRole = "owner" | "manager" | "staff"
 
-export type MemberStatus = "active" | "invited" | "suspended"
+export type MemberStatus = "active" | "suspended"
 
 export type MenuPermissionKey =
   | "purchase"
@@ -128,6 +128,7 @@ export type PurchaseItem = {
   quantity: number
   unit: string
   unitPrice: number
+  billName?: string
 }
 
 export type Purchase = {
