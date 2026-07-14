@@ -2550,13 +2550,6 @@ function PurchaseView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      {store.isPurchasesLoading && (
-        <div className="flex min-h-14 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
-          <LoaderCircle className="size-4 animate-spin" />
-          กำลังโหลดประวัติใบซื้อจากฐานข้อมูล
-        </div>
-      )}
-
       {budgetStatus.isOverBudget && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           ร่างใบซื้อนี้ทำให้ยอดรวมรายวันเกินงบประมาณสาขา กรุณาลดรายการหรือปรับงบก่อนบันทึก
