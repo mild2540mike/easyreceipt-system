@@ -3,10 +3,14 @@
 import {
   Fragment,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
+  type ComponentProps,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -1054,6 +1058,30 @@ const maxStockOutPhotoSize = 5 * 1024 * 1024
 const customUsageReasonsKey = "easyreceipt.customUsageReasons"
 const dropdownViewportPadding = 8
 const dropdownGap = 4
+const desktopLayoutMediaQuery = "(min-width: 640px)"
+
+function subscribeToDesktopLayout(callback: () => void) {
+  const mediaQuery = window.matchMedia(desktopLayoutMediaQuery)
+  mediaQuery.addEventListener("change", callback)
+
+  return () => mediaQuery.removeEventListener("change", callback)
+}
+
+function getDesktopLayoutSnapshot() {
+  return window.matchMedia(desktopLayoutMediaQuery).matches
+}
+
+function getServerDesktopLayoutSnapshot() {
+  return false
+}
+
+function useDesktopLayout() {
+  return useSyncExternalStore(
+    subscribeToDesktopLayout,
+    getDesktopLayoutSnapshot,
+    getServerDesktopLayoutSnapshot
+  )
+}
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -3778,6 +3806,101 @@ function DraftPurchaseBillCard({
   )
 }
 
+type BufferedStoreInputProps = Omit<
+  ComponentProps<typeof Input>,
+  "defaultValue" | "onBlur" | "onChange" | "value"
+> & {
+  value: string | number
+  onCommit: (value: string) => void
+}
+
+function BufferedStoreInput({
+  value,
+  onCommit,
+  onKeyDown,
+  ...props
+}: BufferedStoreInputProps) {
+  const externalValue = String(value)
+  const [draftValue, setDraftValue] = useState(externalValue)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const commitRef = useRef(onCommit)
+  const externalValueRef = useRef(externalValue)
+  const commitTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    commitRef.current = onCommit
+  }, [onCommit])
+
+  useEffect(() => {
+    externalValueRef.current = externalValue
+
+    if (document.activeElement !== inputRef.current) {
+      setDraftValue(externalValue)
+    }
+  }, [externalValue])
+
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current !== null) {
+        window.clearTimeout(commitTimerRef.current)
+      }
+    },
+    []
+  )
+
+  function commit(nextValue: string) {
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current)
+      commitTimerRef.current = null
+    }
+
+    if (nextValue !== externalValueRef.current) {
+      commitRef.current(nextValue)
+    }
+  }
+
+  function scheduleCommit(nextValue: string) {
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current)
+    }
+
+    commitTimerRef.current = window.setTimeout(() => commit(nextValue), 300)
+  }
+
+  return (
+    <Input
+      {...props}
+      ref={inputRef}
+      value={draftValue}
+      onChange={(event) => {
+        const nextValue = event.target.value
+        setDraftValue(nextValue)
+        scheduleCommit(nextValue)
+      }}
+      onBlur={() => commit(draftValue)}
+      onKeyDown={(event) => {
+        onKeyDown?.(event)
+
+        if (event.defaultPrevented) {
+          return
+        }
+
+        if (event.key === "Enter") {
+          commit(event.currentTarget.value)
+          event.currentTarget.blur()
+        } else if (event.key === "Escape") {
+          if (commitTimerRef.current !== null) {
+            window.clearTimeout(commitTimerRef.current)
+            commitTimerRef.current = null
+          }
+          setDraftValue(externalValueRef.current)
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
 function PurchaseBillCard({
   billName,
   items,
@@ -3788,16 +3911,17 @@ function PurchaseBillCard({
   store: Store
 }) {
   const total = items.reduce((sum, item) => sum + lineTotal(item), 0)
+  const isDesktopLayout = useDesktopLayout()
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <ReceiptText className="size-4 shrink-0 text-primary" />
-          <Input
+          <BufferedStoreInput
             value={billName}
-            onChange={(event) =>
-              store.renamePurchaseBill(billName, event.target.value)
+            onCommit={(nextName) =>
+              store.renamePurchaseBill(billName, nextName)
             }
             className="h-10 min-w-0 flex-1 bg-background font-semibold sm:max-w-64"
             placeholder="ชื่อบิล"
@@ -3829,41 +3953,44 @@ function PurchaseBillCard({
           </Button>
         </div>
       </div>
-      <div className="divide-y divide-border sm:hidden">
-        {items.map((item, index) => (
-          <PurchaseMobileItem
-            key={item.id}
-            index={index}
-            item={item}
-            store={store}
-          />
-        ))}
-        <div className="flex items-center justify-between bg-muted/20 px-3 py-2.5 text-sm">
-          <span className="font-medium">รวมบิล</span>
-          <span className="font-bold">{formatCurrency(total)}</span>
+      {isDesktopLayout ? (
+        <div className="overflow-x-auto">
+          <PurchaseItemsTableHeader>
+            {items.map((item, index) => (
+              <PurchaseTableRow
+                key={item.id}
+                index={index}
+                item={item}
+                store={store}
+              />
+            ))}
+            <TableRow className="bg-muted/20">
+              <TableCell colSpan={5} className="text-right font-medium">
+                รวมบิล
+              </TableCell>
+              <TableCell className="text-right font-bold">
+                {formatCurrency(total)}
+              </TableCell>
+              <TableCell />
+            </TableRow>
+          </PurchaseItemsTableHeader>
         </div>
-      </div>
-      <div className="hidden overflow-x-auto sm:block">
-        <PurchaseItemsTableHeader>
+      ) : (
+        <div className="divide-y divide-border">
           {items.map((item, index) => (
-            <PurchaseTableRow
+            <PurchaseMobileItem
               key={item.id}
               index={index}
               item={item}
               store={store}
             />
           ))}
-          <TableRow className="bg-muted/20">
-            <TableCell colSpan={5} className="text-right font-medium">
-              รวมบิล
-            </TableCell>
-            <TableCell className="text-right font-bold">
-              {formatCurrency(total)}
-            </TableCell>
-            <TableCell />
-          </TableRow>
-        </PurchaseItemsTableHeader>
-      </div>
+          <div className="flex items-center justify-between bg-muted/20 px-3 py-2.5 text-sm">
+            <span className="font-medium">รวมบิล</span>
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -3912,14 +4039,14 @@ function PurchaseMobileItem({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="mb-1.5 block text-xs">ปริมาณ</Label>
-          <Input
+          <BufferedStoreInput
             type="number"
             min="0"
             step="0.01"
             value={item.quantity === 0 ? "" : item.quantity}
-            onChange={(event) =>
+            onCommit={(nextValue) =>
               store.updatePurchaseItem(item.id, {
-                quantity: toNumber(event.target.value),
+                quantity: toNumber(nextValue),
               })
             }
             className="h-11"
@@ -3928,25 +4055,25 @@ function PurchaseMobileItem({
         </div>
         <div>
           <Label className="mb-1.5 block text-xs">หน่วย</Label>
-          <Input
+          <BufferedStoreInput
             className="h-11"
             value={item.unit}
-            onChange={(event) =>
-              store.updatePurchaseItem(item.id, { unit: event.target.value })
+            onCommit={(nextValue) =>
+              store.updatePurchaseItem(item.id, { unit: nextValue })
             }
             disabled={!store.canEditPurchase}
           />
         </div>
         <div className="col-span-2">
           <Label className="mb-1.5 block text-xs">ราคาต่อหน่วย</Label>
-          <Input
+          <BufferedStoreInput
             type="number"
             min="0"
             step="0.01"
             value={item.unitPrice === 0 ? "" : item.unitPrice}
-            onChange={(event) =>
+            onCommit={(nextValue) =>
               store.updatePurchaseItem(item.id, {
-                unitPrice: toNumber(event.target.value),
+                unitPrice: toNumber(nextValue),
               })
             }
             className="h-11"
@@ -4154,14 +4281,14 @@ function PurchaseTableRow({
         />
       </TableCell>
       <TableCell>
-        <Input
+        <BufferedStoreInput
           type="number"
           min="0"
           step="0.01"
           value={item.quantity === 0 ? "" : item.quantity}
-          onChange={(event) =>
+          onCommit={(nextValue) =>
             store.updatePurchaseItem(item.id, {
-              quantity: toNumber(event.target.value),
+              quantity: toNumber(nextValue),
             })
           }
           className="h-9 w-full px-2 text-sm sm:h-10"
@@ -4169,24 +4296,24 @@ function PurchaseTableRow({
         />
       </TableCell>
       <TableCell>
-        <Input
+        <BufferedStoreInput
           className="h-9 w-full px-2 text-sm sm:h-10"
           value={item.unit}
-          onChange={(event) =>
-            store.updatePurchaseItem(item.id, { unit: event.target.value })
+          onCommit={(nextValue) =>
+            store.updatePurchaseItem(item.id, { unit: nextValue })
           }
           disabled={!store.canEditPurchase}
         />
       </TableCell>
       <TableCell>
-        <Input
+        <BufferedStoreInput
           type="number"
           min="0"
           step="0.01"
           value={item.unitPrice === 0 ? "" : item.unitPrice}
-          onChange={(event) =>
+          onCommit={(nextValue) =>
             store.updatePurchaseItem(item.id, {
-              unitPrice: toNumber(event.target.value),
+              unitPrice: toNumber(nextValue),
             })
           }
           className="h-9 w-full px-2 text-sm sm:h-10"
@@ -4226,6 +4353,7 @@ function IngredientSelect({
 }) {
   const selectedIngredient = store.ingredientById.get(item.ingredientId)
   const [query, setQuery] = useState(selectedIngredient?.name ?? "")
+  const deferredQuery = useDeferredValue(query)
   const [isOpen, setIsOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
@@ -4235,37 +4363,51 @@ function IngredientSelect({
       maxHeight: 320,
       minHeight: 160,
     })
-  const searchTerm = normalizeSearch(query)
+  const searchTerm = normalizeSearch(deferredQuery)
+  const exactSearchTerm = normalizeSearch(query)
   const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
   const exactIngredient = store.ingredients.find(
     (ingredient) =>
-      normalizeSearch(ingredient.name) === searchTerm &&
+      normalizeSearch(ingredient.name) === exactSearchTerm &&
       normalizeSearch(ingredient.unit) === unitTerm
   )
-  const matchingSuggestionRows = store.inventoryRows
-    .filter((row) => {
+  const searchableInventoryRows = useMemo(
+    () =>
+      store.inventoryRows.map((row) => ({
+        row,
+        name: normalizeSearch(row.ingredient.name),
+        fields: [
+          row.ingredient.name,
+          row.ingredient.category,
+          row.ingredient.supplier,
+        ].map(normalizeSearch),
+      })),
+    [store.inventoryRows]
+  )
+  const matchingSuggestionRows = useMemo(
+    () => searchableInventoryRows
+    .filter((entry) => {
       if (!searchTerm) {
         return true
       }
 
-      return [row.ingredient.name, row.ingredient.category, row.ingredient.supplier]
-        .map(normalizeSearch)
-        .some((value) => value.includes(searchTerm))
+      return entry.fields.some((value) => value.includes(searchTerm))
     })
     .sort((left, right) => {
-      const leftName = normalizeSearch(left.ingredient.name)
-      const rightName = normalizeSearch(right.ingredient.name)
-      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
-      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+      const leftStarts = left.name.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = right.name.startsWith(searchTerm) ? 0 : 1
 
       if (leftStarts !== rightStarts) {
         return leftStarts - rightStarts
       }
 
-      return left.ingredient.name.localeCompare(right.ingredient.name, "th")
+      return left.row.ingredient.name.localeCompare(right.row.ingredient.name, "th")
     })
+    .map((entry) => entry.row),
+    [searchTerm, searchableInventoryRows]
+  )
   const suggestionRows = searchTerm
-    ? matchingSuggestionRows
+    ? matchingSuggestionRows.slice(0, 50)
     : matchingSuggestionRows.slice(0, 7)
   const canAddIngredient = Boolean(query.trim()) && !exactIngredient
 
@@ -4344,7 +4486,6 @@ function IngredientSelect({
             }
 
             setQuery(event.target.value)
-            updateDropdownPosition()
             setIsOpen(true)
           }}
         />
@@ -5017,15 +5158,17 @@ function UsageBatchCard({
   reasonOptions: string[]
   store: Store
 }) {
+  const isDesktopLayout = useDesktopLayout()
+
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Minus className="size-4 shrink-0 text-rose-600" />
-          <Input
+          <BufferedStoreInput
             value={name}
-            onChange={(event) =>
-              store.renameUsageBatch(batchId, event.target.value)
+            onCommit={(nextName) =>
+              store.renameUsageBatch(batchId, nextName)
             }
             className="h-10 min-w-0 flex-1 bg-background font-semibold sm:max-w-64"
             placeholder="ชื่อรายการ"
@@ -5073,51 +5216,53 @@ function UsageBatchCard({
         </p>
       </div>
 
-      <div className="divide-y divide-border sm:hidden">
-        {items.map((item, index) => (
-          <UsageMobileItem
-            key={item.id}
-            index={index}
-            item={item}
-            store={store}
-          />
-        ))}
-      </div>
-
-      <div className="hidden overflow-x-auto sm:block">
-        <FreezableTable className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
-          <colgroup>
-            <col className="w-10" />
-            <col className="w-50" />
-            <col className="w-20" />
-            <col className="w-20" />
-            <col className="w-14" />
-            <col className="w-20" />
-            <col className="w-12" />
-          </colgroup>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-center">#</TableHead>
-              <TableHead>วัตถุดิบ</TableHead>
-              <TableHead className="text-right">คงเหลือ</TableHead>
-              <TableHead>จำนวนที่ใช้</TableHead>
-              <TableHead>หน่วย</TableHead>
-              <TableHead className="text-right">หลังบันทึก</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item, index) => (
-              <UsageDraftTableRow
-                key={item.id}
-                index={index}
-                item={item}
-                store={store}
-              />
-            ))}
-          </TableBody>
-        </FreezableTable>
-      </div>
+      {isDesktopLayout ? (
+        <div className="overflow-x-auto">
+          <FreezableTable className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-50" />
+              <col className="w-20" />
+              <col className="w-20" />
+              <col className="w-14" />
+              <col className="w-20" />
+              <col className="w-12" />
+            </colgroup>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-center">#</TableHead>
+                <TableHead>วัตถุดิบ</TableHead>
+                <TableHead className="text-right">คงเหลือ</TableHead>
+                <TableHead>จำนวนที่ใช้</TableHead>
+                <TableHead>หน่วย</TableHead>
+                <TableHead className="text-right">หลังบันทึก</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item, index) => (
+                <UsageDraftTableRow
+                  key={item.id}
+                  index={index}
+                  item={item}
+                  store={store}
+                />
+              ))}
+            </TableBody>
+          </FreezableTable>
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {items.map((item, index) => (
+            <UsageMobileItem
+              key={item.id}
+              index={index}
+              item={item}
+              store={store}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -5134,9 +5279,15 @@ function UsageReasonCombobox({
   disabled?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState(value)
+  const deferredQuery = useDeferredValue(query)
   const [customReasons, setCustomReasons] = useState<string[]>(
     loadCustomUsageReasons
   )
+  const reasonInputRef = useRef<HTMLInputElement | null>(null)
+  const onChangeRef = useRef(onChange)
+  const externalValueRef = useRef(value)
+  const commitTimerRef = useRef<number | null>(null)
   const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
     useAnchoredDropdownPosition({
       isOpen,
@@ -5144,7 +5295,52 @@ function UsageReasonCombobox({
       maxHeight: 280,
       minHeight: 120,
     })
-  const searchTerm = normalizeSearch(value)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  useEffect(() => {
+    externalValueRef.current = value
+
+    if (document.activeElement !== reasonInputRef.current) {
+      setQuery(value)
+    }
+  }, [value])
+
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current !== null) {
+        window.clearTimeout(commitTimerRef.current)
+      }
+    },
+    []
+  )
+
+  function commitReason(nextValue: string) {
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current)
+      commitTimerRef.current = null
+    }
+
+    if (nextValue !== externalValueRef.current) {
+      onChangeRef.current(nextValue)
+    }
+  }
+
+  function updateReason(nextValue: string) {
+    setQuery(nextValue)
+
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current)
+    }
+
+    commitTimerRef.current = window.setTimeout(
+      () => commitReason(nextValue),
+      300
+    )
+  }
+
+  const searchTerm = normalizeSearch(deferredQuery)
   const allReasons = Array.from(
     new Set(
       [...options, ...customReasons]
@@ -5167,7 +5363,7 @@ function UsageReasonCombobox({
       return left.localeCompare(right, "th")
     })
     .slice(0, 8)
-  const cleanValue = value.trim()
+  const cleanValue = query.trim()
   const hasExactReason = allReasons.some(
     (reason) => normalizeSearch(reason) === normalizeSearch(cleanValue)
   )
@@ -5191,7 +5387,8 @@ function UsageReasonCombobox({
   }
 
   function selectReason(reason: string) {
-    onChange(reason)
+    setQuery(reason)
+    commitReason(reason)
     setIsOpen(false)
   }
 
@@ -5212,9 +5409,10 @@ function UsageReasonCombobox({
       <div ref={inputAnchorRef} className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          ref={reasonInputRef}
           type="search"
           className="h-10 bg-background pl-9 pr-3"
-          value={value}
+          value={query}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"
@@ -5226,11 +5424,11 @@ function UsageReasonCombobox({
             setIsOpen(true)
           }}
           onBlur={() => {
+            commitReason(query)
             window.setTimeout(() => setIsOpen(false), 120)
           }}
           onChange={(event) => {
-            onChange(event.target.value)
-            updateDropdownPosition()
+            updateReason(event.target.value)
             setIsOpen(true)
           }}
           onKeyDown={(event) => {
@@ -5260,7 +5458,7 @@ function UsageReasonCombobox({
               type="button"
               className={cn(
                 "flex min-h-10 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-muted",
-                normalizeSearch(reason) === normalizeSearch(value) && "bg-muted"
+                normalizeSearch(reason) === normalizeSearch(query) && "bg-muted"
               )}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectReason(reason)}
@@ -5354,15 +5552,15 @@ function UsageMobileItem({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="mb-1.5 block text-xs">จำนวนที่ใช้</Label>
-          <Input
+          <BufferedStoreInput
             type="number"
             min="0"
             step="0.01"
             className="h-11"
             value={item.quantity === 0 ? "" : item.quantity}
-            onChange={(event) =>
+            onCommit={(nextValue) =>
               store.updateUsageItem(item.id, {
-                quantity: toNumber(event.target.value),
+                quantity: toNumber(nextValue),
               })
             }
             disabled={!store.canEditUsage}
@@ -5444,15 +5642,15 @@ function UsageDraftTableRow({
           : "-"}
       </TableCell>
       <TableCell>
-        <Input
+        <BufferedStoreInput
           type="number"
           min="0"
           step="0.01"
           className="h-9 w-full px-2 text-sm sm:h-10"
           value={item.quantity === 0 ? "" : item.quantity}
-          onChange={(event) =>
+          onCommit={(nextValue) =>
             store.updateUsageItem(item.id, {
-              quantity: toNumber(event.target.value),
+              quantity: toNumber(nextValue),
             })
           }
           disabled={!store.canEditUsage}
@@ -5503,6 +5701,7 @@ function UsageIngredientSelect({
 }) {
   const selectedRow = store.inventoryRows.find((row) => row.ingredientId === value)
   const [query, setQuery] = useState(selectedRow?.ingredient.name ?? "")
+  const deferredQuery = useDeferredValue(query)
   const [isOpen, setIsOpen] = useState(false)
   const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
     useAnchoredDropdownPosition({
@@ -5511,35 +5710,44 @@ function UsageIngredientSelect({
       maxHeight: 320,
       minHeight: 160,
     })
-  const searchTerm = normalizeSearch(query)
-  const matchingRows = store.inventoryRows
-    .filter((row) => {
+  const searchTerm = normalizeSearch(deferredQuery)
+  const searchableInventoryRows = useMemo(
+    () =>
+      store.inventoryRows.map((row) => ({
+        row,
+        name: normalizeSearch(row.ingredient.name),
+        fields: [
+          row.ingredient.name,
+          row.ingredient.category,
+          row.ingredient.supplier,
+          row.ingredient.unit,
+        ].map(normalizeSearch),
+      })),
+    [store.inventoryRows]
+  )
+  const matchingRows = useMemo(
+    () => searchableInventoryRows
+    .filter((entry) => {
       if (!searchTerm) {
         return true
       }
 
-      return [
-        row.ingredient.name,
-        row.ingredient.category,
-        row.ingredient.supplier,
-        row.ingredient.unit,
-      ]
-        .map(normalizeSearch)
-        .some((item) => item.includes(searchTerm))
+      return entry.fields.some((item) => item.includes(searchTerm))
     })
     .sort((left, right) => {
-      const leftName = normalizeSearch(left.ingredient.name)
-      const rightName = normalizeSearch(right.ingredient.name)
-      const leftStarts = leftName.startsWith(searchTerm) ? 0 : 1
-      const rightStarts = rightName.startsWith(searchTerm) ? 0 : 1
+      const leftStarts = left.name.startsWith(searchTerm) ? 0 : 1
+      const rightStarts = right.name.startsWith(searchTerm) ? 0 : 1
 
       if (leftStarts !== rightStarts) {
         return leftStarts - rightStarts
       }
 
-      return left.ingredient.name.localeCompare(right.ingredient.name, "th")
+      return left.row.ingredient.name.localeCompare(right.row.ingredient.name, "th")
     })
-  const filteredRows = searchTerm ? matchingRows : matchingRows.slice(0, 12)
+    .map((entry) => entry.row),
+    [searchTerm, searchableInventoryRows]
+  )
+  const filteredRows = searchTerm ? matchingRows.slice(0, 50) : matchingRows.slice(0, 12)
 
   function handleSelectIngredient(ingredientId: string) {
     const row = store.inventoryRows.find((item) => item.ingredientId === ingredientId)
@@ -5577,7 +5785,6 @@ function UsageIngredientSelect({
           }}
           onChange={(event) => {
             setQuery(event.target.value)
-            updateDropdownPosition()
             setIsOpen(true)
           }}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
