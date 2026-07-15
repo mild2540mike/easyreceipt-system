@@ -6273,8 +6273,8 @@ export const stockSeedItems = [
     }
   },
   {
-    "id": "stock-0457-444",
-    "code": "0457",
+    "id": "stock-0458",
+    "code": "0458",
     "sourceLine": 444,
     "name": "แยมโรล",
     "category": "วัตถุดิบ",
@@ -6286,13 +6286,103 @@ export const stockSeedItems = [
       "reorderPoint": 0,
       "costPerUnit": 3.6
     }
+  },
+  {
+    "id": "stock-0459",
+    "code": "0459",
+    "sourceLine": 445,
+    "name": "ไก่ SBB",
+    "category": "วัตถุดิบ",
+    "unit": "กิโลกรัม",
+    "defaultPrice": 58,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 1,
+      "reorderPoint": 0,
+      "costPerUnit": 58
+    }
+  },
+  {
+    "id": "stock-0460",
+    "code": "0460",
+    "sourceLine": 446,
+    "name": "สันในไก่ชุบแป้งทอด",
+    "category": "วัตถุดิบ",
+    "unit": "กิโลกรัม",
+    "defaultPrice": 70,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 1,
+      "reorderPoint": 0,
+      "costPerUnit": 70
+    }
+  },
+  {
+    "id": "stock-0461",
+    "code": "0461",
+    "sourceLine": 447,
+    "name": "ลูกมะกรูด",
+    "category": "วัตถุดิบ",
+    "unit": "กิโลกรัม",
+    "defaultPrice": 109,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 1,
+      "reorderPoint": 0,
+      "costPerUnit": 109
+    }
+  },
+  {
+    "id": "stock-0462",
+    "code": "0462",
+    "sourceLine": 448,
+    "name": "เห็ดออรินจิ",
+    "category": "วัตถุดิบ",
+    "unit": "กิโลกรัม",
+    "defaultPrice": 70,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 1,
+      "reorderPoint": 0,
+      "costPerUnit": 70
+    }
+  },
+  {
+    "id": "stock-0463",
+    "code": "0463",
+    "sourceLine": 449,
+    "name": "นมสด",
+    "category": "วัตถุดิบ",
+    "unit": "แกลลอน",
+    "defaultPrice": 99,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 1,
+      "reorderPoint": 0,
+      "costPerUnit": 99
+    }
+  },
+  {
+    "id": "stock-0464",
+    "code": "0464",
+    "sourceLine": 450,
+    "name": "นมข้นหวาน",
+    "category": "วัตถุดิบ",
+    "unit": "กิโลกรัม",
+    "defaultPrice": 55.5,
+    "supplier": "ของแปรสภาพ",
+    "inventory": {
+      "onHand": 2,
+      "reorderPoint": 0,
+      "costPerUnit": 55.5
+    }
   }
 ]
 
 export const stockSeedStats = {
   "sourceRows": 435,
-  "seededRows": 419,
-  "skippedRows": 16,
+  "seededRows": 425,
+  "skippedRows": 10,
   "skipped": [
     {
       "sourceLine": 14,
@@ -6374,54 +6464,6 @@ export const stockSeedStats = {
       "name": "กล้วยบวชชี",
       "reasons": [
         "invalid unit price"
-      ]
-    },
-    {
-      "sourceLine": 445,
-      "code": "",
-      "name": "ไก่ SBB",
-      "reasons": [
-        "missing code"
-      ]
-    },
-    {
-      "sourceLine": 446,
-      "code": "",
-      "name": "สันในไก่ชุบแป้งทอด",
-      "reasons": [
-        "missing code"
-      ]
-    },
-    {
-      "sourceLine": 447,
-      "code": "",
-      "name": "ลูกมะกรูด",
-      "reasons": [
-        "missing code"
-      ]
-    },
-    {
-      "sourceLine": 448,
-      "code": "",
-      "name": "เห็ดออรินจิ",
-      "reasons": [
-        "missing code"
-      ]
-    },
-    {
-      "sourceLine": 449,
-      "code": "",
-      "name": "นมสด",
-      "reasons": [
-        "missing code"
-      ]
-    },
-    {
-      "sourceLine": 450,
-      "code": "",
-      "name": "นมข้นหวาน",
-      "reasons": [
-        "missing code"
       ]
     }
   ]
