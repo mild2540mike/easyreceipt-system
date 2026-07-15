@@ -1970,16 +1970,7 @@ function MobileBottomNav({
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
-      <div
-        className={cn(
-          "mx-auto grid max-w-lg gap-1",
-          items.length === 5
-            ? "grid-cols-5"
-            : items.length === 6
-              ? "grid-cols-6"
-              : "grid-cols-7"
-        )}
-      >
+      <div className="mx-auto grid max-w-lg grid-flow-col auto-cols-fr gap-1">
         {items.map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id
@@ -7387,44 +7378,6 @@ function SummaryPill({
   )
 }
 
-function BranchBadgeList({
-  branchIds,
-  store,
-  forceAll = false,
-}: {
-  branchIds: string[]
-  store: Store
-  forceAll?: boolean
-}) {
-  const branches = forceAll
-    ? store.branches
-    : branchIds
-        .map((branchId) =>
-          store.branches.find((branch: { id: string }) => branch.id === branchId)
-        )
-        .filter((branch): branch is Store["branches"][number] =>
-          Boolean(branch)
-        )
-
-  if (branches.length === 0) {
-    return (
-      <Badge variant="outline" className="h-7 border-amber-200 text-amber-700">
-        ยังไม่กำหนดสาขา
-      </Badge>
-    )
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1.5 lg:max-h-24 lg:overflow-y-auto lg:pr-1">
-      {branches.map((branch) => (
-        <Badge key={branch.id} variant="secondary" className="h-7">
-          {branch.name}
-        </Badge>
-      ))}
-    </div>
-  )
-}
-
 function BranchAccessCell({
   member,
   store,
@@ -7954,20 +7907,14 @@ function MembersView({ store }: { store: Store }) {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:gap-3 lg:hidden">
-          {store.members.map((member) => (
-            <MemberMobileCard key={member.id} member={member} store={store} />
-          ))}
-        </div>
-
-        <div className="hidden overflow-x-auto rounded-lg border border-border bg-background lg:block">
+        <div className="overflow-x-auto rounded-lg border border-border bg-background">
           <FreezableTable className="min-w-[64rem] text-sm">
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead className="w-[24rem]">สมาชิก</TableHead>
+                <TableHead className="min-w-72">สาขา</TableHead>
                 <TableHead className="w-40">สิทธิ์</TableHead>
                 <TableHead className="w-40">สถานะ</TableHead>
-                <TableHead className="min-w-72">สาขา</TableHead>
                 <TableHead className="w-36">ใช้งานล่าสุด</TableHead>
                 <TableHead className="w-32">วันที่เพิ่ม</TableHead>
                 <TableHead className="w-32 text-right">จัดการ</TableHead>
@@ -7988,6 +7935,9 @@ function MembersView({ store }: { store: Store }) {
                         </p>
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell className="min-w-72">
+                    <BranchAccessCell member={member} store={store} />
                   </TableCell>
                   <TableCell>
                     {store.canManageMembers ? (
@@ -8022,9 +7972,6 @@ function MembersView({ store }: { store: Store }) {
                         {memberStatusLabel(member.status)}
                       </Badge>
                     )}
-                  </TableCell>
-                  <TableCell className="min-w-72">
-                    <BranchAccessCell member={member} store={store} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">{member.lastActive}</TableCell>
                   <TableCell className="text-muted-foreground">{member.joinedAt}</TableCell>
@@ -8224,112 +8171,6 @@ function MemberFormView() {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function MemberMobileCard({
-  member,
-  store,
-}: {
-  member: Store["members"][number]
-  store: Store
-}) {
-  return (
-    <Card className="rounded-lg">
-      <CardContent className="space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-            <UserRound className="size-5 text-muted-foreground" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <p className="min-w-0 truncate text-base font-semibold leading-tight">
-                {member.name}
-              </p>
-              <Badge
-                variant="outline"
-                className={cn("h-6 shrink-0", memberStatusClassName(member.status))}
-              >
-                {memberStatusLabel(member.status)}
-              </Badge>
-            </div>
-            <p className="mt-1 break-all text-sm leading-snug text-muted-foreground">
-              @{member.username}
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2">
-          <div>
-            <Label className="mb-2 block text-xs text-muted-foreground">สิทธิ์</Label>
-            {store.canManageMembers ? (
-              <RoleSelect
-                value={member.role}
-                onChange={(nextRole) =>
-                  store.updateMemberRole(member.id, nextRole)
-                }
-              />
-            ) : (
-              <div className="flex h-11 items-center rounded-lg border border-border px-3">
-                {memberRoleLabel(member.role)}
-              </div>
-            )}
-          </div>
-          <div>
-            <Label className="mb-2 block text-xs text-muted-foreground">สถานะ</Label>
-            {store.canManageMembers ? (
-              <StatusSelect
-                value={member.status}
-                onChange={(nextStatus) =>
-                  store.updateMemberStatus(member.id, nextStatus)
-                }
-              />
-            ) : (
-              <div className="flex h-11 items-center rounded-lg border border-border px-3">
-                {memberStatusLabel(member.status)}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="rounded-lg border border-border bg-muted/30 p-3">
-          <Label className="mb-2 block text-xs text-muted-foreground">สาขาที่เข้าถึง</Label>
-          {store.canManageMembers && member.role !== "owner" ? (
-            <BranchAccessPicker
-              value={
-                member.role === "manager"
-                  ? member.branchIds
-                  : member.branchIds.slice(0, 1)
-              }
-              store={store}
-              onChange={(nextBranchIds) =>
-                store.updateMemberBranches(member.id, nextBranchIds)
-              }
-              selectionMode={
-                member.role === "manager" ? "multiple" : "single"
-              }
-            />
-          ) : (
-            <BranchBadgeList
-              branchIds={
-                member.role === "manager"
-                  ? member.branchIds
-                  : member.branchIds.slice(0, 1)
-              }
-              store={store}
-              forceAll={member.role === "owner"}
-            />
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <SummaryPill compact label="ใช้งานล่าสุด" value={member.lastActive} />
-          <SummaryPill compact label="วันที่เพิ่ม" value={member.joinedAt} />
-        </div>
-        <MemberEditDialog
-          member={member}
-          store={store}
-          className="h-11 w-full"
-        />
-      </CardContent>
-    </Card>
   )
 }
 
