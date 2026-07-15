@@ -5437,7 +5437,7 @@ function UsageReasonCombobox({
               addCurrentReason()
             }
           }}
-          placeholder="ค้นหาหรือเพิ่มเหตุผล"
+          placeholder="ระบุเหตุผล"
           disabled={disabled}
         />
       </div>
@@ -5849,6 +5849,9 @@ function StockView({ store }: { store: Store }) {
   const [stockCategory, setStockCategory] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
   const [stockFilterModalOpen, setStockFilterModalOpen] = useState(false)
+  const [stockViewMode, setStockViewMode] = useState<"mobile" | "table">(
+    "mobile"
+  )
   const editingItem = store.inventoryRows.find(
     (item) => item.ingredientId === editingIngredientId
   )
@@ -6132,9 +6135,144 @@ function StockView({ store }: { store: Store }) {
         </div>
       )}
 
-      <section className="overflow-hidden rounded-lg border border-border bg-background xl:hidden">
-        <div className="overflow-x-auto">
-          <FreezableTable>
+      {visibleInventoryRows.length > 0 && (
+        <Tabs
+          value={stockViewMode}
+          onValueChange={(value) => {
+            if (value === "mobile" || value === "table") {
+              setStockViewMode(value)
+            }
+          }}
+          className="gap-3"
+        >
+          <TabsList
+            className="h-[52px] w-full p-1 sm:ml-auto sm:w-fit"
+            aria-label="รูปแบบการแสดงคลังวัตถุดิบ"
+          >
+            <TabsTrigger value="mobile" className="h-11 px-4 sm:min-w-36">
+              <List className="size-4" />
+              แสดงรายการ
+            </TabsTrigger>
+            <TabsTrigger value="table" className="h-11 px-4 sm:min-w-36">
+              <Table2 className="size-4" />
+              แสดงตาราง
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="mobile">
+            <section
+              className="overflow-hidden rounded-lg border border-border bg-background"
+              aria-label="รายการวัตถุดิบ"
+            >
+              <div className="divide-y divide-border">
+                {visibleInventoryRows.map((item) => (
+                  <article
+                    key={item.ingredientId}
+                    className={cn(
+                      "p-4 transition-colors",
+                      editingIngredientId === item.ingredientId && "bg-muted/60"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="break-words font-semibold leading-6">
+                            {item.ingredient.name}
+                          </h3>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "h-5 max-w-32 px-1.5 text-[10px]",
+                              item.ingredient.category === newIngredientCategory
+                                ? "border-amber-200 bg-amber-50 text-amber-800"
+                                : "border-border bg-muted/50 text-muted-foreground"
+                            )}
+                          >
+                            <span className="truncate">
+                              {item.ingredient.category}
+                            </span>
+                          </Badge>
+                        </div>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {item.ingredient.supplier || "ไม่ระบุซัพพลายเออร์"}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="icon-lg"
+                        className="size-11 shrink-0"
+                        onClick={() => startStockEdit(item)}
+                        disabled={!store.canEditInventory}
+                      >
+                        <Pencil className="size-4" />
+                        <span className="sr-only">
+                          แก้ไข {item.ingredient.name}
+                        </span>
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">คงเหลือ</p>
+                        <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                          {formatNumber(item.onHand)} {item.ingredient.unit}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn("h-6 shrink-0", statusClassName(item.status))}
+                      >
+                        {statusLabel(item.status)}
+                      </Badge>
+                    </div>
+
+                    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3 text-sm">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">รับเข้า</dt>
+                        <dd className="mt-0.5 font-medium tabular-nums text-emerald-700">
+                          +{formatNumber(item.incoming)} {item.ingredient.unit}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          ราคาปัจจุบัน/หน่วย
+                        </dt>
+                        <dd
+                          className={cn(
+                            "mt-0.5 font-semibold tabular-nums",
+                            item.costPerUnit > item.ingredient.defaultPrice
+                              ? "text-amber-700"
+                              : "text-emerald-700"
+                          )}
+                        >
+                          {formatCurrency(item.costPerUnit)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          ราคาตลาด/หน่วย
+                        </dt>
+                        <dd className="mt-0.5 font-medium tabular-nums">
+                          {formatCurrency(item.ingredient.defaultPrice)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">
+                          อัปเดตล่าสุด
+                        </dt>
+                        <dd className="mt-0.5 font-medium">{item.lastUpdated}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </TabsContent>
+
+          <TabsContent value="table">
+            <section className="overflow-hidden rounded-lg border border-border bg-background xl:hidden">
+              <div className="overflow-x-auto">
+                <FreezableTable>
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-56">วัตถุดิบ</TableHead>
@@ -6232,12 +6370,12 @@ function StockView({ store }: { store: Store }) {
                 </TableRow>
               ))}
             </TableBody>
-          </FreezableTable>
-        </div>
-      </section>
+                </FreezableTable>
+              </div>
+            </section>
 
-      <section className="hidden overflow-hidden rounded-lg border border-border bg-background xl:block">
-        <FreezableTable>
+            <section className="hidden overflow-hidden rounded-lg border border-border bg-background xl:block">
+              <FreezableTable>
           <TableHeader>
             <TableRow>
               <TableHead>วัตถุดิบ</TableHead>
@@ -6330,8 +6468,11 @@ function StockView({ store }: { store: Store }) {
               </TableRow>
             ))}
           </TableBody>
-        </FreezableTable>
-      </section>
+              </FreezableTable>
+            </section>
+          </TabsContent>
+        </Tabs>
+      )}
 
       <StockEditDialog
         key={editingIngredientId ?? "closed-stock-editor"}
