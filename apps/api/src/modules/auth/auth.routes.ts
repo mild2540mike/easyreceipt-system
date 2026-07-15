@@ -5,7 +5,12 @@ import { z } from "zod"
 
 import { env } from "../../config/env"
 import { prisma } from "../../db/prisma"
-import { getAuthMember, requireAuth } from "../../middleware/auth"
+import {
+  getAuthMember,
+  getOptionalAuthMember,
+  optionalAuth,
+  requireAuth,
+} from "../../middleware/auth"
 import { asyncHandler } from "../../utils/async-handler"
 import { unauthorized } from "../../utils/http-error"
 import {
@@ -60,14 +65,26 @@ authRouter.post(
       throw unauthorized("Invalid username or password.")
     }
 
-    await prisma.member.update({
-      where: {
-        id: member.id,
-      },
-      data: {
-        lastActiveAt: new Date(),
-      },
-    })
+    await prisma.$transaction([
+      prisma.member.update({
+        where: {
+          id: member.id,
+        },
+        data: {
+          lastActiveAt: new Date(),
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          organizationId: member.organizationId,
+          memberId: member.id,
+          action: "auth_login",
+          entityType: "auth_session",
+          entityId: member.id,
+          metadataJson: JSON.stringify({ username: member.username }),
+        },
+      }),
+    ])
 
     const token = createSessionToken(member.id)
     setSessionCookie(res, token)
@@ -84,7 +101,27 @@ authRouter.post(
 
 authRouter.post(
   "/logout",
-  asyncHandler(async (_req, res) => {
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const member = getOptionalAuthMember(req)
+
+    if (member) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            organizationId: member.organizationId,
+            memberId: member.id,
+            action: "auth_logout",
+            entityType: "auth_session",
+            entityId: member.id,
+            metadataJson: JSON.stringify({ username: member.username }),
+          },
+        })
+      } catch {
+        // Clearing the session must not depend on audit-log availability.
+      }
+    }
+
     res.clearCookie(env.SESSION_COOKIE_NAME, {
       path: "/",
     })

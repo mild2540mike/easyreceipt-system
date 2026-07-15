@@ -296,6 +296,63 @@ export type NormalizedStockMovement = {
   occurredAt: string
 }
 
+export type NotificationType =
+  | "purchase_received"
+  | "usage_out"
+  | "inventory_updated"
+  | "auth_login"
+  | "auth_logout"
+
+export type NotificationItemDetail = {
+  ingredientId?: string
+  ingredientName?: string
+  quantity?: number
+  unit?: string
+}
+
+export type NotificationChange = {
+  field: string
+  before: string | number | null
+  after: string | number | null
+}
+
+export type SystemNotification = {
+  id: string
+  type: NotificationType
+  actor: {
+    id: string
+    name: string
+    username: string
+  } | null
+  branch: {
+    id: string
+    name: string
+    code: string
+  } | null
+  occurredAt: string
+  title: string
+  summary: string
+  metadata: {
+    name?: string
+    reason?: string
+    itemCount?: number
+    totalAmount?: number
+    ingredientId?: string
+    ingredientName?: string
+    items?: NotificationItemDetail[]
+    changes?: NotificationChange[]
+  }
+}
+
+export type NotificationFeed = {
+  notifications: SystemNotification[]
+  recentCount: number
+  pageInfo: {
+    limit: number
+    hasMore: boolean
+  }
+}
+
 export type ApiRecipeItem = {
   id: string
   ingredientId: string
@@ -807,6 +864,20 @@ export async function apiGetBranchInventoryMovements(
   )
 
   return data.movements.map(normalizeStockMovement)
+}
+
+export async function apiGetNotifications(
+  branchId: string,
+  input: { days?: number; limit?: number } = {}
+): Promise<NotificationFeed> {
+  const params = new URLSearchParams({ branchId })
+  params.set("days", String(input.days ?? 7))
+  params.set("limit", String(input.limit ?? 50))
+  const response = await fetch(`${apiBaseUrl}/notifications?${params.toString()}`, {
+    credentials: "include",
+  })
+
+  return parseJsonResponse<NotificationFeed>(response)
 }
 
 export async function apiGetBranchUsageReasons(

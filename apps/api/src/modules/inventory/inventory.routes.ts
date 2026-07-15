@@ -574,7 +574,8 @@ inventoryRouter.post(
           metadataJson: JSON.stringify({
             reason: input.reason.trim(),
             occurredAt: occurredAt.toISOString(),
-            items: usageItems.map((item) => {
+            itemCount: usageItems.length,
+            items: usageItems.slice(0, 10).map((item) => {
               const inventory = inventoryByIngredientId.get(item.ingredientId)
 
               return {
@@ -761,7 +762,17 @@ inventoryRouter.post(
               name: group.name,
               reason: group.reason,
               occurredAt: occurredAt.toISOString(),
-              items: group.items,
+              itemCount: group.items.length,
+              items: group.items.slice(0, 10).map((item) => {
+                const inventory = inventoryByIngredientId.get(item.ingredientId)
+
+                return {
+                  ingredientId: item.ingredientId,
+                  ingredientName: inventory?.ingredient.name ?? "-",
+                  quantity: item.quantity,
+                  unit: inventory?.ingredient.unit ?? "-",
+                }
+              }),
             }).slice(0, 4000),
           },
         })
@@ -909,6 +920,19 @@ inventoryRouter.patch(
         throw notFound("Ingredient not found.")
       }
 
+      const currentInventory = await tx.branchInventory.findUnique({
+        where: {
+          branchId_ingredientId: {
+            branchId,
+            ingredientId,
+          },
+        },
+      })
+
+      if (!currentInventory) {
+        throw notFound("Inventory item not found.")
+      }
+
       const duplicateIngredient = await tx.ingredient.findFirst({
         where: {
           organizationId: currentIngredient.organizationId,
@@ -922,18 +946,25 @@ inventoryRouter.patch(
         throw badRequest("Ingredient name and unit already exist.")
       }
 
+      const nextIngredient = {
+        name: input.name.trim(),
+        category: input.category.trim() || "วัตถุดิบ",
+        unit: input.unit.trim(),
+        defaultPrice: roundMoney(input.defaultPrice),
+        supplier: input.supplier.trim() || "-",
+      }
+      const nextInventory = {
+        onHand: roundQuantity(input.onHand),
+        reorderPoint: roundQuantity(input.reorderPoint),
+        costPerUnit: roundMoney(input.costPerUnit),
+      }
+
       await tx.ingredient.update({
         where: { id: ingredientId },
-        data: {
-          name: input.name.trim(),
-          category: input.category.trim() || "วัตถุดิบ",
-          unit: input.unit.trim(),
-          defaultPrice: roundMoney(input.defaultPrice),
-          supplier: input.supplier.trim() || "-",
-        },
+        data: nextIngredient,
       })
 
-      return tx.branchInventory.update({
+      const updatedInventory = await tx.branchInventory.update({
         where: {
           branchId_ingredientId: {
             branchId,
@@ -941,15 +972,68 @@ inventoryRouter.patch(
           },
         },
         data: {
-          onHand: roundQuantity(input.onHand),
-          reorderPoint: roundQuantity(input.reorderPoint),
-          costPerUnit: roundMoney(input.costPerUnit),
+          ...nextInventory,
           lastUpdatedAt: new Date(),
         },
         include: {
           ingredient: true,
         },
       })
+
+      const changes = [
+        { field: "name", before: currentIngredient.name, after: nextIngredient.name },
+        {
+          field: "category",
+          before: currentIngredient.category,
+          after: nextIngredient.category,
+        },
+        { field: "unit", before: currentIngredient.unit, after: nextIngredient.unit },
+        {
+          field: "supplier",
+          before: currentIngredient.supplier,
+          after: nextIngredient.supplier,
+        },
+        {
+          field: "defaultPrice",
+          before: Number(currentIngredient.defaultPrice),
+          after: nextIngredient.defaultPrice,
+        },
+        {
+          field: "onHand",
+          before: Number(currentInventory.onHand),
+          after: nextInventory.onHand,
+        },
+        {
+          field: "reorderPoint",
+          before: Number(currentInventory.reorderPoint),
+          after: nextInventory.reorderPoint,
+        },
+        {
+          field: "costPerUnit",
+          before: Number(currentInventory.costPerUnit),
+          after: nextInventory.costPerUnit,
+        },
+      ].filter((change) => String(change.before) !== String(change.after))
+
+      if (changes.length > 0) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "inventory_updated",
+            entityType: "branch_inventory",
+            entityId: ingredientId,
+            metadataJson: JSON.stringify({
+              ingredientId,
+              ingredientName: nextIngredient.name,
+              changes,
+            }).slice(0, 4000),
+          },
+        })
+      }
+
+      return updatedInventory
     })
 
     res.json({ inventory })

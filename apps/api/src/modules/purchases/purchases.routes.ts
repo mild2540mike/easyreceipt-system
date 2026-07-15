@@ -515,6 +515,34 @@ purchasesRouter.post(
           })
         }
 
+        if (purchaseStatus === "saved") {
+          await tx.auditLog.create({
+            data: {
+              organizationId: access.branch.organizationId,
+              branchId,
+              memberId: member.id,
+              action: "purchase_received",
+              entityType: "purchase",
+              entityId: createdPurchase.id,
+              metadataJson: JSON.stringify({
+                name: createdPurchase.vendor,
+                itemCount: purchaseItems.length,
+                totalAmount,
+                items: purchaseItems.slice(0, 10).map((item) => ({
+                  ingredientId: item.ingredientId,
+                  ingredientName:
+                    ingredientById.get(item.ingredientId)?.name ?? "-",
+                  quantity: roundQuantity(item.quantity),
+                  unit:
+                    item.unit?.trim() ||
+                    ingredientById.get(item.ingredientId)?.unit ||
+                    "-",
+                })),
+              }).slice(0, 4000),
+            },
+          })
+        }
+
         if (purchaseStatus === "saved" && draftPurchaseIds.length > 0) {
           await tx.purchaseItem.deleteMany({
             where: {
@@ -794,6 +822,34 @@ purchasesRouter.post(
                 },
               })
             }
+          }
+
+          if (purchaseStatus === "saved") {
+            await tx.auditLog.create({
+              data: {
+                organizationId: access.branch.organizationId,
+                branchId,
+                memberId: member.id,
+                action: "purchase_received",
+                entityType: "purchase",
+                entityId: createdPurchase.id,
+                metadataJson: JSON.stringify({
+                  name: bill.name,
+                  itemCount: bill.items.length,
+                  totalAmount,
+                  items: bill.items.slice(0, 10).map((item) => ({
+                    ingredientId: item.ingredientId,
+                    ingredientName:
+                      ingredientById.get(item.ingredientId)?.name ?? "-",
+                    quantity: roundQuantity(item.quantity),
+                    unit:
+                      item.unit?.trim() ||
+                      ingredientById.get(item.ingredientId)?.unit ||
+                      "-",
+                  })),
+                }).slice(0, 4000),
+              },
+            })
           }
         }
 

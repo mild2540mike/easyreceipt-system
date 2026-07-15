@@ -17,6 +17,7 @@ import { branchesRouter } from "./modules/branches/branches.routes"
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes"
 import { inventoryRouter } from "./modules/inventory/inventory.routes"
 import { membersRouter } from "./modules/members/members.routes"
+import { notificationsRouter } from "./modules/notifications/notifications.routes"
 import { purchasesRouter } from "./modules/purchases/purchases.routes"
 import { recipePlansRouter, recipesRouter } from "./modules/recipes/recipes.routes"
 import { reportsRouter } from "./modules/reports/reports.routes"
@@ -59,6 +60,7 @@ export function createApp() {
   app.use("/api/v1/branches/:branchId/recipe-plans", requireAuth, recipePlansRouter)
   app.use("/api/v1/reports", requireAuth, reportsRouter)
   app.use("/api/v1/members", requireAuth, membersRouter)
+  app.use("/api/v1/notifications", requireAuth, notificationsRouter)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

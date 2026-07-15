@@ -39,6 +39,7 @@ import {
   apiGetBranchUsageReasons,
   apiGetCurrentMember,
   apiGetMembers,
+  apiGetNotifications,
   apiGetReportSummary,
   apiLogin,
   apiLogout,
@@ -55,6 +56,7 @@ import {
   type NormalizedRecipePlan,
   type NormalizedRecipeSnapshot,
   type NormalizedStockMovement,
+  type SystemNotification,
   type ReportSummary,
   type StockOutApiInput,
   type UsageBatchApiInput,
@@ -196,6 +198,8 @@ const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
   ["easyreceipt", "inventory", branchId] as const
+const notificationsQueryKey = (branchId: string) =>
+  ["easyreceipt", "notifications", branchId] as const
 const usageMovementsQueryKey = (branchId: string, dateKey: string) =>
   ["easyreceipt", "inventory", "usage", branchId, dateKey] as const
 const usageReasonsQueryKey = (branchId: string) =>
@@ -665,7 +669,6 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const usageDateKey = bangkokDateKey(activeUsageDate)
   const canViewPurchase = memberCanViewMenu(currentMember, "purchase")
   const canViewUsage = memberCanViewMenu(currentMember, "usage")
-  const canViewStock = memberCanViewMenu(currentMember, "stock")
   const canViewRecipes = memberCanViewMenu(currentMember, "recipes")
   const canViewReports = memberCanViewMenu(currentMember, "reports")
   const canViewMembers = memberCanViewMenu(currentMember, "members")
@@ -708,11 +711,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const shouldLoadInventory = Boolean(
     hasPortalView &&
       currentMember &&
-      activeBranchId &&
-      ((effectiveActiveView === "purchase" && canViewPurchase) ||
-        (effectiveActiveView === "usage" && canViewUsage) ||
-        (effectiveActiveView === "stock" && canViewStock) ||
-        (effectiveActiveView === "recipes" && canViewRecipes))
+      activeBranchId
   )
   const shouldLoadReports = Boolean(
     hasPortalView &&
@@ -768,6 +767,15 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }),
     enabled: shouldLoadUsageMovements,
     staleTime: 15_000,
+  })
+
+  const notificationsQuery = useQuery({
+    queryKey: notificationsQueryKey(activeBranchId),
+    queryFn: () => apiGetNotifications(activeBranchId, { days: 7, limit: 50 }),
+    enabled: Boolean(hasPortalView && currentMember && activeBranchId),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   })
 
   const usageReasonsQuery = useQuery({
@@ -889,6 +897,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       void queryClient.invalidateQueries({
         queryKey: dashboardQueryKey(variables.branchId),
       })
+      void queryClient.invalidateQueries({
+        queryKey: notificationsQueryKey(variables.branchId),
+      })
     },
     onError: (error) => {
       setInventoryMutationError(
@@ -948,6 +959,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       })
       void queryClient.invalidateQueries({
         queryKey: usageMovementsQueryKey(variables.branchId, usageDateKey),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: notificationsQueryKey(variables.branchId),
       })
       void queryClient.invalidateQueries({ queryKey: reportsQueryKey })
     },
@@ -2349,6 +2363,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         queryClient.invalidateQueries({
           queryKey: dashboardQueryKey(activeBranchId),
         }),
+        queryClient.invalidateQueries({
+          queryKey: notificationsQueryKey(activeBranchId),
+        }),
         queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
       ])
 
@@ -3058,6 +3075,18 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     dashboardSummary,
     isDashboardLoading,
     dashboardError,
+    notifications:
+      (notificationsQuery.data?.notifications ?? []) as SystemNotification[],
+    notificationRecentCount: notificationsQuery.data?.recentCount ?? 0,
+    notificationHasMore: notificationsQuery.data?.pageInfo.hasMore ?? false,
+    isNotificationsLoading: notificationsQuery.isPending,
+    notificationError: notificationsQuery.isError
+      ? errorMessage(
+          notificationsQuery.error,
+          "ไม่สามารถโหลดการแจ้งเตือนได้"
+        )
+      : "",
+    refreshNotifications: () => notificationsQuery.refetch(),
     purchaseDate,
     setPurchaseDate,
     purchaseItems,

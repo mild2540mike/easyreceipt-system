@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  Bell,
   Building2,
   CalendarIcon,
   ChefHat,
@@ -143,6 +144,10 @@ import type {
   RecipeIngredient,
   ViewId,
 } from "@/lib/easyreceipt-data"
+import type {
+  NotificationChange,
+  SystemNotification,
+} from "@/lib/easyreceipt-api"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -928,7 +933,7 @@ export function EasyReceiptPortalPage({
                 </h1>
               </div>
 
-              <AlertSheet lowStockItems={store.lowStockItems} />
+              <NotificationSheet store={store} />
 
               <div className="hidden min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 lg:flex">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background">
@@ -2001,7 +2006,324 @@ function MobileBottomNav({
   )
 }
 
-function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
+type NotificationFilter = "all" | "inventory" | "system"
+
+function isInventoryNotification(notification: SystemNotification) {
+  return (
+    notification.type === "purchase_received" ||
+    notification.type === "usage_out" ||
+    notification.type === "inventory_updated"
+  )
+}
+
+function notificationDayKey(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value
+
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date)
+}
+
+function notificationDayLabel(value: string) {
+  const today = notificationDayKey(new Date())
+  const yesterday = notificationDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+  if (value === today) {
+    return "วันนี้"
+  }
+
+  if (value === yesterday) {
+    return "เมื่อวาน"
+  }
+
+  return new Intl.DateTimeFormat("th-TH-u-ca-buddhist", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00+07:00`))
+}
+
+const notificationChangeLabels: Record<string, string> = {
+  name: "ชื่อวัตถุดิบ",
+  category: "หมวดหมู่",
+  unit: "หน่วย",
+  supplier: "ซัพพลายเออร์",
+  defaultPrice: "ราคาตลาด/หน่วย",
+  onHand: "คงเหลือ",
+  reorderPoint: "จุดสั่งซื้อ",
+  costPerUnit: "ราคาปัจจุบัน/หน่วย",
+}
+
+function notificationChangeValue(change: NotificationChange, value: unknown) {
+  if (change.field === "defaultPrice" || change.field === "costPerUnit") {
+    const number = Number(value)
+    return Number.isFinite(number) ? formatCurrency(number) : String(value ?? "")
+  }
+
+  return String(value ?? "")
+}
+
+function NotificationEventRow({
+  notification,
+}: {
+  notification: SystemNotification
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const items = notification.metadata.items ?? []
+  const changes = notification.metadata.changes ?? []
+  const expandable = items.length > 0 || changes.length > 0
+  const config =
+    notification.type === "purchase_received"
+      ? { icon: Plus, className: "bg-emerald-50 text-emerald-700" }
+      : notification.type === "usage_out"
+        ? { icon: Minus, className: "bg-sky-50 text-sky-700" }
+        : notification.type === "inventory_updated"
+          ? { icon: Pencil, className: "bg-amber-50 text-amber-700" }
+          : notification.type === "auth_logout"
+            ? { icon: LogOut, className: "bg-slate-100 text-slate-700" }
+            : { icon: LogIn, className: "bg-cyan-50 text-cyan-700" }
+  const Icon = config.icon
+
+  return (
+    <div className="bg-background">
+      <button
+        type="button"
+        className={cn(
+          "flex min-h-16 w-full items-start gap-3 px-3 py-3 text-left",
+          expandable && "hover:bg-muted/50 focus-visible:bg-muted/50"
+        )}
+        onClick={() => expandable && setExpanded((value) => !value)}
+        aria-expanded={expandable ? expanded : undefined}
+        disabled={!expandable}
+      >
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-lg",
+            config.className
+          )}
+        >
+          <Icon className="size-4.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium leading-snug">{notification.title}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+            {notification.summary}
+          </span>
+          <span className="mt-1 block text-xs text-muted-foreground">
+            {formatThaiTime(notification.occurredAt)} น.
+            {notification.branch ? ` · ${notification.branch.name}` : ""}
+          </span>
+        </span>
+        {expandable && (
+          <ChevronDown
+            className={cn(
+              "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-border bg-muted/30 px-3 py-3 pl-15">
+          {notification.metadata.reason && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              เหตุผล: {notification.metadata.reason}
+            </p>
+          )}
+          {items.length > 0 && (
+            <div className="space-y-1.5">
+              {items.map((item, index) => (
+                <div
+                  key={`${item.ingredientId ?? item.ingredientName}-${index}`}
+                  className="flex items-start justify-between gap-3 text-xs"
+                >
+                  <span className="min-w-0 flex-1 break-words">
+                    {item.ingredientName || "วัตถุดิบ"}
+                  </span>
+                  <span className="shrink-0 font-medium">
+                    {formatNumber(Number(item.quantity ?? 0))} {item.unit || ""}
+                  </span>
+                </div>
+              ))}
+              {Number(notification.metadata.itemCount ?? items.length) > items.length && (
+                <p className="pt-1 text-xs text-muted-foreground">
+                  และอีก{" "}
+                  {Number(notification.metadata.itemCount ?? items.length) - items.length}{" "}
+                  รายการ
+                </p>
+              )}
+            </div>
+          )}
+          {changes.length > 0 && (
+            <div className="space-y-2">
+              {changes.map((change) => (
+                <div key={change.field} className="text-xs">
+                  <p className="font-medium">
+                    {notificationChangeLabels[change.field] ?? change.field}
+                  </p>
+                  <p className="mt-0.5 break-words text-muted-foreground">
+                    {notificationChangeValue(change, change.before)} →{" "}
+                    {notificationChangeValue(change, change.after)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LowStockNotificationList({ items }: { items: InventoryRow[] }) {
+  if (items.length === 0) {
+    return null
+  }
+
+  return (
+    <section aria-labelledby="notification-action-heading">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 id="notification-action-heading" className="text-sm font-semibold">
+          ต้องจัดการ
+        </h3>
+        <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">
+          {items.length} รายการ
+        </Badge>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-amber-200">
+        <div className="divide-y divide-amber-100">
+          {items.map((item) => (
+            <div key={item.ingredientId} className="bg-amber-50/60 p-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{item.ingredient.name}</p>
+                  <p className="mt-0.5 text-xs text-amber-900/80">
+                    คงเหลือ {formatNumber(item.available)} {item.ingredient.unit} · จุดสั่งซื้อ{" "}
+                    {formatNumber(item.reorderPoint)} {item.ingredient.unit}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function NotificationFeedPanel({
+  store,
+  filter,
+}: {
+  store: Store
+  filter: NotificationFilter
+}) {
+  const notifications = store.notifications.filter((notification) => {
+    if (filter === "inventory") {
+      return isInventoryNotification(notification)
+    }
+
+    if (filter === "system") {
+      return !isInventoryNotification(notification)
+    }
+
+    return true
+  })
+  const groups = Array.from(
+    notifications.reduce((map, notification) => {
+      const key = notificationDayKey(notification.occurredAt)
+      map.set(key, [...(map.get(key) ?? []), notification])
+      return map
+    }, new Map<string, SystemNotification[]>())
+  )
+  const showLowStock = filter !== "system"
+
+  return (
+    <div className="space-y-5 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      {showLowStock && <LowStockNotificationList items={store.lowStockItems} />}
+
+      {store.isNotificationsLoading && (
+        <div className="space-y-2" aria-label="กำลังโหลดการแจ้งเตือน">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="flex animate-pulse gap-3 rounded-lg border p-3">
+              <div className="size-9 rounded-lg bg-muted" />
+              <div className="flex-1 space-y-2 py-1">
+                <div className="h-3 w-2/3 rounded bg-muted" />
+                <div className="h-3 w-full rounded bg-muted" />
+                <div className="h-3 w-1/3 rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {store.notificationError && !store.isNotificationsLoading && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-900">
+          <p className="font-medium">โหลดกิจกรรมไม่สำเร็จ</p>
+          <p className="mt-1 text-sm text-red-800">{store.notificationError}</p>
+          <Button
+            variant="outline"
+            className="mt-3 h-11 border-red-200 bg-background"
+            onClick={() => void store.refreshNotifications()}
+          >
+            ลองอีกครั้ง
+          </Button>
+        </div>
+      )}
+
+      {!store.isNotificationsLoading && !store.notificationError && groups.length > 0 && (
+        <div className="space-y-5">
+          {groups.map(([day, items]) => (
+            <section key={day} aria-labelledby={`notification-day-${day}`}>
+              <h3
+                id={`notification-day-${day}`}
+                className="mb-2 text-sm font-semibold text-muted-foreground"
+              >
+                {notificationDayLabel(day)}
+              </h3>
+              <div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
+                {items.map((notification) => (
+                  <NotificationEventRow
+                    key={notification.id}
+                    notification={notification}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+          {store.notificationHasMore && (
+            <p className="text-center text-xs text-muted-foreground">
+              แสดง 50 กิจกรรมล่าสุดในช่วง 7 วัน
+            </p>
+          )}
+        </div>
+      )}
+
+      {!store.isNotificationsLoading &&
+        !store.notificationError &&
+        groups.length === 0 &&
+        (!showLowStock || store.lowStockItems.length === 0) && (
+          <div className="flex min-h-40 flex-col items-center justify-center px-6 text-center">
+            <CircleCheck className="size-8 text-emerald-600" />
+            <p className="mt-3 font-medium">ยังไม่มีกิจกรรมในหมวดนี้</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              กิจกรรมใหม่จะแสดงที่นี่อัตโนมัติ
+            </p>
+          </div>
+        )}
+    </div>
+  )
+}
+
+function NotificationSheet({ store }: { store: Store }) {
+  const [filter, setFilter] = useState<NotificationFilter>("all")
+  const badgeCount = store.lowStockItems.length + store.notificationRecentCount
+
   return (
     <Sheet>
       <SheetTrigger
@@ -2013,39 +2335,60 @@ function AlertSheet({ lowStockItems }: { lowStockItems: InventoryRow[] }) {
           />
         }
       >
-        <AlertTriangle className="size-5 text-amber-600" />
-        {lowStockItems.length > 0 && (
-          <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[0.68rem] font-semibold text-white">
-            {lowStockItems.length}
+        <Bell className="size-5 text-sky-700" />
+        {badgeCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[0.68rem] font-semibold leading-5 text-white">
+            {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
-        <span className="sr-only">แจ้งเตือนสต็อก</span>
+        <span className="sr-only">แจ้งเตือน</span>
       </SheetTrigger>
 
-      <SheetContent side="right" className="w-[92vw] max-w-sm overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>แจ้งเตือนวัตถุดิบ</SheetTitle>
-          <SheetDescription>
-            รายการแจ้งเตือนถูกรวมไว้ในใบสั่งซื้อวัตถุดิบบนแดชบอร์ดแล้ว
-          </SheetDescription>
-        </SheetHeader>
-        {lowStockItems.length > 0 && (
-          <div className="space-y-3 px-4 pb-4">
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
-                <div>
-                  <p className="font-semibold">
-                    {lowStockItems.length} รายการรอรวมในใบสั่งซื้อ
-                  </p>
-                  <p className="mt-1 text-sm text-amber-800">
-                    ดูจำนวนที่ควรซื้อ ราคา และ export ได้จากส่วนใบสั่งซื้อวัตถุดิบ
-                  </p>
-                </div>
-              </div>
+      <SheetContent
+        side="right"
+        className="inset-y-0 right-0 left-auto h-dvh w-3/4 max-w-sm gap-0 overflow-hidden border-l p-0 sm:w-[28rem] sm:max-w-[28rem] [&_[data-slot=sheet-close]]:top-[max(0.75rem,env(safe-area-inset-top))] [&_[data-slot=sheet-close]]:right-3 [&_[data-slot=sheet-close]]:size-11"
+      >
+        <Tabs
+          value={filter}
+          onValueChange={(value) => {
+            if (value === "all" || value === "inventory" || value === "system") {
+              setFilter(value)
+            }
+          }}
+          className="min-h-0 flex-1 gap-0"
+        >
+          <div className="shrink-0 border-b border-border bg-background px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3 pr-14">
+            <SheetHeader className="p-0">
+              <SheetTitle>แจ้งเตือน</SheetTitle>
+              <SheetDescription>
+                กิจกรรม 7 วันล่าสุดของ {store.activeBranch?.name ?? "สาขาที่เลือก"}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-3 flex justify-end">
+              <TabsList className="h-8 w-fit p-0.5" aria-label="ประเภทการแจ้งเตือน">
+                <TabsTrigger value="all" className="h-7 px-2.5 text-xs">
+                  ทั้งหมด
+                </TabsTrigger>
+                <TabsTrigger value="inventory" className="h-7 px-2.5 text-xs">
+                  คลัง
+                </TabsTrigger>
+                <TabsTrigger value="system" className="h-7 px-2.5 text-xs">
+                  ระบบ
+                </TabsTrigger>
+              </TabsList>
             </div>
           </div>
-        )}
+
+          <TabsContent value="all" className="min-h-0 overflow-y-auto">
+            <NotificationFeedPanel store={store} filter="all" />
+          </TabsContent>
+          <TabsContent value="inventory" className="min-h-0 overflow-y-auto">
+            <NotificationFeedPanel store={store} filter="inventory" />
+          </TabsContent>
+          <TabsContent value="system" className="min-h-0 overflow-y-auto">
+            <NotificationFeedPanel store={store} filter="system" />
+          </TabsContent>
+        </Tabs>
       </SheetContent>
     </Sheet>
   )

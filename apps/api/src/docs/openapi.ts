@@ -26,6 +26,7 @@ export const openApiDocument = {
     { name: "Recipes" },
     { name: "Reports" },
     { name: "Members" },
+    { name: "Notifications" },
   ],
   components: {
     securitySchemes: {
@@ -248,6 +249,43 @@ export const openApiDocument = {
             type: "array",
             items: { type: "string" },
           },
+        },
+      },
+      Notification: {
+        type: "object",
+        required: ["id", "type", "occurredAt", "title", "summary", "metadata"],
+        properties: {
+          id: { type: "string" },
+          type: {
+            type: "string",
+            enum: [
+              "purchase_received",
+              "usage_out",
+              "inventory_updated",
+              "auth_login",
+              "auth_logout",
+            ],
+          },
+          actor: {
+            type: ["object", "null"],
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              username: { type: "string" },
+            },
+          },
+          branch: {
+            type: ["object", "null"],
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              code: { type: "string" },
+            },
+          },
+          occurredAt: { type: "string", format: "date-time" },
+          title: { type: "string" },
+          summary: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
         },
       },
     },
@@ -777,6 +815,60 @@ export const openApiDocument = {
             },
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/notifications": {
+      get: {
+        tags: ["Notifications"],
+        summary: "List branch activity and permitted authentication events.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          {
+            name: "branchId",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "days",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 30, default: 7 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 50, default: 50 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Notification activity feed.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    notifications: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/Notification" },
+                    },
+                    recentCount: { type: "integer" },
+                    pageInfo: {
+                      type: "object",
+                      properties: {
+                        limit: { type: "integer" },
+                        hasMore: { type: "boolean" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
         },
       },
     },
