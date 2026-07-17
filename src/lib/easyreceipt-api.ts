@@ -88,12 +88,21 @@ export type ReportSummary = {
   branchCount: number
   branchNames: string[]
   purchaseTotal: number
+  stockOutTotal: number
   cookingCount: number
   stockMovementCount: number
   dailyPurchases: ReportDailyPurchase[]
+  dailyStockOuts: ReportDailyStockOut[]
 }
 
 export type ReportDailyPurchase = {
+  date: string
+  branchId: string
+  branchName: string
+  total: number
+}
+
+export type ReportDailyStockOut = {
   date: string
   branchId: string
   branchName: string
@@ -1190,8 +1199,17 @@ export async function apiGetCurrentMember() {
   return normalizeAuthSession(data).member
 }
 
-export async function apiGetReportSummary(): Promise<ReportSummary> {
-  const response = await fetch(`${apiBaseUrl}/reports/summary`, {
+export async function apiGetReportSummary(
+  input: { date?: string } = {}
+): Promise<ReportSummary> {
+  const params = new URLSearchParams()
+
+  if (input.date) {
+    params.set("date", input.date)
+  }
+
+  const query = params.toString()
+  const response = await fetch(`${apiBaseUrl}/reports/summary${query ? `?${query}` : ""}`, {
     method: "GET",
     credentials: "include",
   })
@@ -1201,9 +1219,16 @@ export async function apiGetReportSummary(): Promise<ReportSummary> {
     branchCount: toNumber(data.branchCount),
     branchNames: data.branchNames,
     purchaseTotal: toNumber(data.purchaseTotal),
+    stockOutTotal: toNumber(data.stockOutTotal),
     cookingCount: toNumber(data.cookingCount),
     stockMovementCount: toNumber(data.stockMovementCount),
     dailyPurchases: (data.dailyPurchases ?? []).map((item) => ({
+      date: item.date,
+      branchId: item.branchId,
+      branchName: item.branchName,
+      total: toNumber(item.total),
+    })),
+    dailyStockOuts: (data.dailyStockOuts ?? []).map((item) => ({
       date: item.date,
       branchId: item.branchId,
       branchName: item.branchName,

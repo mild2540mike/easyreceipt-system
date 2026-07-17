@@ -781,6 +781,16 @@ export const openApiDocument = {
         tags: ["Reports"],
         summary: "Get a report summary for branches the current member can access.",
         security: [{ sessionCookie: [] }],
+        parameters: [
+          {
+            name: "date",
+            in: "query",
+            required: false,
+            description:
+              "Filter the entire report to one Asia/Bangkok calendar day. Omit for all-time totals.",
+            schema: { type: "string", format: "date", example: "2026-07-17" },
+          },
+        ],
         responses: {
           "200": {
             description: "Accessible-branch report summary.",
@@ -795,7 +805,20 @@ export const openApiDocument = {
                       items: { type: "string" },
                     },
                     purchaseTotal: { type: "number" },
+                    stockOutTotal: { type: "number" },
                     dailyPurchases: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          date: { type: "string", example: "2026-07-05" },
+                          branchId: { type: "string" },
+                          branchName: { type: "string" },
+                          total: { type: "number" },
+                        },
+                      },
+                    },
+                    dailyStockOuts: {
                       type: "array",
                       items: {
                         type: "object",

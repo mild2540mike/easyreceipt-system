@@ -90,7 +90,7 @@ export type PurchaseSeriesItem = {
   total: number
 }
 
-export type BranchPurchaseSeriesItem = {
+export type BranchReportSeriesItem = {
   date: string
   label: string
   total: number
@@ -194,6 +194,8 @@ const branchesQueryKey = ["easyreceipt", "branches"] as const
 const membersQueryKey = (memberId: string) =>
   ["easyreceipt", "members", memberId] as const
 const reportsQueryKey = ["easyreceipt", "reports", "summary"] as const
+const reportSummaryQueryKey = (dateKey: string) =>
+  [...reportsQueryKey, dateKey] as const
 const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
@@ -221,9 +223,11 @@ const emptyReport: ReportSummary = {
   branchCount: 0,
   branchNames: [],
   purchaseTotal: 0,
+  stockOutTotal: 0,
   cookingCount: 0,
   stockMovementCount: 0,
   dailyPurchases: [],
+  dailyStockOuts: [],
 }
 
 function readSessionValue(key: string) {
@@ -341,6 +345,14 @@ function bangkokDateKey(date: Date) {
   const year = parts.find((part) => part.type === "year")?.value ?? "1970"
   const month = parts.find((part) => part.type === "month")?.value ?? "01"
   const day = parts.find((part) => part.type === "day")?.value ?? "01"
+
+  return `${year}-${month}-${day}`
+}
+
+function calendarDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
 
   return `${year}-${month}-${day}`
 }
@@ -517,6 +529,9 @@ function buildReportMetrics(
 export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const queryClient = useQueryClient()
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
+  const [reportDateKey, setReportDateKey] = useState(() =>
+    bangkokDateKey(new Date())
+  )
   const effectiveActiveView = routeActiveView ?? activeView
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -793,8 +808,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   })
 
   const reportsQuery = useQuery({
-    queryKey: reportsQueryKey,
-    queryFn: apiGetReportSummary,
+    queryKey: reportSummaryQueryKey(reportDateKey),
+    queryFn: () => apiGetReportSummary({ date: reportDateKey }),
     enabled: shouldLoadReports,
     staleTime: 15_000,
   })
@@ -1689,7 +1704,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       : []
   }, [savedPurchaseHistory, reportSummary.purchaseTotal])
 
-  const reportBranchPurchaseSeries = useMemo<BranchPurchaseSeriesItem[]>(() => {
+  const reportBranchPurchaseSeries = useMemo<BranchReportSeriesItem[]>(() => {
     if (reportSummary.dailyPurchases.length === 0) {
       return reportPurchaseSeries.map((item) => ({
         date: item.label,
@@ -1705,7 +1720,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }))
     }
 
-    const byDate = new Map<string, BranchPurchaseSeriesItem>()
+    const byDate = new Map<string, BranchReportSeriesItem>()
 
     for (const item of reportSummary.dailyPurchases) {
       const current = byDate.get(item.date) ?? {
@@ -1728,6 +1743,31 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       first.date.localeCompare(second.date)
     )
   }, [reportPurchaseSeries, reportSummary.dailyPurchases])
+
+  const reportBranchStockOutSeries = useMemo<BranchReportSeriesItem[]>(() => {
+    const byDate = new Map<string, BranchReportSeriesItem>()
+
+    for (const item of reportSummary.dailyStockOuts) {
+      const current = byDate.get(item.date) ?? {
+        date: item.date,
+        label: dayLabel(item.date),
+        total: 0,
+        branches: [],
+      }
+
+      current.total += item.total
+      current.branches.push({
+        branchId: item.branchId,
+        branchName: item.branchName,
+        total: item.total,
+      })
+      byDate.set(item.date, current)
+    }
+
+    return Array.from(byDate.values()).sort((first, second) =>
+      first.date.localeCompare(second.date)
+    )
+  }, [reportSummary.dailyStockOuts])
 
   const reportCashFlowMetrics = useMemo(
     () => buildReportMetrics(reportSummary),
@@ -1921,6 +1961,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         purchaseItems: [...workspace.purchaseItems, nextItem],
       }
     })
+  }
+
+  function setReportDate(date: Date) {
+    setReportDateKey(calendarDateKey(date))
   }
 
   function addPurchaseBill() {
@@ -2718,13 +2762,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
 
     try {
-      const createdRecipe = await createRecipeMutation.mutateAsync({
+      await createRecipeMutation.mutateAsync({
         branchId: activeBranchId,
         input: normalizedInput,
-      })
-      await pinRecipeMutation.mutateAsync({
-        branchId: activeBranchId,
-        recipeId: createdRecipe.id,
       })
       await refreshRecipeAndInventory(activeBranchId)
 
@@ -3161,6 +3201,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     cashFlowMetrics: activeCashFlowMetrics,
     reportPurchaseSeries,
     reportBranchPurchaseSeries,
+    reportBranchStockOutSeries,
+    reportDate: new Date(`${reportDateKey}T12:00:00`),
+    setReportDate,
     dailyBudgetUsageByBranch,
     reportCashFlowMetrics,
     reportBranchSummary,

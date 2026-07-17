@@ -356,10 +356,10 @@ function formatMetricValue(metric: Store["reportCashFlowMetrics"][number]) {
 
 function metricHelper(metric: Store["reportCashFlowMetrics"][number]) {
   if (metric.id === "purchase-total") {
-    return "รวมยอดซื้อจากฐานข้อมูล"
+    return "ยอดซื้อของวันที่เลือก"
   }
 
-  return "จำนวนความเคลื่อนไหวสต็อก"
+  return "ความเคลื่อนไหวของวันที่เลือก"
 }
 
 function formatThaiDate(date: Date) {
@@ -2480,12 +2480,17 @@ function PurchaseOrderSection({ store }: { store: Store }) {
 function ResponsiveDatePicker({
   value,
   onChange,
+  disableFuture = false,
 }: {
   value: Date
   onChange: (date: Date) => void
+  disableFuture?: boolean
 }) {
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [draftDate, setDraftDate] = useState(value)
+  const latestDate = disableFuture
+    ? new Date(`${notificationDayKey(new Date())}T12:00:00`)
+    : undefined
 
   function setMobileOpen(open: boolean) {
     if (open) {
@@ -2533,6 +2538,7 @@ function ResponsiveDatePicker({
                     setDraftDate(date)
                   }
                 }}
+                disabled={latestDate ? { after: latestDate } : undefined}
                 locale={th}
                 className="w-full p-2 [--cell-size:min(2.75rem,13.5vw)]"
                 classNames={{
@@ -2588,6 +2594,7 @@ function ResponsiveDatePicker({
                   onChange(date)
                 }
               }}
+              disabled={latestDate ? { after: latestDate } : undefined}
               locale={th}
             />
           </PopoverContent>
@@ -6509,7 +6516,7 @@ function RecipeAddCard() {
       <span className="min-w-0 space-y-0.5 sm:space-y-2">
         <span className="block font-semibold">เพิ่มสูตรอาหารใหม่</span>
         <span className="block max-w-56 text-sm leading-snug text-sky-700/80">
-        สร้างสูตรพร้อมวัตถุดิบและปักหมุดใช้งาน
+          สร้างสูตรพร้อมวัตถุดิบและบันทึกไว้ในคลังสูตร
         </span>
       </span>
     </Link>
@@ -6773,6 +6780,12 @@ function RecipeFormView({
       return
     }
 
+    if (mode === "new") {
+      setRecipeDraft(createRecipeDraft())
+      setMessage("สร้างสูตรและบันทึกไว้ในคลังสูตรแล้ว")
+      return
+    }
+
     router.push("/portal/recipes")
   }
 
@@ -6879,7 +6892,7 @@ function RecipeFormView({
           <CardTitle className="text-base sm:text-lg">
             {mode === "edit"
               ? "แก้ไขเมนูสูตรอาหาร"
-              : "สร้างสูตรใหม่และปักหมุด"}
+              : "สร้างสูตรใหม่"}
           </CardTitle>
           <CardDescription className="text-xs leading-snug sm:text-sm">
             จัดการชื่อเมนู ราคา จำนวนเสิร์ฟ และวัตถุดิบในสูตร
@@ -7048,7 +7061,7 @@ function RecipeFormView({
                 ) : (
                   <Save className="size-4" />
                 )}
-                {mode === "edit" ? "บันทึกเมนู" : "สร้างและปักหมุด"}
+                {mode === "edit" ? "บันทึกเมนู" : "สร้างสูตร"}
               </Button>
               <Link
                 href="/portal/recipes"
@@ -8524,6 +8537,8 @@ function StatusSelect({
 }
 
 function ReportsView({ store }: { store: Store }) {
+  const selectedDateLabel = formatThaiLongDate(store.reportDate)
+
   return (
     <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
       {store.isReportsLoading && (
@@ -8538,6 +8553,22 @@ function ReportsView({ store }: { store: Store }) {
           {store.reportsError}
         </div>
       )}
+
+      <section className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <div>
+          <h2 className="text-base font-semibold">วันที่รายงาน</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+            ตัวเลขสรุปและกราฟทั้งหมดแสดงข้อมูลของ {selectedDateLabel}
+          </p>
+        </div>
+        <div className="w-full sm:w-64">
+          <ResponsiveDatePicker
+            value={store.reportDate}
+            onChange={store.setReportDate}
+            disableFuture
+          />
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {store.reportCashFlowMetrics.map((metric) => (
@@ -8569,6 +8600,9 @@ function ReportsView({ store }: { store: Store }) {
               <TabsTrigger value="purchase" className="h-8 px-3 sm:h-9">
                 ยอดซื้อ
               </TabsTrigger>
+              <TabsTrigger value="usage" className="h-8 px-3 sm:h-9">
+                ของใช้ไป
+              </TabsTrigger>
               {isCashFlowReportTabEnabled && (
                 <TabsTrigger value="cashflow" className="h-8 px-3 sm:h-9">
                   เงินสด
@@ -8578,9 +8612,17 @@ function ReportsView({ store }: { store: Store }) {
           </div>
 
           <TabsContent value="purchase">
-            <BranchPurchaseBarSeries
+            <BranchReportBarSeries
               data={store.reportBranchPurchaseSeries}
-              label="ยอดซื้อรายวัน"
+              label="ยอดซื้อแยกตามสาขา"
+              emptyMessage={`ไม่มียอดซื้อในวันที่ ${selectedDateLabel}`}
+            />
+          </TabsContent>
+          <TabsContent value="usage">
+            <BranchReportBarSeries
+              data={store.reportBranchStockOutSeries}
+              label="มูลค่าของออกแยกตามสาขา"
+              emptyMessage={`ไม่มีข้อมูลของใช้ไปในวันที่ ${selectedDateLabel}`}
             />
           </TabsContent>
           {isCashFlowReportTabEnabled && (
@@ -8602,12 +8644,14 @@ const branchChartColors = [
   "var(--chart-5)",
 ]
 
-function BranchPurchaseBarSeries({
+function BranchReportBarSeries({
   data,
   label,
+  emptyMessage,
 }: {
   data: Store["reportBranchPurchaseSeries"]
   label: string
+  emptyMessage: string
 }) {
   const branches = Array.from(
     new Map(
@@ -8662,11 +8706,12 @@ function BranchPurchaseBarSeries({
     520,
     data.length * Math.max(branches.length, 1) * 52
   )
+  const hasReportData = data.some((item) => Math.abs(item.total) > 0)
 
-  if (data.length === 0 || branches.length === 0) {
+  if (data.length === 0 || branches.length === 0 || !hasReportData) {
     return (
       <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:mt-5 sm:p-6">
-        ยังไม่มียอดซื้อสำหรับแสดงในกราฟ
+        {emptyMessage}
       </div>
     )
   }
