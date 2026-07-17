@@ -1,5 +1,5 @@
 ---
-name: EasyReceipt System
+name: timetoeat System
 description: Mobile-first purchase, stock, recipe, budget, and member operations for branch-based food workflows.
 colors:
   app-bg: "#f6f8fb"
@@ -102,13 +102,13 @@ components:
     padding: "2px 8px"
 ---
 
-# Design System: EasyReceipt System
+# Design System: timetoeat System
 
 ## 1. Overview
 
 **Creative North Star: "The Calm Kitchen Control Desk"**
 
-EasyReceipt is a restrained product UI for people doing real operational work: recording purchases, checking stock, planning recipes, controlling branch budgets, and managing access. The system should feel like a calm control desk beside the kitchen workflow: clear enough for staff, precise enough for managers, and light enough to use on a phone without thinking about the interface.
+timetoeat is a restrained product UI for people doing real operational work: recording purchases, checking stock, planning recipes, controlling branch budgets, and managing access. The system should feel like a calm control desk beside the kitchen workflow: clear enough for staff, precise enough for managers, and light enough to use on a phone without thinking about the interface.
 
 The visual language is practical and compact. It uses a cool near-white workspace, white surfaces, a deep muted blue primary action color, and semantic status tints for stock, purchase, warning, budget, and role states. It explicitly rejects the PRODUCT.md anti-references: complex UI, corporate-heavy dashboards, overloaded dashboard decoration, dense admin clutter, excessive color, unnecessary cards, ornamental effects, and interactions that slow down kitchen or purchasing workflows.
 
@@ -172,7 +172,7 @@ The palette is a cool operational palette: white and blue-tinted neutrals carry 
 
 ## 4. Elevation
 
-EasyReceipt is flat by default. Depth is conveyed through borders, background layers, and subtle rings. Shadows are reserved for popovers, selects, sheets, dialogs, tooltips, and other floating UI that must separate from the work surface.
+timetoeat is flat by default. Depth is conveyed through borders, background layers, and subtle rings. Shadows are reserved for popovers, selects, sheets, dialogs, tooltips, and other floating UI that must separate from the work surface.
 
 ### Shadow Vocabulary
 - **Surface Ring** (`ring: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent)`): Default card boundary. Use instead of decorative drop shadows.

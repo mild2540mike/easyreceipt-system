@@ -467,11 +467,11 @@ async function parseJsonResponse<T>(response: Response) {
     | null
 
   if (!response.ok) {
-    throw new Error(data?.error?.message ?? "EasyReceipt API request failed.")
+    throw new Error(data?.error?.message ?? "timetoeat API request failed.")
   }
 
   if (!data) {
-    throw new Error("EasyReceipt API returned an empty response.")
+    throw new Error("timetoeat API returned an empty response.")
   }
 
   return data as T
@@ -681,7 +681,7 @@ async function ensureEmptyResponse(response: Response) {
     | { error?: { message?: string } }
     | null
 
-  throw new Error(data?.error?.message ?? "EasyReceipt API request failed.")
+  throw new Error(data?.error?.message ?? "timetoeat API request failed.")
 }
 
 export async function apiLogin(input: LoginInput) {

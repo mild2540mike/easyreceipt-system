@@ -1,10 +1,10 @@
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
-    title: "EasyReceipt API",
+    title: "timetoeat API",
     version: "0.1.0",
     description:
-      "REST API for EasyReceipt branches, purchases, inventory, recipes, reports, and members.",
+      "REST API for timetoeat branches, purchases, inventory, recipes, reports, and members.",
   },
   servers: [
     {
@@ -338,7 +338,7 @@ export const openApiDocument = {
                   type: "object",
                   properties: {
                     ok: { type: "boolean", example: true },
-                    service: { type: "string", example: "easyreceipt-api" },
+                    service: { type: "string", example: "timetoeat-api" },
                     timestamp: { type: "string", format: "date-time" },
                   },
                 },

@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EasyReceipt System",
+  title: "timetoeat System",
   description: "Mobile-first purchase, stock, recipe, and cash-flow prototype.",
   icons: {
     icon: "/icon.svg",

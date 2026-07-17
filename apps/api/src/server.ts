@@ -4,12 +4,12 @@ import { prisma } from "./db/prisma"
 
 const app = createApp()
 const server = app.listen(env.PORT, () => {
-  console.log(`EasyReceipt API listening on http://localhost:${env.PORT}`)
+  console.log(`timetoeat API listening on http://localhost:${env.PORT}`)
   console.log(`Swagger docs available at http://localhost:${env.PORT}/api/v1/docs`)
 })
 
 async function shutdown(signal: string) {
-  console.log(`${signal} received. Shutting down EasyReceipt API.`)
+  console.log(`${signal} received. Shutting down timetoeat API.`)
   server.close(async () => {
     await prisma.$disconnect()
     process.exit(0)

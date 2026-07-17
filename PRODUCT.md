@@ -6,11 +6,11 @@ product
 
 ## Users
 
-EasyReceipt is used by Owners and Managers who oversee purchasing, branch budgets, stock levels, recipes, and member access, plus kitchen staff who need quick, low-friction workflows for recording purchases, checking ingredients, and reporting stock usage or stock-out events. Users often work in operational settings where they need clear numbers, fast entry, and confidence that stock and cost records are current.
+timetoeat is used by Owners and Managers who oversee purchasing, branch budgets, stock levels, recipes, and member access, plus kitchen staff who need quick, low-friction workflows for recording purchases, checking ingredients, and reporting stock usage or stock-out events. Users often work in operational settings where they need clear numbers, fast entry, and confidence that stock and cost records are current.
 
 ## Product Purpose
 
-EasyReceipt helps school or branch-based food operations control purchasing and inventory cost. It centralizes purchase recording, ingredient stock, recipe usage, stock alerts, daily branch budgets, reports, and member permissions so each branch can buy what it needs without losing cost visibility. Success means fewer stock surprises, faster purchase entry, clearer budget control, and reliable stock movement records.
+timetoeat helps school or branch-based food operations control purchasing and inventory cost. It centralizes purchase recording, ingredient stock, recipe usage, stock alerts, daily branch budgets, reports, and member permissions so each branch can buy what it needs without losing cost visibility. Success means fewer stock surprises, faster purchase entry, clearer budget control, and reliable stock movement records.
 
 ## Brand Personality
 

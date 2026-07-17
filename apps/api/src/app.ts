@@ -46,7 +46,7 @@ export function createApp() {
   app.get("/api/v1/health", (_req, res) => {
     res.json({
       ok: true,
-      service: "easyreceipt-api",
+      service: "timetoeat-api",
       timestamp: new Date().toISOString(),
     })
   })

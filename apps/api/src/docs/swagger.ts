@@ -10,7 +10,7 @@ export const openApiJsonHandler: RequestHandler = (_req, res) => {
 export const swaggerUiServe = swaggerUi.serve
 
 export const swaggerUiHandler = swaggerUi.setup(openApiDocument, {
-  customSiteTitle: "EasyReceipt API Docs",
+  customSiteTitle: "timetoeat API Docs",
   swaggerOptions: {
     persistAuthorization: true,
     displayRequestDuration: true,

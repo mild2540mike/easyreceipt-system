@@ -173,6 +173,7 @@ const isBudgetManagementPageEnabled = true
 const isCashFlowReportTabEnabled = false
 const isDashboardPageEnabled = false
 const isRecipePinButtonEnabled = false
+const appVersion = process.env.NEXT_PUBLIC_APP_VERSION
 
 const navItems: NavItem[] = [
   {
@@ -512,7 +513,7 @@ async function exportPurchaseOrderXlsx({
     right: { style: "thin", color: { argb: "FFE2E8F0" } },
   }
 
-  workbook.creator = "EasyReceipt"
+  workbook.creator = "timetoeat"
   workbook.created = exportedAt
   worksheet.columns = [
     { key: "index", width: 8 },
@@ -641,7 +642,7 @@ async function exportPurchaseOrderXlsx({
   new Uint8Array(copy).set(bytes)
 
   downloadBlob(
-    `easyreceipt-purchase-order-${dateKey}.xlsx`,
+    `timetoeat-purchase-order-${dateKey}.xlsx`,
     new Blob([copy], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     })
@@ -818,7 +819,7 @@ function exportPurchaseOrderPng({
     font: "700 20px Arial, sans-serif",
   })
 
-  downloadCanvasPng(`easyreceipt-purchase-order-${dateKey}.png`, canvas)
+  downloadCanvasPng(`timetoeat-purchase-order-${dateKey}.png`, canvas)
 }
 
 export function EasyReceiptLogin() {
@@ -938,7 +939,7 @@ export function EasyReceiptPortalPage({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-muted-foreground">
-                  EasyReceipt System
+                  timetoeat System
                 </p>
                 <h1 className="truncate text-lg font-semibold sm:text-xl">
                   {activeItem.label}
@@ -1327,14 +1328,14 @@ function LoginView({
 
   return (
     <main className="min-h-screen bg-[var(--app-bg)] px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-xl items-center">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-xl flex-col justify-center">
         <section className="w-full rounded-lg border border-border bg-background p-5 sm:p-6">
           <div className="mb-6 flex items-center gap-3">
             <div className="flex size-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <ReceiptText className="size-6" />
             </div>
             <div>
-              <p className="text-xl font-semibold">EasyReceipt</p>
+              <p className="text-xl font-semibold">timetoeat</p>
               <p className="text-sm text-muted-foreground">
                 เข้าสู่ระบบจัดการใบซื้อและคลังวัตถุดิบ
               </p>
@@ -1391,508 +1392,20 @@ function LoginView({
           </form>
 
         </section>
+
+        <footer
+          className="mt-4 px-3 text-center text-[0.6875rem] leading-relaxed text-muted-foreground sm:text-xs"
+          aria-label="ข้อมูลลิขสิทธิ์และเวอร์ชันระบบ"
+        >
+          <p className="font-medium">
+            © TIMETOEAT COMPANY LIMITED, 2026 ALL RIGHTS RESERVED
+          </p>
+          <p>
+            VERSION {appVersion}
+          </p>
+        </footer>
       </div>
     </main>
-  )
-}
-
-function StockOutChatWidget({ store }: { store: Store }) {
-  const widgetRef = useRef<HTMLDivElement | null>(null)
-  const dragStateRef = useRef<WidgetDragState | null>(null)
-  const [open, setOpen] = useState(false)
-  const [expanded, setExpanded] = useState(false)
-  const [position, setPosition] = useState<WidgetPosition | null>(null)
-  const [dragMoved, setDragMoved] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
-  const [movementType, setMovementType] = useState<"waste_out" | "sale_out">(
-    "waste_out"
-  )
-  const [ingredientId, setIngredientId] = useState("")
-  const [ingredientQuery, setIngredientQuery] = useState("")
-  const [ingredientDropdownOpen, setIngredientDropdownOpen] = useState(false)
-  const [quantity, setQuantity] = useState(0)
-  const [reason, setReason] = useState("")
-  const [photo, setPhoto] = useState<{
-    name: string
-    type: string
-    size: number
-    dataUrl: string
-  } | null>(null)
-  const [message, setMessage] = useState("")
-  const selectedItem = store.inventoryRows.find(
-    (item) => item.ingredientId === ingredientId
-  )
-  const ingredientSearchTerm = normalizeSearch(ingredientQuery)
-  const filteredInventoryRows = store.inventoryRows
-    .filter((item) => {
-      if (!ingredientSearchTerm) {
-        return true
-      }
-
-      return [
-        item.ingredient.name,
-        item.ingredient.category,
-        item.ingredient.supplier,
-        item.ingredient.unit,
-      ]
-        .map(normalizeSearch)
-        .some((value) => value.includes(ingredientSearchTerm))
-    })
-    .slice(0, 20)
-
-  function getClampedWidgetPosition(
-    clientX: number,
-    clientY: number,
-    dragState: WidgetDragState
-  ) {
-    const edgePadding = 12
-    const bottomPadding = window.innerWidth < 1024 ? 96 : 24
-    const maxLeft = Math.max(
-      edgePadding,
-      window.innerWidth - dragState.width - edgePadding
-    )
-    const maxTop = Math.max(
-      edgePadding,
-      window.innerHeight - dragState.height - bottomPadding
-    )
-    const left = Math.min(
-      Math.max(clientX - dragState.offsetX, edgePadding),
-      maxLeft
-    )
-    const top = Math.min(
-      Math.max(clientY - dragState.offsetY, edgePadding),
-      maxTop
-    )
-
-    return {
-      right: Math.max(edgePadding, window.innerWidth - left - dragState.width),
-      bottom: Math.max(
-        bottomPadding,
-        window.innerHeight - top - dragState.height
-      ),
-    }
-  }
-
-  function handleWidgetDragStart(event: ReactPointerEvent<HTMLElement>) {
-    if (expanded || event.button !== 0) {
-      return
-    }
-
-    const widgetElement = widgetRef.current
-
-    if (!widgetElement) {
-      return
-    }
-
-    const rect = widgetElement.getBoundingClientRect()
-    dragStateRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
-      width: rect.width,
-      height: rect.height,
-      moved: false,
-    }
-    setIsDragging(true)
-    setDragMoved(false)
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  function handleWidgetDragMove(event: ReactPointerEvent<HTMLElement>) {
-    const dragState = dragStateRef.current
-
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
-    }
-
-    const movementDistance =
-      Math.abs(event.clientX - dragState.startX) +
-      Math.abs(event.clientY - dragState.startY)
-
-    if (movementDistance > 4) {
-      dragState.moved = true
-      setDragMoved(true)
-    }
-
-    setPosition(
-      getClampedWidgetPosition(event.clientX, event.clientY, dragState)
-    )
-  }
-
-  function handleWidgetDragEnd(event: ReactPointerEvent<HTMLElement>) {
-    const dragState = dragStateRef.current
-
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
-    }
-
-    dragStateRef.current = null
-    setIsDragging(false)
-    event.currentTarget.releasePointerCapture(event.pointerId)
-
-    window.setTimeout(() => {
-      setDragMoved(false)
-    }, 0)
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setMessage("")
-
-    const result = await store.recordStockOut({
-      ingredientId,
-      movementType,
-      quantity,
-      reason,
-      photo: photo ?? {
-        name: "",
-        type: "",
-        size: 0,
-        dataUrl: "",
-      },
-    })
-
-    if (!result.ok) {
-      setMessage(result.error ?? "ไม่สามารถบันทึกรายการตัดสต็อกได้")
-      return
-    }
-
-    setMessage("บันทึกรายการและตัดสต็อกเรียบร้อย")
-    setIngredientId("")
-    setIngredientQuery("")
-    setIngredientDropdownOpen(false)
-    setQuantity(0)
-    setReason("")
-    setPhoto(null)
-  }
-
-  return (
-    <>
-      {open && expanded && (
-        <div className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-sm" />
-      )}
-      <div
-        ref={widgetRef}
-        style={!expanded && position ? position : undefined}
-        className={cn(
-          "fixed z-50",
-          expanded
-            ? "inset-x-3 bottom-24 top-3 lg:bottom-auto lg:left-1/2 lg:right-auto lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2"
-            : position
-              ? ""
-              : "bottom-24 right-4 lg:bottom-6"
-        )}
-      >
-      {open && (
-        <div
-          className={cn(
-            "overflow-hidden rounded-lg border border-border bg-background shadow-xl",
-            expanded
-              ? "flex h-full w-full flex-col lg:h-[min(820px,calc(100dvh-3rem))] lg:w-[min(920px,calc(100vw-4rem))]"
-              : "mb-3 w-[calc(100vw-2rem)] max-w-sm"
-          )}
-        >
-          <div
-            className={cn(
-              "flex items-center justify-between border-b border-border px-4 py-3",
-              !expanded && "cursor-grab select-none touch-none",
-              isDragging && "cursor-grabbing"
-            )}
-            onPointerDown={handleWidgetDragStart}
-            onPointerMove={handleWidgetDragMove}
-            onPointerUp={handleWidgetDragEnd}
-            onPointerCancel={handleWidgetDragEnd}
-          >
-            <div>
-              <p className="font-semibold">บันทึกตัดสต็อก</p>
-              <p className="text-xs text-muted-foreground">
-                วัตถุดิบเสียหรือจำหน่ายออก
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => setExpanded((current) => !current)}
-              >
-                {expanded ? (
-                  <Minimize2 className="size-4" />
-                ) : (
-                  <Maximize2 className="size-4" />
-                )}
-                <span className="sr-only">
-                  {expanded ? "ย่อหน้าต่าง" : "ขยายเต็มจอ"}
-                </span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => {
-                  setOpen(false)
-                  setExpanded(false)
-                }}
-              >
-                <X className="size-4" />
-                <span className="sr-only">ปิด</span>
-              </Button>
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "overflow-y-auto p-4",
-              expanded ? "flex-1" : "max-h-[70dvh]"
-            )}
-          >
-            <div className="mb-4 rounded-lg bg-muted px-3 py-2 text-sm">
-              เลือกประเภท ระบุจำนวน เหตุผล และแนบรูปก่อนบันทึก ระบบจะตัด
-              stock ทันที
-            </div>
-
-            <form className="space-y-3" onSubmit={handleSubmit}>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
-                    movementType === "waste_out"
-                      ? "border-red-300 bg-red-50 text-red-700"
-                      : "border-border bg-background text-muted-foreground"
-                  )}
-                  onClick={() => setMovementType("waste_out")}
-                >
-                  วัตถุดิบเสีย
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-sm font-medium transition",
-                    movementType === "sale_out"
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                      : "border-border bg-background text-muted-foreground"
-                  )}
-                  onClick={() => setMovementType("sale_out")}
-                >
-                  จำหน่ายออก
-                </button>
-              </div>
-
-              <div>
-                <Label className="mb-2 block">วัตถุดิบ</Label>
-                <Popover
-                  open={ingredientDropdownOpen}
-                  onOpenChange={setIngredientDropdownOpen}
-                >
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 w-full justify-between px-3 text-left font-normal"
-                      />
-                    }
-                  >
-                    <span className="min-w-0 truncate">
-                      {selectedItem?.ingredient.name ?? "เลือกวัตถุดิบ"}
-                    </span>
-                    <Search className="size-4 shrink-0 text-muted-foreground" />
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-80 p-2">
-                    <div className="relative mb-2">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        className="h-10 pl-9"
-                        value={ingredientQuery}
-                        onChange={(event) =>
-                          setIngredientQuery(event.target.value)
-                        }
-                        placeholder="ค้นหาวัตถุดิบ"
-                        autoFocus
-                      />
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                      {filteredInventoryRows.map((item) => (
-                        <button
-                          key={item.ingredientId}
-                          type="button"
-                          className={cn(
-                            "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-muted",
-                            item.ingredientId === ingredientId && "bg-muted"
-                          )}
-                          onClick={() => {
-                            setIngredientId(item.ingredientId)
-                            setIngredientQuery(item.ingredient.name)
-                            setIngredientDropdownOpen(false)
-                          }}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">
-                              {item.ingredient.name}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {item.ingredient.category} · {item.ingredient.supplier}
-                            </span>
-                          </span>
-                          <Badge variant="secondary" className="h-6 shrink-0">
-                            {formatNumber(item.onHand)} {item.ingredient.unit}
-                          </Badge>
-                        </button>
-                      ))}
-                      {filteredInventoryRows.length === 0 && (
-                        <div className="px-3 py-4 text-sm text-muted-foreground">
-                          ไม่พบวัตถุดิบที่ตรงกับคำค้นหา
-                        </div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                {selectedItem && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    คงเหลือ {formatNumber(selectedItem.onHand)}{" "}
-                    {selectedItem.ingredient.unit}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <div>
-                  <Label className="mb-2 block">จำนวนที่ตัด</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="h-11"
-                    value={quantity}
-                    onChange={(event) => setQuantity(toNumber(event.target.value))}
-                  />
-                </div>
-                <div className="min-w-20">
-                  <Label className="mb-2 block">หน่วย</Label>
-                  <div className="flex h-11 items-center rounded-lg border border-border bg-muted px-3 text-sm">
-                    {selectedItem?.ingredient.unit ?? "-"}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <Label className="mb-2 block">เหตุผล</Label>
-                <Input
-                  className="h-11"
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  placeholder={
-                    movementType === "waste_out"
-                      ? "เช่น หมดอายุ เสียหาย ระหว่างจัดเก็บ"
-                      : "เช่น จำหน่ายหน้าร้าน โอนออก"
-                  }
-                />
-              </div>
-
-              <div>
-                <Label className="mb-2 block">รูปประกอบ</Label>
-                <label className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-sky-300 bg-sky-50/40 px-3 py-2 text-sm font-medium text-sky-700">
-                  <ImageUp className="size-4" />
-                  {photo ? photo.name : "อัปโหลดรูป"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-
-                      if (!file) {
-                        setPhoto(null)
-                        return
-                      }
-
-                      if (file.size > maxStockOutPhotoSize) {
-                        setPhoto(null)
-                        setMessage("รูปประกอบต้องมีขนาดไม่เกิน 5MB")
-                        event.target.value = ""
-                        return
-                      }
-
-                      const reader = new FileReader()
-                      reader.onload = () => {
-                        setPhoto({
-                          name: file.name,
-                          type: file.type || "image/*",
-                          size: file.size,
-                          dataUrl: String(reader.result ?? ""),
-                        })
-                      }
-                      reader.onerror = () => {
-                        setPhoto(null)
-                        setMessage("ไม่สามารถอ่านไฟล์รูปได้")
-                        event.target.value = ""
-                      }
-                      reader.readAsDataURL(file)
-                    }}
-                  />
-                </label>
-              </div>
-
-              {message && (
-                <div
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-sm",
-                    message.includes("เรียบร้อย")
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-red-200 bg-red-50 text-red-700"
-                  )}
-                >
-                  {message}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                className="h-11 w-full"
-                disabled={store.isStockOutSaving}
-              >
-                {store.isStockOutSaving ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                บันทึกและตัดสต็อก
-              </Button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {!expanded && (
-        <Button
-          type="button"
-          className={cn(
-            "h-11 w-11 touch-none rounded-full px-0 shadow-lg sm:h-12 sm:w-auto sm:px-4",
-            isDragging ? "cursor-grabbing" : "cursor-grab"
-          )}
-          onPointerDown={handleWidgetDragStart}
-          onPointerMove={handleWidgetDragMove}
-          onPointerUp={handleWidgetDragEnd}
-          onPointerCancel={handleWidgetDragEnd}
-          onClick={() => {
-            if (dragMoved) {
-              return
-            }
-
-            setOpen((current) => !current)
-          }}
-        >
-          <MessageCircle className="size-5" />
-          <span className="hidden sm:inline">ตัดสต็อก</span>
-        </Button>
-      )}
-      </div>
-    </>
   )
 }
 
@@ -1927,8 +1440,8 @@ function DesktopSidebar({
           <ReceiptText className="size-6" />
         </div>
         <div className={cn("min-w-0", isCollapsed && "hidden")}>
-          <p className="text-xl font-semibold">EasyReceipt</p>
-          <p className="text-sm text-muted-foreground">Purchase & Stock UI</p>
+          <p className="text-xl font-semibold">timetoeat</p>
+          <p className="text-sm text-muted-foreground">Purchase & Stock</p>
         </div>
         <Tooltip>
           <TooltipTrigger
