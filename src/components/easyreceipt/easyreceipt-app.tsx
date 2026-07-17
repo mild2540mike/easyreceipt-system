@@ -48,6 +48,8 @@ import {
   Minimize2,
   Minus,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Pin,
   Plus,
@@ -133,7 +135,10 @@ import {
   type StockStatus,
   type UsageDraftItem,
 } from "@/hooks/use-easyreceipt-store"
-import { useEasyReceipt } from "@/components/easyreceipt/easyreceipt-provider"
+import {
+  useEasyReceipt,
+  useEasyReceiptLayout,
+} from "@/components/easyreceipt/easyreceipt-provider"
 import {
   menuPermissionKeys,
   memberCanViewMenu,
@@ -852,6 +857,7 @@ export function EasyReceiptPortalPage({
   children?: ReactNode
 }) {
   const store = useEasyReceipt()
+  const { isSidebarCollapsed, toggleSidebar } = useEasyReceiptLayout()
   const router = useRouter()
 
   useEffect(() => {
@@ -914,6 +920,8 @@ export function EasyReceiptPortalPage({
         <DesktopSidebar
           activeView={activeView}
           currentMember={store.currentMember}
+          isCollapsed={isSidebarCollapsed}
+          onToggle={toggleSidebar}
           onLogout={handleLogout}
         />
 
@@ -1382,15 +1390,6 @@ function LoginView({
             </Button>
           </form>
 
-          <div className="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-            <div className="mb-2 flex items-center gap-2 font-semibold">
-              <LockKeyhole className="size-4" />
-              บัญชีทดลอง
-            </div>
-            <p>owner / 123456</p>
-            <p>manager / 123456</p>
-            <p>staff / 123456</p>
-          </div>
         </section>
       </div>
     </main>
@@ -1900,22 +1899,61 @@ function StockOutChatWidget({ store }: { store: Store }) {
 function DesktopSidebar({
   activeView,
   currentMember,
+  isCollapsed,
+  onToggle,
   onLogout,
 }: {
   activeView: ViewId
   currentMember: Store["currentMember"]
+  isCollapsed: boolean
+  onToggle: () => void
   onLogout: () => void
 }) {
   return (
-    <aside className="hidden w-72 shrink-0 border-r border-border/70 bg-background px-4 py-5 lg:block">
-      <div className="mb-7 flex items-center gap-3">
+    <aside
+      id="desktop-sidebar"
+      className={cn(
+        "hidden shrink-0 border-r border-border/70 bg-background py-5 transition-[width,padding] duration-200 ease-out motion-reduce:transition-none lg:block",
+        isCollapsed ? "w-20 px-3" : "w-72 px-4"
+      )}
+    >
+      <div
+        className={cn(
+          "mb-7 flex items-center gap-3",
+          isCollapsed && "flex-col gap-2"
+        )}
+      >
         <div className="flex size-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <ReceiptText className="size-6" />
         </div>
-        <div>
+        <div className={cn("min-w-0", isCollapsed && "hidden")}>
           <p className="text-xl font-semibold">EasyReceipt</p>
           <p className="text-sm text-muted-foreground">Purchase & Stock UI</p>
         </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("shrink-0", !isCollapsed && "ml-auto")}
+                aria-controls="desktop-sidebar"
+                aria-expanded={!isCollapsed}
+                aria-label={isCollapsed ? "ขยายแถบเมนู" : "พับแถบเมนู"}
+                onClick={onToggle}
+              />
+            }
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="size-5" />
+            ) : (
+              <PanelLeftClose className="size-5" />
+            )}
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {isCollapsed ? "ขยายแถบเมนู" : "พับแถบเมนู"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <nav className="space-y-2">
@@ -1923,18 +1961,22 @@ function DesktopSidebar({
           const Icon = item.icon
           const isActive = activeView === item.id
 
-          return (
+          const link = (
             <Link
-              key={item.id}
               className={cn(
                 buttonVariants({
                   variant: isActive ? "secondary" : "ghost",
-                  className:
-                    "h-auto min-h-14 w-full justify-start gap-3 px-3 py-3 text-left",
+                  className: cn(
+                    "w-full gap-3 text-left",
+                    isCollapsed
+                      ? "h-12 justify-center px-0 py-0"
+                      : "h-auto min-h-14 justify-start px-3 py-3"
+                  ),
                 }),
                 isActive && "bg-muted"
               )}
               href={item.href}
+              aria-label={isCollapsed ? item.label : undefined}
             >
               <span
                 className={cn(
@@ -1944,13 +1986,24 @@ function DesktopSidebar({
               >
                 <Icon className="size-4" />
               </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">{item.label}</span>
-                <span className="block whitespace-normal text-xs text-muted-foreground">
-                  {item.description}
+              {!isCollapsed && (
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{item.label}</span>
+                  <span className="block whitespace-normal text-xs text-muted-foreground">
+                    {item.description}
+                  </span>
                 </span>
-              </span>
+              )}
             </Link>
+          )
+
+          return isCollapsed ? (
+            <Tooltip key={item.id}>
+              <TooltipTrigger render={link} />
+              <TooltipContent side="right">{item.label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Fragment key={item.id}>{link}</Fragment>
           )
         })}
       </nav>
@@ -1958,28 +2011,65 @@ function DesktopSidebar({
       <Separator className="my-5" />
 
       {currentMember && (
-        <div className="mb-5 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950">
-          <div className="mb-3 flex items-center gap-2">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-background">
-              <ShieldCheck className="size-4 text-sky-700" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">
-                {currentMember.name}
-              </p>
-              <p className="truncate text-xs text-sky-700">
-                {memberRoleLabel(currentMember.role)}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            className="h-10 w-full bg-background"
-            onClick={onLogout}
-          >
-            <LogOut className="size-4" />
-            ออกจากระบบ
-          </Button>
+        <div
+          className={cn(
+            "mb-5 rounded-lg border border-sky-200 bg-sky-50 text-sky-950",
+            isCollapsed ? "flex flex-col items-center gap-2 p-2" : "p-3"
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div
+                  className={cn(
+                    "flex items-center gap-2",
+                    !isCollapsed && "mb-3 w-full"
+                  )}
+                />
+              }
+            >
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background">
+                <ShieldCheck className="size-4 text-sky-700" />
+              </div>
+              {!isCollapsed && (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {currentMember.name}
+                  </p>
+                  <p className="truncate text-xs text-sky-700">
+                    {memberRoleLabel(currentMember.role)}
+                  </p>
+                </div>
+              )}
+            </TooltipTrigger>
+            {isCollapsed && (
+              <TooltipContent side="right">
+                {currentMember.name} · {memberRoleLabel(currentMember.role)}
+              </TooltipContent>
+            )}
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size={isCollapsed ? "icon" : "default"}
+                  className={cn(
+                    "h-10 bg-background",
+                    isCollapsed ? "w-10" : "w-full"
+                  )}
+                  aria-label={isCollapsed ? "ออกจากระบบ" : undefined}
+                  onClick={onLogout}
+                />
+              }
+            >
+              <LogOut className="size-4" />
+              {!isCollapsed && "ออกจากระบบ"}
+            </TooltipTrigger>
+            {isCollapsed && (
+              <TooltipContent side="right">ออกจากระบบ</TooltipContent>
+            )}
+          </Tooltip>
         </div>
       )}
 
@@ -4756,13 +4846,13 @@ function UsageView({ store }: { store: Store }) {
           ))}
 
           {usageBatches.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
+            <div className="rounded-lg border border-dashed border-border p-5 text-center">
               <p className="text-sm text-muted-foreground">
                 ยังไม่มีรายการของใช้ไป กด “เพิ่มรายการแรก” เพื่อเริ่มบันทึก
               </p>
               <Button
                 variant="outline"
-                className="mt-4 h-11 bg-background"
+                className="mt-3 h-10"
                 onClick={store.addUsageBatch}
                 disabled={!store.canEditUsage}
               >
@@ -7918,35 +8008,54 @@ function BranchAccessPicker({
   }
 
   return (
-    <div className="grid gap-2 lg:max-h-32 lg:overflow-y-auto lg:pr-1 lg:gap-1.5">
-      {branchOptions.map((branch) => {
-        const selected = selectedIds.has(branch.id)
+    <div className="rounded-lg bg-muted/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground sm:text-sm">
+          {forceAll
+            ? "เจ้าของระบบเข้าถึงทุกสาขาโดยอัตโนมัติ"
+            : selectionMode === "multiple"
+              ? "เลือกได้หลายสาขาสำหรับผู้ดูแลระบบ"
+              : "เลือกได้ 1 สาขาสำหรับพนักงาน"}
+        </p>
+        <Badge variant="outline" className="h-6 shrink-0 bg-background px-2 text-xs">
+          {selectedIds.size} สาขา
+        </Badge>
+      </div>
 
-        return (
-          <button
-            key={branch.id}
-            type="button"
-            className={cn(
-              "flex min-h-11 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition lg:min-h-9 lg:gap-2 lg:px-2.5 lg:py-1.5 lg:text-xs",
-              selected && "border-sky-200 bg-sky-50 text-sky-950",
-              !disabled && !forceAll && "hover:bg-muted",
-              (disabled || forceAll) && "cursor-default opacity-90"
-            )}
-            onClick={() => toggleBranch(branch.id)}
-          >
-            <span className="min-w-0">
-              <span className="block truncate font-medium">{branch.name}</span>
-              <span className="block truncate text-xs text-muted-foreground lg:text-[0.68rem]">
-                {branch.code} · {branch.location}
+      <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+        {branchOptions.map((branch) => {
+          const selected = selectedIds.has(branch.id)
+
+          return (
+            <button
+              key={branch.id}
+              type="button"
+              className={cn(
+                "flex min-h-14 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                selected && "border-sky-300 bg-sky-50 text-sky-950",
+                !disabled && !forceAll && "hover:bg-muted",
+                (disabled || forceAll) && "cursor-default opacity-90"
+              )}
+              aria-pressed={selected}
+              onClick={() => toggleBranch(branch.id)}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{branch.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {branch.code} · {branch.location}
+                </span>
               </span>
-            </span>
-            {selected && <CircleCheck className="size-4 shrink-0 text-sky-700 lg:size-3.5" />}
-          </button>
-        )
-      })}
+              {selected && (
+                <CircleCheck className="size-4 shrink-0 text-sky-700" />
+              )}
+            </button>
+          )
+        })}
+      </div>
+
       {forceAll && (
-        <p className="text-xs text-muted-foreground">
-          เจ้าของระบบเห็นทุกสาขาโดยอัตโนมัติ
+        <p className="mt-2 text-xs text-muted-foreground">
+          สิทธิ์นี้เปลี่ยนแปลงไม่ได้สำหรับบัญชีเจ้าของระบบ
         </p>
       )}
     </div>

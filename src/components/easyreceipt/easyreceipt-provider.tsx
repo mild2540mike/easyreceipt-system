@@ -1,6 +1,13 @@
 "use client"
 
-import { createContext, useContext, useMemo, type ReactNode } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { usePathname } from "next/navigation"
 
 import {
@@ -10,6 +17,14 @@ import {
 import type { ViewId } from "@/lib/easyreceipt-data"
 
 const EasyReceiptContext = createContext<EasyReceiptStore | null>(null)
+
+type EasyReceiptLayoutContextValue = {
+  isSidebarCollapsed: boolean
+  toggleSidebar: () => void
+}
+
+const EasyReceiptLayoutContext =
+  createContext<EasyReceiptLayoutContextValue | null>(null)
 
 function activeViewFromPathname(pathname: string): ViewId | undefined {
   if (pathname.startsWith("/portal/members")) {
@@ -47,10 +62,20 @@ export function EasyReceiptProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const activeView = useMemo(() => activeViewFromPathname(pathname), [pathname])
   const store = useEasyReceiptStore(activeView)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed((current) => !current)
+  }, [])
+  const layout = useMemo(
+    () => ({ isSidebarCollapsed, toggleSidebar }),
+    [isSidebarCollapsed, toggleSidebar]
+  )
 
   return (
     <EasyReceiptContext.Provider value={store}>
-      {children}
+      <EasyReceiptLayoutContext.Provider value={layout}>
+        {children}
+      </EasyReceiptLayoutContext.Provider>
     </EasyReceiptContext.Provider>
   )
 }
@@ -63,4 +88,14 @@ export function useEasyReceipt() {
   }
 
   return store
+}
+
+export function useEasyReceiptLayout() {
+  const layout = useContext(EasyReceiptLayoutContext)
+
+  if (!layout) {
+    throw new Error("useEasyReceiptLayout must be used inside EasyReceiptProvider")
+  }
+
+  return layout
 }
