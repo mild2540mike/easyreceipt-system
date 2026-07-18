@@ -8538,6 +8538,9 @@ function StatusSelect({
 
 function ReportsView({ store }: { store: Store }) {
   const selectedDateLabel = formatThaiLongDate(store.reportDate)
+  const [activeReportTab, setActiveReportTab] = useState<
+    "purchase" | "usage" | "cashflow"
+  >("purchase")
 
   return (
     <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
@@ -8588,7 +8591,19 @@ function ReportsView({ store }: { store: Store }) {
       </section>
 
       <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
-        <Tabs defaultValue="purchase" className="gap-3 sm:gap-5">
+        <Tabs
+          value={activeReportTab}
+          onValueChange={(value) => {
+            if (
+              value === "purchase" ||
+              value === "usage" ||
+              value === "cashflow"
+            ) {
+              setActiveReportTab(value)
+            }
+          }}
+          className="gap-3 sm:gap-5"
+        >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold sm:text-lg">รายงาน / การใช้งาน</h2>
@@ -8612,22 +8627,28 @@ function ReportsView({ store }: { store: Store }) {
           </div>
 
           <TabsContent value="purchase">
-            <BranchReportBarSeries
-              data={store.reportBranchPurchaseSeries}
-              label="ยอดซื้อแยกตามสาขา"
-              emptyMessage={`ไม่มียอดซื้อในวันที่ ${selectedDateLabel}`}
-            />
+            {activeReportTab === "purchase" && (
+              <BranchReportBarSeries
+                data={store.reportBranchPurchaseSeries}
+                label="ยอดซื้อแยกตามสาขา"
+                emptyMessage={`ไม่มียอดซื้อในวันที่ ${selectedDateLabel}`}
+              />
+            )}
           </TabsContent>
           <TabsContent value="usage">
-            <BranchReportBarSeries
-              data={store.reportBranchStockOutSeries}
-              label="มูลค่าของออกแยกตามสาขา"
-              emptyMessage={`ไม่มีข้อมูลของใช้ไปในวันที่ ${selectedDateLabel}`}
-            />
+            {activeReportTab === "usage" && (
+              <BranchReportBarSeries
+                data={store.reportBranchStockOutSeries}
+                label="มูลค่าของออกแยกตามสาขา"
+                emptyMessage={`ไม่มีข้อมูลของใช้ไปในวันที่ ${selectedDateLabel}`}
+              />
+            )}
           </TabsContent>
           {isCashFlowReportTabEnabled && (
             <TabsContent value="cashflow">
-              <CashFlowList metrics={store.reportCashFlowMetrics} />
+              {activeReportTab === "cashflow" && (
+                <CashFlowList metrics={store.reportCashFlowMetrics} />
+              )}
             </TabsContent>
           )}
         </Tabs>
