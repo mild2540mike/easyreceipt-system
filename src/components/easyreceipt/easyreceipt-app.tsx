@@ -1309,8 +1309,8 @@ function LoginView({
   store: Store
   onLoginSuccess: () => void
 }) {
-  const [username, setUsername] = useState("owner")
-  const [password, setPassword] = useState("123456")
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
   const [error, setError] = useState("")
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
