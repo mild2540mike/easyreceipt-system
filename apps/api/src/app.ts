@@ -2,7 +2,6 @@ import cookieParser from "cookie-parser"
 import cors from "cors"
 import express from "express"
 import helmet from "helmet"
-import pinoHttp from "pino-http"
 
 import { env } from "./config/env"
 import {
@@ -33,11 +32,6 @@ export function createApp() {
     cors({
       origin: env.FRONTEND_ORIGIN,
       credentials: true,
-    })
-  )
-  app.use(
-    pinoHttp({
-      enabled: env.NODE_ENV !== "test",
     })
   )
   app.use(express.json({ limit: "8mb" }))
