@@ -27,6 +27,7 @@ import {
   ArrowLeft,
   BarChart3,
   Bell,
+  BookOpen,
   Building2,
   CalendarIcon,
   ChefHat,
@@ -1400,9 +1401,17 @@ function LoginView({
           <p className="font-medium">
             © TIMETOEAT COMPANY LIMITED, 2026 ALL RIGHTS RESERVED
           </p>
-          <p>
-            VERSION {appVersion}
-          </p>
+          <div className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <p>VERSION {appVersion}</p>
+            <span aria-hidden="true">•</span>
+            <Link
+              href="/manual"
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <BookOpen className="size-3.5" />
+              คู่มือการใช้งาน
+            </Link>
+          </div>
         </footer>
       </div>
     </main>
