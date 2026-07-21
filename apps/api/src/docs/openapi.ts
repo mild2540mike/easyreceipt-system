@@ -181,6 +181,74 @@ export const openApiDocument = {
           },
         },
       },
+      PurchaseScanInput: {
+        type: "object",
+        required: ["image"],
+        properties: {
+          image: {
+            type: "object",
+            required: ["name", "type", "size", "dataUrl"],
+            properties: {
+              name: { type: "string", example: "receipt.jpg" },
+              type: {
+                type: "string",
+                enum: ["image/jpeg", "image/png", "image/webp"],
+              },
+              size: { type: "integer", maximum: 5242880 },
+              dataUrl: {
+                type: "string",
+                description: "Base64 data URL for one processed receipt image.",
+              },
+            },
+          },
+        },
+      },
+      PurchaseScanResult: {
+        type: "object",
+        required: ["billName", "receiptDate", "sourceType", "items", "warnings"],
+        properties: {
+          billName: { type: "string", example: "ตลาดสด" },
+          receiptDate: {
+            type: ["string", "null"],
+            format: "date",
+          },
+          sourceType: {
+            type: "string",
+            enum: ["printed", "handwritten", "mixed", "unknown"],
+          },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              required: [
+                "rawName",
+                "ingredientId",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "lineTotal",
+                "warnings",
+              ],
+              properties: {
+                rawName: { type: "string", example: "อกไก่" },
+                ingredientId: { type: ["string", "null"] },
+                quantity: { type: "number", minimum: 0 },
+                unit: { type: "string" },
+                unitPrice: { type: "number", minimum: 0 },
+                lineTotal: { type: "number", minimum: 0 },
+                warnings: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
+          warnings: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+      },
       RecipeInput: {
         type: "object",
         required: ["name", "menuCategory", "yield", "pricePerServing", "ingredients"],
@@ -647,6 +715,49 @@ export const openApiDocument = {
           "400": { $ref: "#/components/responses/ValidationError" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/branches/{branchId}/purchases/scan": {
+      post: {
+        tags: ["Purchases"],
+        summary: "Read one receipt image and return autofill-ready purchase rows.",
+        description:
+          "Requires purchase edit permission. The image and scan result are not persisted by timetoeat.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/PurchaseScanInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Receipt scan result.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["scan"],
+                  properties: {
+                    scan: {
+                      $ref: "#/components/schemas/PurchaseScanResult",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "422": { description: "No readable purchase rows were found." },
+          "502": { description: "The image provider returned an unusable response." },
+          "503": { description: "Receipt scanning is not configured or temporarily unavailable." },
+          "504": { description: "Receipt scanning timed out." },
         },
       },
     },

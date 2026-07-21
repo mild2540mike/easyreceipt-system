@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
@@ -44,6 +44,7 @@ import {
   apiLogin,
   apiLogout,
   apiPinBranchRecipe,
+  apiScanBranchPurchase,
   apiUnpinBranchRecipe,
   apiUpdateBranchBudget,
   apiUpdateBranchInventory,
@@ -56,12 +57,14 @@ import {
   type NormalizedRecipePlan,
   type NormalizedRecipeSnapshot,
   type NormalizedStockMovement,
+  type PurchaseScanImageInput,
   type SystemNotification,
   type ReportSummary,
   type StockOutApiInput,
   type UsageBatchApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
+import { uniquePurchaseBillName } from "@/lib/purchase-scan"
 
 export type StockStatus = "ok" | "watch" | "low"
 
@@ -543,6 +546,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   >({})
   const [inventoryMutationError, setInventoryMutationError] = useState("")
   const [purchaseMutationError, setPurchaseMutationError] = useState("")
+  const [purchaseScanError, setPurchaseScanError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
   const [memberMutationError, setMemberMutationError] = useState("")
 
@@ -679,6 +683,16 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const activePurchaseDate =
     activeWorkspace.purchaseDate ?? createEmptyBranchWorkspace("").purchaseDate
   const purchaseDateKey = bangkokDateKey(activePurchaseDate)
+  const purchaseScanContextRef = useRef({
+    branchId: activeBranchId,
+    dateKey: purchaseDateKey,
+  })
+  useEffect(() => {
+    purchaseScanContextRef.current = {
+      branchId: activeBranchId,
+      dateKey: purchaseDateKey,
+    }
+  }, [activeBranchId, purchaseDateKey])
   const activeUsageDate =
     activeWorkspace.usageDate ?? createEmptyBranchWorkspace("").usageDate
   const usageDateKey = bangkokDateKey(activeUsageDate)
@@ -1023,6 +1037,24 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setPurchaseMutationError(
         errorMessage(error, "ไม่สามารถบันทึกใบซื้อได้")
+      )
+    },
+  })
+
+  const scanPurchaseMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      image,
+    }: {
+      branchId: string
+      image: PurchaseScanImageInput
+    }) => apiScanBranchPurchase(branchId, image),
+    onMutate: () => {
+      setPurchaseScanError("")
+    },
+    onError: (error) => {
+      setPurchaseScanError(
+        errorMessage(error, "ไม่สามารถอ่านข้อความจากรูปได้")
       )
     },
   })
@@ -1930,7 +1962,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
         if (ingredient) {
           nextItem.unit = ingredient.unit
-          nextItem.unitPrice = ingredient.defaultPrice
+          if (currentItem.unitPrice <= 0) {
+            nextItem.unitPrice = ingredient.defaultPrice
+          }
+          nextItem.draftIngredientName = undefined
         }
       }
 
@@ -2179,6 +2214,118 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       ...workspace,
       purchaseItems: workspace.purchaseItems.filter((item) => item.id !== itemId),
     }))
+  }
+
+  async function scanPurchaseImage(image: PurchaseScanImageInput) {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false as const,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditPurchase) {
+      return {
+        ok: false as const,
+        error: "บัญชีนี้ไม่มีสิทธิ์สแกนบิล",
+      }
+    }
+
+    const branchIdAtStart = activeBranchId
+    const dateKeyAtStart = purchaseDateKey
+    const draftNamesAtStart = draftPurchaseHistory.map(
+      (purchase) => purchase.vendor
+    )
+    const hasDraftsAtStart = draftPurchaseHistory.length > 0
+
+    try {
+      const scan = await scanPurchaseMutation.mutateAsync({
+        branchId: branchIdAtStart,
+        image,
+      })
+      const currentContext = purchaseScanContextRef.current
+
+      if (
+        currentContext.branchId !== branchIdAtStart ||
+        currentContext.dateKey !== dateKeyAtStart
+      ) {
+        const error = "มีการเปลี่ยนสาขาหรือวันที่ระหว่างสแกน กรุณาสแกนรูปใหม่"
+        setPurchaseScanError(error)
+        return { ok: false as const, error }
+      }
+
+      let insertedBillName = scan.billName
+      let needsReviewCount = 0
+      let dateWarning = ""
+      const now = Date.now()
+
+      updateBranchWorkspace(branchIdAtStart, (workspace) => {
+        const hasExistingWork =
+          workspace.purchaseItems.length > 0 || hasDraftsAtStart
+        insertedBillName = uniquePurchaseBillName(scan.billName, [
+          ...workspace.purchaseItems.map((item) => item.billName ?? ""),
+          ...draftNamesAtStart,
+        ])
+
+        const nextItems = scan.items.map((item, index): PurchaseItem => {
+          const needsReview =
+            !item.ingredientId ||
+            item.quantity <= 0 ||
+            !item.unit.trim() ||
+            item.unitPrice <= 0
+
+          if (needsReview) {
+            needsReviewCount += 1
+          }
+
+          return {
+            id: `${branchIdAtStart}-scan-${now}-${index}`,
+            ingredientId: item.ingredientId ?? "",
+            draftIngredientName: item.ingredientId ? undefined : item.rawName,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            billName: insertedBillName,
+          }
+        })
+        let nextPurchaseDate = workspace.purchaseDate
+
+        if (scan.receiptDate && scan.receiptDate !== dateKeyAtStart) {
+          const todayKey = bangkokDateKey(new Date())
+
+          if (!hasExistingWork && scan.receiptDate <= todayKey) {
+            nextPurchaseDate = new Date(`${scan.receiptDate}T12:00:00+07:00`)
+          } else if (scan.receiptDate > todayKey) {
+            dateWarning = `วันที่ในรูป ${scan.receiptDate} เป็นวันที่ในอนาคต ระบบจึงคงวันที่เดิมไว้`
+          } else {
+            dateWarning = `วันที่ในรูป ${scan.receiptDate} ไม่ตรงกับวันที่ที่เลือก ระบบคงวันที่เดิมไว้เพราะมีรายการอยู่แล้ว`
+          }
+        }
+
+        return {
+          ...workspace,
+          purchaseDate: nextPurchaseDate,
+          purchaseItems: [...workspace.purchaseItems, ...nextItems],
+        }
+      })
+
+      return {
+        ok: true as const,
+        billName: insertedBillName,
+        itemCount: scan.items.length,
+        needsReviewCount,
+        dateWarning,
+        warnings: scan.warnings,
+      }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถอ่านข้อความจากรูปได้")
+      setPurchaseScanError(message)
+      return { ok: false as const, error: message }
+    }
+  }
+
+  function clearPurchaseScanError() {
+    setPurchaseScanError("")
   }
 
   async function savePurchaseDraft(): Promise<ActionResult> {
@@ -3159,6 +3306,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     removePurchaseBill,
     addSuggestedPurchaseItems,
     removePurchaseItem,
+    scanPurchaseImage,
+    clearPurchaseScanError,
     savePurchaseDraft,
     deletePurchaseDraft,
     deletePurchaseDraftItem,
@@ -3167,11 +3316,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isUsageMovementsLoading,
     isUsageReasonsLoading: usageReasonsQuery.isPending && shouldLoadUsageReasons,
     isPurchaseSaving: createPurchaseMutation.isPending,
+    isPurchaseScanning: scanPurchaseMutation.isPending,
     isUsageSaving: createUsageMutation.isPending,
     isPurchaseDraftDeleting:
       deletePurchaseDraftMutation.isPending ||
       deletePurchaseDraftItemMutation.isPending,
     purchaseError,
+    purchaseScanError,
     usageError,
     canManageBranchBudget,
     isBranchBudgetSaving: updateBranchBudgetMutation.isPending,

@@ -125,6 +125,7 @@ export type Ingredient = {
 export type PurchaseItem = {
   id: string
   ingredientId: string
+  draftIngredientName?: string
   quantity: number
   unit: string
   unitPrice: number

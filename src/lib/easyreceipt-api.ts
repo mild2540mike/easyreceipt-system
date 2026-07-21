@@ -132,6 +132,29 @@ export type PurchaseBatchApiInput = {
   }[]
 }
 
+export type PurchaseScanImageInput = {
+  name: string
+  type: "image/jpeg" | "image/png" | "image/webp"
+  size: number
+  dataUrl: string
+}
+
+export type PurchaseScanResult = {
+  billName: string
+  receiptDate: string | null
+  sourceType: "printed" | "handwritten" | "mixed" | "unknown"
+  items: {
+    rawName: string
+    ingredientId: string | null
+    quantity: number
+    unit: string
+    unitPrice: number
+    lineTotal: number
+    warnings: string[]
+  }[]
+  warnings: string[]
+}
+
 type ApiPurchaseItem = {
   id: string
   ingredientId: string
@@ -1023,6 +1046,26 @@ export async function apiCreateBranchPurchaseBatch(
   const data = await parseJsonResponse<{ purchases: ApiPurchase[] }>(response)
 
   return data.purchases.map(normalizePurchase)
+}
+
+export async function apiScanBranchPurchase(
+  branchId: string,
+  image: PurchaseScanImageInput
+): Promise<PurchaseScanResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/scan`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ image }),
+    }
+  )
+  const data = await parseJsonResponse<{ scan: PurchaseScanResult }>(response)
+
+  return data.scan
 }
 
 export async function apiDeleteBranchPurchaseDraft(

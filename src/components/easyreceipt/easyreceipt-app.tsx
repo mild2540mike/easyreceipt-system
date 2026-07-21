@@ -145,6 +145,7 @@ import {
   memberCanViewMenu,
   normalizeMemberPermissions,
 } from "@/lib/easyreceipt-data"
+import { preparePurchaseScanImage } from "@/lib/purchase-scan-image"
 import type {
   MenuPermissionKey,
   MemberMenuPermissions,
@@ -2615,6 +2616,14 @@ function ResponsiveDatePicker({
 
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseMessage, setPurchaseMessage] = useState("")
+  const [isPreparingScan, setIsPreparingScan] = useState(false)
+  const [scanFeedback, setScanFeedback] = useState<{
+    kind: "success" | "warning" | "error"
+    message: string
+    details: string[]
+    billName?: string
+  } | null>(null)
+  const purchaseScanInputRef = useRef<HTMLInputElement | null>(null)
   const [isPurchaseConfirmOpen, setIsPurchaseConfirmOpen] = useState(false)
   const [expandedPurchaseBillIds, setExpandedPurchaseBillIds] = useState<
     Set<string>
@@ -2692,6 +2701,66 @@ function PurchaseView({ store }: { store: Store }) {
     )
   }
 
+  async function handlePurchaseScanFile(file: File) {
+    setScanFeedback(null)
+    store.clearPurchaseScanError()
+    setIsPreparingScan(true)
+
+    try {
+      const image = await preparePurchaseScanImage(file)
+      const result = await store.scanPurchaseImage(image)
+
+      if (!result.ok) {
+        setScanFeedback({
+          kind: "error",
+          message: result.error,
+          details: [],
+        })
+        return
+      }
+
+      const details = [
+        result.needsReviewCount > 0
+          ? `ต้องตรวจและจับคู่ ${result.needsReviewCount} รายการก่อนบันทึก`
+          : "จับคู่วัตถุดิบและข้อมูลสำคัญครบแล้ว",
+        ...(result.dateWarning ? [result.dateWarning] : []),
+        ...result.warnings,
+      ]
+      setScanFeedback({
+        kind:
+          result.needsReviewCount > 0 || result.dateWarning
+            ? "warning"
+            : "success",
+        message: `เติม “${result.billName}” จากรูปแล้ว ${result.itemCount} รายการ`,
+        details,
+        billName: result.billName,
+      })
+
+      window.setTimeout(() => {
+        const bills = document.querySelectorAll<HTMLElement>(
+          "[data-purchase-bill]"
+        )
+        bills.item(bills.length - 1)?.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+          block: "center",
+        })
+      }, 0)
+    } catch (error) {
+      setScanFeedback({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "ไม่สามารถเตรียมรูปสำหรับสแกนได้",
+        details: [],
+      })
+    } finally {
+      setIsPreparingScan(false)
+    }
+  }
+
   async function handleDeletePurchaseDraftItem(
     purchaseId: string,
     itemId: string
@@ -2747,6 +2816,54 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
+      {(scanFeedback || store.purchaseScanError) && (
+        <div
+          aria-live="polite"
+          className={cn(
+            "flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between",
+            scanFeedback?.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : scanFeedback?.kind === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-red-200 bg-red-50 text-red-900"
+          )}
+        >
+          <div className="flex min-w-0 gap-2.5">
+            {scanFeedback?.kind === "success" ? (
+              <CircleCheck className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium">
+                {scanFeedback?.message || store.purchaseScanError}
+              </p>
+              {scanFeedback && scanFeedback.details.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed sm:text-sm">
+                  {scanFeedback.details.map((detail, index) => (
+                    <li key={`${detail}-${index}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          {scanFeedback?.billName && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 bg-background"
+              onClick={() => {
+                store.removePurchaseBill(scanFeedback.billName ?? "")
+                setScanFeedback(null)
+              }}
+            >
+              <Trash2 className="size-4" />
+              ลบบิลนี้
+            </Button>
+          )}
+        </div>
+      )}
+
       <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
@@ -2761,13 +2878,55 @@ function PurchaseView({ store }: { store: Store }) {
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-52">
               <Label className="mb-2 block">วันที่</Label>
               <ResponsiveDatePicker
                 value={store.purchaseDate}
                 onChange={store.setPurchaseDate}
               />
+            </div>
+            <div className="min-w-52">
+              <Label className="mb-2 block">เพิ่มจากรูป</Label>
+              <input
+                ref={purchaseScanInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0]
+                  event.currentTarget.value = ""
+
+                  if (file) {
+                    void handlePurchaseScanFile(file)
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full bg-background"
+                onClick={() => purchaseScanInputRef.current?.click()}
+                disabled={
+                  !store.canEditPurchase ||
+                  isPreparingScan ||
+                  store.isPurchaseScanning
+                }
+              >
+                {isPreparingScan || store.isPurchaseScanning ? (
+                  <>
+                    <LoaderCircle className="size-4 animate-spin" />
+                    กำลังอ่านรูป
+                  </>
+                ) : (
+                  <>
+                    <ImageUp className="size-4" />
+                    สแกนบิล
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </div>
@@ -3533,7 +3692,10 @@ function PurchaseBillCard({
   const isDesktopLayout = useDesktopLayout()
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+    <section
+      data-purchase-bill
+      className="min-w-0 overflow-hidden rounded-lg border border-border bg-background"
+    >
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <ReceiptText className="size-4 shrink-0 text-primary" />
@@ -3971,7 +4133,9 @@ function IngredientSelect({
   hideMobileLabel?: boolean
 }) {
   const selectedIngredient = store.ingredientById.get(item.ingredientId)
-  const [query, setQuery] = useState(selectedIngredient?.name ?? "")
+  const [query, setQuery] = useState(
+    selectedIngredient?.name ?? item.draftIngredientName ?? ""
+  )
   const deferredQuery = useDeferredValue(query)
   const [isOpen, setIsOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
@@ -4104,11 +4268,23 @@ function IngredientSelect({
               return
             }
 
-            setQuery(event.target.value)
+            const nextQuery = event.target.value
+            setQuery(nextQuery)
+            store.updatePurchaseItem(item.id, {
+              ingredientId: "",
+              draftIngredientName: nextQuery,
+            })
             setIsOpen(true)
           }}
         />
       </div>
+
+      {!item.ingredientId && item.draftIngredientName?.trim() && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          ยังไม่จับคู่กับวัตถุดิบในคลัง
+        </div>
+      )}
 
       {isOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
         <div

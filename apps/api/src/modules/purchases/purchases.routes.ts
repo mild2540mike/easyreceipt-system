@@ -13,6 +13,10 @@ import {
   memberCanEditMenu,
   memberCanViewMenu,
 } from "../common/permissions"
+import {
+  purchaseScanRequestSchema,
+  scanPurchaseReceipt,
+} from "./purchase-scan"
 
 const purchaseItemSchema = z.object({
   ingredientId: z.string().min(1),
@@ -95,6 +99,43 @@ function shouldSyncMarketPrice(
 
   return market <= 0 || Math.abs(market - currentCost) < 0.005
 }
+
+purchasesRouter.post(
+  "/scan",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = purchaseScanRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "purchase")) {
+      throw forbidden("Member does not have permission to scan purchases.")
+    }
+
+    const inventoryRows = await prisma.branchInventory.findMany({
+      where: {
+        branchId,
+        ingredient: { isActive: true },
+      },
+      select: {
+        ingredient: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+          },
+        },
+      },
+    })
+    const scan = await scanPurchaseReceipt({
+      image: input.image,
+      memberId: access.member.id,
+      ingredients: inventoryRows.map((row) => row.ingredient),
+    })
+
+    res.json({ scan })
+  })
+)
 
 purchasesRouter.get(
   "/",
