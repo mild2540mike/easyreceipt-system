@@ -146,6 +146,10 @@ model Purchase {
   vendor            String   @default("-") @db.NVarChar(180)
   status            String   @default("posted") @db.NVarChar(24)
   totalAmount       Decimal  @default(0) @db.Decimal(18, 2)
+  receiptImageOriginalName String? @db.NVarChar(255)
+  receiptImageStoredName   String? @db.NVarChar(255)
+  receiptImageMimeType     String? @db.NVarChar(64)
+  receiptImageSizeBytes    Int?
   createdAt         DateTime @default(now()) @db.DateTime2
   updatedAt         DateTime @updatedAt @db.DateTime2
 

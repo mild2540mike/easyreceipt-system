@@ -6,6 +6,8 @@ import type {
   MemberMenuPermissions,
   MemberRole,
   MemberStatus,
+  PurchaseReceiptImage,
+  StoredPurchaseReceiptImage,
   Recipe,
   RecipeIngredient,
 } from "@/lib/easyreceipt-data"
@@ -113,6 +115,7 @@ export type PurchaseApiInput = {
   purchaseDate: string
   vendor?: string
   status?: "draft" | "saved"
+  receiptImage?: StoredPurchaseReceiptImage
   draftPurchaseIds?: string[]
   items: {
     ingredientId: string
@@ -127,17 +130,13 @@ export type PurchaseBatchApiInput = {
   status?: "draft" | "saved"
   bills: {
     name: string
+    receiptImage?: StoredPurchaseReceiptImage
     draftPurchaseIds?: string[]
     items: PurchaseApiInput["items"]
   }[]
 }
 
-export type PurchaseScanImageInput = {
-  name: string
-  type: "image/jpeg" | "image/png" | "image/webp"
-  size: number
-  dataUrl: string
-}
+export type PurchaseScanImageInput = PurchaseReceiptImage
 
 export type PurchaseScanResult = {
   billName: string
@@ -171,6 +170,7 @@ type ApiPurchase = {
   vendor: string
   status?: string
   totalAmount: number | string
+  receiptImageStoredName?: string | null
   items: ApiPurchaseItem[]
 }
 
@@ -181,6 +181,7 @@ export type NormalizedPurchase = {
   vendor: string
   status: "draft" | "saved" | "posted"
   total: number
+  receiptImagePath: string | null
   items: {
     id: string
     ingredientId: string
@@ -632,6 +633,9 @@ function normalizePurchase(purchase: ApiPurchase): NormalizedPurchase {
     vendor: purchase.vendor,
     status,
     total: toNumber(purchase.totalAmount),
+    receiptImagePath: purchase.receiptImageStoredName
+      ? `/uploads/purchase/${encodeURIComponent(purchase.receiptImageStoredName)}`
+      : null,
     items: purchase.items.map((item) => ({
       id: item.id,
       ingredientId: item.ingredientId,
@@ -1066,6 +1070,34 @@ export async function apiScanBranchPurchase(
   const data = await parseJsonResponse<{ scan: PurchaseScanResult }>(response)
 
   return data.scan
+}
+
+export async function apiUploadBranchPurchaseReceiptImage(
+  branchId: string,
+  image: PurchaseScanImageInput
+): Promise<StoredPurchaseReceiptImage> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/receipt-image`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ image }),
+    }
+  )
+  const data = await parseJsonResponse<{
+    receiptImage: StoredPurchaseReceiptImage & { path?: string }
+  }>(response)
+
+  return {
+    originalName: data.receiptImage.originalName,
+    storedName: data.receiptImage.storedName,
+    type: data.receiptImage.type,
+    size: data.receiptImage.size,
+    url: data.receiptImage.url,
+  }
 }
 
 export async function apiDeleteBranchPurchaseDraft(

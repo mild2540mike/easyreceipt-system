@@ -13,6 +13,7 @@ import {
   type MemberRole,
   type MemberStatus,
   type PurchaseItem,
+  type StoredPurchaseReceiptImage,
   type Recipe,
   type ViewId,
   memberCanEditMenu,
@@ -45,6 +46,7 @@ import {
   apiLogout,
   apiPinBranchRecipe,
   apiScanBranchPurchase,
+  apiUploadBranchPurchaseReceiptImage,
   apiUnpinBranchRecipe,
   apiUpdateBranchBudget,
   apiUpdateBranchInventory,
@@ -308,7 +310,15 @@ function purchaseTotal(items: PurchaseItem[]) {
 }
 
 function groupPurchaseItemsByBill(items: PurchaseItem[]) {
-  const bills = new Map<string, PurchaseItem[]>()
+  const bills = new Map<
+    string,
+    {
+      name: string
+      items: PurchaseItem[]
+      receiptImage?: PurchaseScanImageInput
+      storedReceiptImage?: StoredPurchaseReceiptImage
+    }
+  >()
 
   for (const item of items) {
     const billName = item.billName?.trim() ?? ""
@@ -317,10 +327,23 @@ function groupPurchaseItemsByBill(items: PurchaseItem[]) {
       continue
     }
 
-    bills.set(billName, [...(bills.get(billName) ?? []), item])
+    const bill = bills.get(billName)
+
+    if (bill) {
+      bill.items.push(item)
+      bill.receiptImage ??= item.receiptImage
+      bill.storedReceiptImage ??= item.storedReceiptImage
+    } else {
+      bills.set(billName, {
+        name: billName,
+        items: [item],
+        receiptImage: item.receiptImage,
+        storedReceiptImage: item.storedReceiptImage,
+      })
+    }
   }
 
-  return Array.from(bills, ([name, billItems]) => ({ name, items: billItems }))
+  return Array.from(bills.values())
 }
 
 function stockStatus(item: InventoryItem) {
@@ -1012,6 +1035,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         status?: "draft" | "saved"
         bills: {
           name: string
+          receiptImage?: StoredPurchaseReceiptImage
           draftPurchaseIds?: string[]
           items: PurchaseItem[]
         }[]
@@ -1022,6 +1046,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         status: input.status,
         bills: input.bills.map((bill) => ({
           name: bill.name,
+          receiptImage: bill.receiptImage,
           draftPurchaseIds: bill.draftPurchaseIds,
           items: bill.items.map((item) => ({
             ingredientId: item.ingredientId,
@@ -1055,6 +1080,24 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setPurchaseScanError(
         errorMessage(error, "ไม่สามารถอ่านข้อความจากรูปได้")
+      )
+    },
+  })
+
+  const uploadPurchaseReceiptMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      image,
+    }: {
+      branchId: string
+      image: PurchaseScanImageInput
+    }) => apiUploadBranchPurchaseReceiptImage(branchId, image),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+    onError: (error) => {
+      setPurchaseMutationError(
+        errorMessage(error, "ไม่สามารถบันทึกรูปบิลได้")
       )
     },
   })
@@ -2286,6 +2329,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
             unit: item.unit,
             unitPrice: item.unitPrice,
             billName: insertedBillName,
+            receiptImage: image,
           }
         })
         let nextPurchaseDate = workspace.purchaseDate
@@ -2326,6 +2370,37 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   function clearPurchaseScanError() {
     setPurchaseScanError("")
+  }
+
+  async function uploadReceiptImagesForBills(
+    branchId: string,
+    bills: ReturnType<typeof groupPurchaseItemsByBill>
+  ) {
+    const uploadedBills = [] as ReturnType<typeof groupPurchaseItemsByBill>
+
+    for (const bill of bills) {
+      if (bill.storedReceiptImage || !bill.receiptImage) {
+        uploadedBills.push(bill)
+        continue
+      }
+
+      const storedReceiptImage = await uploadPurchaseReceiptMutation.mutateAsync({
+        branchId,
+        image: bill.receiptImage,
+      })
+      const uploadedBill = { ...bill, storedReceiptImage }
+      uploadedBills.push(uploadedBill)
+      updateBranchWorkspace(branchId, (workspace) => ({
+        ...workspace,
+        purchaseItems: workspace.purchaseItems.map((item) =>
+          item.billName === bill.name
+            ? { ...item, storedReceiptImage }
+            : item
+        ),
+      }))
+    }
+
+    return uploadedBills
   }
 
   async function savePurchaseDraft(): Promise<ActionResult> {
@@ -2369,13 +2444,20 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
     try {
       const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
+      const bills = await uploadReceiptImagesForBills(
+        activeBranchId,
+        groupPurchaseItemsByBill(items)
+      )
 
       await createPurchaseMutation.mutateAsync({
         branchId: activeBranchId,
         input: {
           purchaseDate: purchaseTimestamp.toISOString(),
           status: "draft",
-          bills: groupPurchaseItemsByBill(items),
+          bills: bills.map((bill) => ({
+            ...bill,
+            receiptImage: bill.storedReceiptImage,
+          })),
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -2529,13 +2611,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
     try {
       const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
+      const newBills = await uploadReceiptImagesForBills(
+        activeBranchId,
+        groupPurchaseItemsByBill(items)
+      )
 
       await createPurchaseMutation.mutateAsync({
         branchId: activeBranchId,
         input: {
           purchaseDate: purchaseTimestamp.toISOString(),
           status: "saved",
-          bills: [...draftBills, ...groupPurchaseItemsByBill(items)],
+          bills: [
+            ...draftBills,
+            ...newBills.map((bill) => ({
+              ...bill,
+              receiptImage: bill.storedReceiptImage,
+            })),
+          ],
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -3315,7 +3407,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isPurchasesLoading,
     isUsageMovementsLoading,
     isUsageReasonsLoading: usageReasonsQuery.isPending && shouldLoadUsageReasons,
-    isPurchaseSaving: createPurchaseMutation.isPending,
+    isPurchaseSaving:
+      createPurchaseMutation.isPending || uploadPurchaseReceiptMutation.isPending,
     isPurchaseScanning: scanPurchaseMutation.isPending,
     isUsageSaving: createUsageMutation.isPending,
     isPurchaseDraftDeleting:

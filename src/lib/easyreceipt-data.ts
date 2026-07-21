@@ -122,6 +122,21 @@ export type Ingredient = {
   supplier: string
 }
 
+export type PurchaseReceiptImage = {
+  name: string
+  type: "image/jpeg" | "image/png" | "image/webp"
+  size: number
+  dataUrl: string
+}
+
+export type StoredPurchaseReceiptImage = {
+  originalName: string
+  storedName: string
+  type: "image/jpeg" | "image/png" | "image/webp"
+  size: number
+  url: string
+}
+
 export type PurchaseItem = {
   id: string
   ingredientId: string
@@ -130,6 +145,8 @@ export type PurchaseItem = {
   unit: string
   unitPrice: number
   billName?: string
+  receiptImage?: PurchaseReceiptImage
+  storedReceiptImage?: StoredPurchaseReceiptImage
 }
 
 export type Purchase = {

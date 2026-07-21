@@ -17,6 +17,37 @@ import {
   purchaseScanRequestSchema,
   scanPurchaseReceipt,
 } from "./purchase-scan"
+import {
+  removePurchaseReceiptImage,
+  savePurchaseReceiptImage,
+} from "./purchase-receipt-image"
+
+const storedReceiptImageSchema = z
+  .object({
+    originalName: z.string().trim().min(1).max(255),
+    storedName: z.string().trim().min(1).max(255).regex(/^[a-zA-Z0-9._-]+$/),
+    type: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    size: z.coerce.number().int().positive().max(5 * 1024 * 1024),
+    path: z
+      .string()
+      .trim()
+      .regex(/^public\/uploads\/purchase\/[a-zA-Z0-9._-]+$/)
+      .optional(),
+    url: z.string().trim().regex(/^\/uploads\/purchase\/[a-zA-Z0-9._-]+$/),
+  })
+  .strict()
+  .refine((image) => image.url === `/uploads/purchase/${image.storedName}`, {
+    message: "Stored receipt image URL does not match its filename.",
+    path: ["url"],
+  })
+  .refine(
+    (image) =>
+      !image.path || image.path === `public/uploads/purchase/${image.storedName}`,
+    {
+      message: "Stored receipt image path does not match its filename.",
+      path: ["path"],
+    }
+  )
 
 const purchaseItemSchema = z.object({
   ingredientId: z.string().min(1),
@@ -29,6 +60,7 @@ const createPurchaseSchema = z.object({
   purchaseDate: z.string().min(1),
   vendor: z.string().optional(),
   status: z.enum(["draft", "saved"]).optional(),
+  receiptImage: storedReceiptImageSchema.optional(),
   draftPurchaseIds: z.array(z.string().min(1)).optional().default([]),
   items: z.array(purchaseItemSchema).optional().default([]),
 }).refine(
@@ -41,6 +73,7 @@ const createPurchaseSchema = z.object({
 
 const purchaseBillSchema = z.object({
   name: z.string().trim().min(1).max(180),
+  receiptImage: storedReceiptImageSchema.optional(),
   draftPurchaseIds: z.array(z.string().min(1)).optional().default([]),
   items: z.array(purchaseItemSchema).optional().default([]),
 }).refine(
@@ -100,6 +133,35 @@ function shouldSyncMarketPrice(
   return market <= 0 || Math.abs(market - currentCost) < 0.005
 }
 
+function uploadedReceiptImageData(
+  image: z.infer<typeof storedReceiptImageSchema> | undefined
+) {
+  return image
+    ? {
+        receiptImageOriginalName: image.originalName,
+        receiptImageStoredName: image.storedName,
+        receiptImageMimeType: image.type,
+        receiptImageSizeBytes: image.size,
+      }
+    : null
+}
+
+function existingReceiptImageData(purchase: {
+  receiptImageOriginalName: string | null
+  receiptImageStoredName: string | null
+  receiptImageMimeType: string | null
+  receiptImageSizeBytes: number | null
+} | undefined) {
+  return purchase?.receiptImageStoredName
+    ? {
+        receiptImageOriginalName: purchase.receiptImageOriginalName,
+        receiptImageStoredName: purchase.receiptImageStoredName,
+        receiptImageMimeType: purchase.receiptImageMimeType,
+        receiptImageSizeBytes: purchase.receiptImageSizeBytes,
+      }
+    : null
+}
+
 purchasesRouter.post(
   "/scan",
   asyncHandler(async (req, res) => {
@@ -134,6 +196,24 @@ purchasesRouter.post(
     })
 
     res.json({ scan })
+  })
+)
+
+purchasesRouter.post(
+  "/receipt-image",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = purchaseScanRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "purchase")) {
+      throw forbidden("Member does not have permission to upload purchase receipts.")
+    }
+
+    const receiptImage = await savePurchaseReceiptImage(input.image)
+
+    res.status(201).json({ receiptImage })
   })
 )
 
@@ -197,7 +277,7 @@ purchasesRouter.delete(
     const branchId = routeParam(req.params.branchId, "branchId")
     const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
 
-    await prisma.$transaction(async (tx) => {
+    const receiptImageStoredName = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
       if (!memberCanEditMenu(access.member, "purchase")) {
@@ -212,6 +292,7 @@ purchasesRouter.delete(
         select: {
           id: true,
           status: true,
+          receiptImageStoredName: true,
         },
       })
 
@@ -233,7 +314,15 @@ purchasesRouter.delete(
           id: purchase.id,
         },
       })
+
+      return purchase.receiptImageStoredName
     })
+
+    await removePurchaseReceiptImage(
+      receiptImageStoredName
+        ? `/uploads/purchase/${receiptImageStoredName}`
+        : null
+    )
 
     res.status(204).send()
   })
@@ -247,7 +336,7 @@ purchasesRouter.delete(
     const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
     const itemId = routeParam(req.params.itemId, "itemId")
 
-    await prisma.$transaction(async (tx) => {
+    const receiptImageStoredName = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
       if (!memberCanEditMenu(access.member, "purchase")) {
@@ -262,6 +351,7 @@ purchasesRouter.delete(
         select: {
           id: true,
           status: true,
+          receiptImageStoredName: true,
         },
       })
 
@@ -311,7 +401,7 @@ purchasesRouter.delete(
             id: purchase.id,
           },
         })
-        return
+        return purchase.receiptImageStoredName
       }
 
       await tx.purchase.update({
@@ -322,7 +412,15 @@ purchasesRouter.delete(
           totalAmount: remaining._sum.lineTotal ?? 0,
         },
       })
+
+      return null
     })
+
+    await removePurchaseReceiptImage(
+      receiptImageStoredName
+        ? `/uploads/purchase/${receiptImageStoredName}`
+        : null
+    )
 
     res.status(204).send()
   })
@@ -383,6 +481,11 @@ purchasesRouter.post(
           ),
           ...input.items,
         ]
+        const receiptImageData =
+          uploadedReceiptImageData(input.receiptImage) ??
+          existingReceiptImageData(
+            draftPurchases.find((draft) => draft.receiptImageStoredName)
+          )
 
         if (purchaseItems.length === 0) {
           throw badRequest("Purchase must include at least one item.")
@@ -448,6 +551,7 @@ purchasesRouter.post(
             vendor: input.vendor?.trim() || "ไม่ระบุ",
             status: purchaseStatus,
             totalAmount,
+            ...receiptImageData,
           },
         })
 
@@ -672,6 +776,13 @@ purchasesRouter.post(
         )
         const resolvedBills = input.bills.map((bill) => ({
           name: bill.name,
+          receiptImageData:
+            uploadedReceiptImageData(bill.receiptImage) ??
+            existingReceiptImageData(
+              bill.draftPurchaseIds
+                .map((purchaseId) => draftById.get(purchaseId))
+                .find((purchase) => purchase?.receiptImageStoredName)
+            ),
           items: [
             ...bill.draftPurchaseIds.flatMap((purchaseId) =>
               (draftById.get(purchaseId)?.items ?? []).map((item) => ({
@@ -769,6 +880,7 @@ purchasesRouter.post(
               vendor: bill.name,
               status: purchaseStatus,
               totalAmount,
+              ...bill.receiptImageData,
             },
           })
           createdPurchaseIds.push(createdPurchase.id)

@@ -3,19 +3,21 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { env } from "../../config/env"
-import { badRequest, HttpError } from "../../utils/http-error"
+import { HttpError } from "../../utils/http-error"
 import { roundMoney, roundQuantity } from "../../utils/number"
-
-const maximumImageBytes = 5 * 1024 * 1024
-const supportedImageTypes = ["image/jpeg", "image/png", "image/webp"] as const
+import {
+  decodePurchaseReceiptImage,
+  maximumPurchaseReceiptImageBytes,
+  supportedPurchaseReceiptImageTypes,
+} from "./purchase-receipt-image"
 
 export const purchaseScanRequestSchema = z
   .object({
     image: z
       .object({
         name: z.string().trim().min(1).max(255),
-        type: z.enum(supportedImageTypes),
-        size: z.coerce.number().int().positive().max(maximumImageBytes),
+        type: z.enum(supportedPurchaseReceiptImageTypes),
+        size: z.coerce.number().int().positive().max(maximumPurchaseReceiptImageBytes),
         dataUrl: z.string().min(1),
       })
       .strict(),
@@ -244,23 +246,7 @@ export function reconcilePurchaseScan(
 function validateImageDataUrl(
   image: z.infer<typeof purchaseScanRequestSchema>["image"]
 ) {
-  const match = image.dataUrl.match(
-    /^data:(image\/(?:jpeg|png|webp));base64,([a-zA-Z0-9+/=]+)$/
-  )
-
-  if (!match || match[1] !== image.type) {
-    throw badRequest("รูปต้องเป็นไฟล์ JPEG, PNG หรือ WebP ที่ถูกต้อง")
-  }
-
-  const buffer = Buffer.from(match[2], "base64")
-
-  if (buffer.length === 0 || buffer.length > maximumImageBytes) {
-    throw badRequest("รูปสำหรับสแกนต้องมีขนาดไม่เกิน 5 MB")
-  }
-
-  if (buffer.length !== image.size) {
-    throw badRequest("ขนาดรูปไม่ตรงกับข้อมูลที่ส่งมา")
-  }
+  const buffer = decodePurchaseReceiptImage(image)
 
   return `data:${image.type};base64,${buffer.toString("base64")}`
 }

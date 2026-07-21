@@ -36,6 +36,7 @@ import {
   CircleCheck,
   Database,
   Download,
+  ExternalLink,
   ImageUp,
   KeyRound,
   LayoutDashboard,
@@ -1043,6 +1044,7 @@ type SavedPurchaseSupplierGroup = {
 type SavedPurchaseBillGroup = {
   purchaseId: string
   billName: string
+  receiptImagePath: string | null
   total: number
   rows: SavedPurchaseRow[]
   supplierGroups: SavedPurchaseSupplierGroup[]
@@ -3158,6 +3160,7 @@ function PurchaseView({ store }: { store: Store }) {
                         billName={group.billName}
                         count={group.rows.length}
                         total={group.total}
+                        receiptImagePath={group.receiptImagePath}
                       />
                       {group.supplierGroups.map((supplierGroup) => (
                         <Fragment
@@ -3323,6 +3326,7 @@ function groupSavedPurchaseRowsByBill(
     groupsByPurchase.set(row.purchase.id, {
       purchaseId: row.purchase.id,
       billName: row.purchase.vendor,
+      receiptImagePath: row.purchase.receiptImagePath,
       total: row.item.lineTotal,
       rows: [row],
     })
@@ -3370,35 +3374,43 @@ function PurchaseHistoryMobileGroup({
 }) {
   return (
     <section>
-      <button
-        type="button"
-        className="flex min-h-14 w-full items-center justify-between gap-3 bg-sky-50/70 px-4 py-3 text-left transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <ReceiptText className="size-4 shrink-0 text-sky-700" />
-          <span className="min-w-0">
-            <span className="block truncate font-semibold text-sky-950">
-              {group.billName}
-            </span>
-            <span className="mt-0.5 block text-xs text-sky-800">
-              {group.rows.length} รายการ
+      <div className="flex items-center bg-sky-50/70">
+        <button
+          type="button"
+          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <ReceiptText className="size-4 shrink-0 text-sky-700" />
+            <span className="min-w-0">
+              <span className="block truncate font-semibold text-sky-950">
+                {group.billName}
+              </span>
+              <span className="mt-0.5 block text-xs text-sky-800">
+                {group.rows.length} รายการ
+              </span>
             </span>
           </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-2">
-          <span className="text-right text-sm font-semibold text-sky-950">
-            {formatCurrency(group.total)}
+          <span className="flex shrink-0 items-center gap-2">
+            <span className="text-right text-sm font-semibold text-sky-950">
+              {formatCurrency(group.total)}
+            </span>
+            <ChevronDown
+              className={cn(
+                "size-4 text-sky-800 transition-transform",
+                expanded && "rotate-180"
+              )}
+            />
           </span>
-          <ChevronDown
-            className={cn(
-              "size-4 text-sky-800 transition-transform",
-              expanded && "rotate-180"
-            )}
+        </button>
+        {group.receiptImagePath && (
+          <PurchaseReceiptImageLink
+            receiptImagePath={group.receiptImagePath}
+            className="mr-3 shrink-0"
           />
-        </span>
-      </button>
+        )}
+      </div>
 
       {expanded && (
         <div className="border-t border-border">
@@ -3472,10 +3484,12 @@ function PurchaseBillGroupHeader({
   billName,
   count,
   total,
+  receiptImagePath,
 }: {
   billName: string
   count: number
   total: number
+  receiptImagePath: string | null
 }) {
   return (
     <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
@@ -3490,9 +3504,14 @@ function PurchaseBillGroupHeader({
               {count} รายการ
             </Badge>
           </div>
-          <div className="shrink-0 text-right text-xs font-semibold text-sky-950 sm:text-sm">
-            <span className="hidden sm:inline">รวม </span>
-            {formatCurrency(total)}
+          <div className="flex shrink-0 items-center gap-3">
+            {receiptImagePath && (
+              <PurchaseReceiptImageLink receiptImagePath={receiptImagePath} />
+            )}
+            <div className="text-right text-xs font-semibold text-sky-950 sm:text-sm">
+              <span className="hidden sm:inline">รวม </span>
+              {formatCurrency(total)}
+            </div>
           </div>
         </div>
       </TableCell>
@@ -3541,7 +3560,7 @@ function DraftPurchaseBillCard({
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-background">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50/70 p-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <ReceiptText className="size-4 shrink-0 text-amber-700" />
             <h3 className="truncate font-semibold">{purchase.vendor}</h3>
@@ -3553,6 +3572,12 @@ function DraftPurchaseBillCard({
             {purchase.items.length} รายการ · {formatCurrency(purchase.total)}
           </p>
         </div>
+        {purchase.receiptImagePath && (
+          <PurchaseReceiptImageLink
+            receiptImagePath={purchase.receiptImagePath}
+            className="border-amber-200"
+          />
+        )}
       </div>
       <div className="divide-y divide-border sm:hidden">
         {purchase.items.map((item, index) => (
@@ -3581,6 +3606,31 @@ function DraftPurchaseBillCard({
         </PurchaseItemsTableHeader>
       </div>
     </section>
+  )
+}
+
+function PurchaseReceiptImageLink({
+  receiptImagePath,
+  className,
+}: {
+  receiptImagePath: string
+  className?: string
+}) {
+  return (
+    <a
+      href={receiptImagePath}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        buttonVariants({ variant: "outline", size: "sm" }),
+        "h-8 bg-background px-2.5 text-xs",
+        className
+      )}
+      aria-label="ดูรูปบิลในแท็บใหม่"
+    >
+      <ExternalLink className="size-3.5" />
+      ดูรูป
+    </a>
   )
 }
 

@@ -249,6 +249,27 @@ export const openApiDocument = {
           },
         },
       },
+      PurchaseReceiptImageUploadResult: {
+        type: "object",
+        required: ["originalName", "storedName", "type", "size", "path", "url"],
+        properties: {
+          originalName: { type: "string", example: "receipt.jpg" },
+          storedName: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["image/jpeg", "image/png", "image/webp"],
+          },
+          size: { type: "integer", maximum: 5242880 },
+          path: {
+            type: "string",
+            example: "public/uploads/purchase/receipt-id-receipt.jpg",
+          },
+          url: {
+            type: "string",
+            example: "/uploads/purchase/receipt-id-receipt.jpg",
+          },
+        },
+      },
       RecipeInput: {
         type: "object",
         required: ["name", "menuCategory", "yield", "pricePerServing", "ingredients"],
@@ -758,6 +779,45 @@ export const openApiDocument = {
           "502": { description: "The image provider returned an unusable response." },
           "503": { description: "Receipt scanning is not configured or temporarily unavailable." },
           "504": { description: "Receipt scanning timed out." },
+        },
+      },
+    },
+    "/branches/{branchId}/purchases/receipt-image": {
+      post: {
+        tags: ["Purchases"],
+        summary: "Persist one scanned purchase receipt image.",
+        description:
+          "Requires purchase edit permission. Call when saving a purchase or draft, then include the returned URL with the purchase bill.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/PurchaseScanInput" },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Receipt image persisted.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["receiptImage"],
+                  properties: {
+                    receiptImage: {
+                      $ref: "#/components/schemas/PurchaseReceiptImageUploadResult",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
         },
       },
     },
