@@ -26,6 +26,11 @@ npm run db:seed
 
 `npm run db:migrate` requires a reachable SQL Server database. `db:validate` and `db:generate` can run without connecting to the database.
 
+Production API startup runs `npm run db:migrate:deploy` automatically before
+starting the server. Keep deployment environments on `npm run api:start` so
+committed migrations are applied before a new Prisma client begins serving
+requests.
+
 ## Data Boundaries
 
 - Dashboard, Purchase, Stock, and Recipes are branch-scoped.

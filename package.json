@@ -10,10 +10,12 @@
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma generate && prisma db seed",
     "db:studio": "prisma studio",
     "api:dev": "tsx watch apps/api/src/server.ts",
     "api:build": "tsc -p apps/api/tsconfig.json",
+    "preapi:start": "npm run db:migrate:deploy",
     "api:start": "node apps/api/dist/server.js"
   },
   "prisma": {
