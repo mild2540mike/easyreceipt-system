@@ -1057,6 +1057,7 @@ type UsageHistorySupplierGroup = {
 type UsageHistoryGroup = {
   id: string
   name: string
+  receiptImagePath: string | null
   movements: UsageHistoryMovement[]
   supplierGroups: UsageHistorySupplierGroup[]
 }
@@ -4451,6 +4452,14 @@ function FieldNumber({
 
 function UsageView({ store }: { store: Store }) {
   const [usageMessage, setUsageMessage] = useState("")
+  const [isPreparingUsageScan, setIsPreparingUsageScan] = useState(false)
+  const [usageScanFeedback, setUsageScanFeedback] = useState<{
+    kind: "success" | "warning" | "error"
+    message: string
+    details: string[]
+    batchId?: string
+  } | null>(null)
+  const usageScanInputRef = useRef<HTMLInputElement | null>(null)
   const [expandedUsageHistoryGroupIds, setExpandedUsageHistoryGroupIds] =
     useState<Set<string>>(() => new Set())
   const [usageHistoryView, setUsageHistoryView] = useState<"mobile" | "table">(
@@ -4516,7 +4525,74 @@ function UsageView({ store }: { store: Store }) {
     allBatchesAreReady &&
     readyRows.length > 0 &&
     invalidRows.length === 0 &&
-    !store.isUsageSaving
+    !store.isUsageSaving &&
+    !store.isUsageScanning
+
+  async function handleUsageScanFile(file: File) {
+    setUsageScanFeedback(null)
+    store.clearUsageScanError()
+    setIsPreparingUsageScan(true)
+
+    try {
+      const image = await preparePurchaseScanImage(file)
+      const result = await store.scanUsageImage(image)
+
+      if (!result.ok) {
+        setUsageScanFeedback({
+          kind: "error",
+          message: result.error,
+          details: [],
+        })
+        return
+      }
+
+      const details = [
+        result.needsReviewCount > 0
+          ? `ต้องตรวจและจับคู่ ${result.needsReviewCount} รายการก่อนบันทึก`
+          : "จับคู่วัตถุดิบและจำนวนที่ใช้ครบแล้ว",
+        ...(result.overStockCount > 0
+          ? [`มี ${result.overStockCount} รายการที่จำนวนเกินคงเหลือ กรุณาตรวจสอบ`]
+          : []),
+        ...(result.dateWarning ? [result.dateWarning] : []),
+        ...result.warnings,
+      ]
+      setUsageScanFeedback({
+        kind:
+          result.needsReviewCount > 0 ||
+          result.overStockCount > 0 ||
+          result.dateWarning
+            ? "warning"
+            : "success",
+        message: `เติม “${result.batchName}” จากรูปแล้ว ${result.itemCount} รายการ`,
+        details,
+        batchId: result.batchId,
+      })
+
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(
+            `[data-usage-batch-id="${result.batchId}"]`
+          )
+          ?.scrollIntoView({
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "auto"
+              : "smooth",
+            block: "center",
+          })
+      }, 0)
+    } catch (error) {
+      setUsageScanFeedback({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "ไม่สามารถเตรียมรูปสำหรับสแกนได้",
+        details: [],
+      })
+    } finally {
+      setIsPreparingUsageScan(false)
+    }
+  }
 
   async function handleSubmitUsage() {
     setUsageMessage("")
@@ -4565,6 +4641,54 @@ function UsageView({ store }: { store: Store }) {
         </div>
       )}
 
+      {(usageScanFeedback || store.usageScanError) && (
+        <div
+          aria-live="polite"
+          className={cn(
+            "flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between",
+            usageScanFeedback?.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : usageScanFeedback?.kind === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-red-200 bg-red-50 text-red-900"
+          )}
+        >
+          <div className="flex min-w-0 gap-2.5">
+            {usageScanFeedback?.kind === "success" ? (
+              <CircleCheck className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium">
+                {usageScanFeedback?.message || store.usageScanError}
+              </p>
+              {usageScanFeedback && usageScanFeedback.details.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed sm:text-sm">
+                  {usageScanFeedback.details.map((detail, index) => (
+                    <li key={`${detail}-${index}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          {usageScanFeedback?.batchId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 bg-background"
+              onClick={() => {
+                store.removeUsageBatch(usageScanFeedback.batchId ?? "")
+                setUsageScanFeedback(null)
+              }}
+            >
+              <Trash2 className="size-4" />
+              ลบรอบนี้
+            </Button>
+          )}
+        </div>
+      )}
+
       <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
@@ -4578,12 +4702,56 @@ function UsageView({ store }: { store: Store }) {
               เลือกวัตถุดิบและจำนวนที่ใช้ ระบบจะบันทึกประวัติและตัดคลังทันทีเมื่อกดบันทึก
             </p>
           </div>
-          <div className="min-w-52">
-            <Label className="mb-2 block">วันที่ใช้</Label>
-            <ResponsiveDatePicker
-              value={store.usageDate}
-              onChange={store.setUsageDate}
-            />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-52">
+              <Label className="mb-2 block">วันที่ใช้</Label>
+              <ResponsiveDatePicker
+                value={store.usageDate}
+                onChange={store.setUsageDate}
+              />
+            </div>
+            <div className="min-w-52">
+              <Label className="mb-2 block">เพิ่มจากรูป</Label>
+              <input
+                ref={usageScanInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0]
+                  event.currentTarget.value = ""
+
+                  if (file) {
+                    void handleUsageScanFile(file)
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full bg-background"
+                onClick={() => usageScanInputRef.current?.click()}
+                disabled={
+                  !store.canEditUsage ||
+                  isPreparingUsageScan ||
+                  store.isUsageScanning
+                }
+              >
+                {isPreparingUsageScan || store.isUsageScanning ? (
+                  <>
+                    <LoaderCircle className="size-4 animate-spin" />
+                    กำลังอ่านรูป
+                  </>
+                ) : (
+                  <>
+                    <ImageUp className="size-4" />
+                    สแกนบิล
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -4730,6 +4898,7 @@ function UsageView({ store }: { store: Store }) {
                       <UsageHistoryGroupHeader
                         name={group.name}
                         count={group.movements.length}
+                        receiptImagePath={group.receiptImagePath}
                       />
                       {group.supplierGroups.map((supplierGroup) => (
                         <Fragment key={`${group.id}-${supplierGroup.supplier}`}>
@@ -4788,10 +4957,12 @@ function groupUsageMovementsByBatch(
 
     if (existingGroup) {
       existingGroup.movements.push(movement)
+      existingGroup.receiptImagePath ??= movement.receiptImagePath
     } else {
       groupsByBatch.set(groupId, {
         id: groupId,
         name: batchName || "ไม่ระบุชื่อรายการ",
+        receiptImagePath: movement.receiptImagePath,
         movements: [movement],
       })
     }
@@ -4835,30 +5006,38 @@ function UsageHistoryMobileGroup({
 }) {
   return (
     <section>
-      <button
-        type="button"
-        className="flex min-h-14 w-full items-center justify-between gap-3 bg-sky-50/70 px-4 py-3 text-left transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <ReceiptText className="size-4 shrink-0 text-sky-700" />
-          <span className="min-w-0">
-            <span className="block truncate font-semibold text-sky-950">
-              {group.name}
-            </span>
-            <span className="mt-0.5 block text-xs text-sky-800">
-              {group.movements.length} รายการ
+      <div className="flex min-h-14 items-center bg-sky-50/70 transition-colors hover:bg-sky-50">
+        <button
+          type="button"
+          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <ReceiptText className="size-4 shrink-0 text-sky-700" />
+            <span className="min-w-0">
+              <span className="block truncate font-semibold text-sky-950">
+                {group.name}
+              </span>
+              <span className="mt-0.5 block text-xs text-sky-800">
+                {group.movements.length} รายการ
+              </span>
             </span>
           </span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-sky-800 transition-transform",
-            expanded && "rotate-180"
-          )}
-        />
-      </button>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-sky-800 transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+        {group.receiptImagePath && (
+          <PurchaseReceiptImageLink
+            receiptImagePath={group.receiptImagePath}
+            className="mr-3 shrink-0 border-sky-200 text-sky-950"
+          />
+        )}
+      </div>
 
       {expanded && (
         <div className="border-t border-border">
@@ -4919,9 +5098,11 @@ function UsageHistoryMobileGroup({
 function UsageHistoryGroupHeader({
   name,
   count,
+  receiptImagePath,
 }: {
   name: string
   count: number
+  receiptImagePath: string | null
 }) {
   return (
     <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
@@ -4934,6 +5115,9 @@ function UsageHistoryGroupHeader({
               {count} รายการ
             </Badge>
           </div>
+          {receiptImagePath && (
+            <PurchaseReceiptImageLink receiptImagePath={receiptImagePath} />
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -5006,7 +5190,10 @@ function UsageBatchCard({
   const isDesktopLayout = useDesktopLayout()
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+    <div
+      data-usage-batch-id={batchId}
+      className="min-w-0 overflow-hidden rounded-lg border border-border bg-background"
+    >
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Minus className="size-4 shrink-0 text-rose-600" />
@@ -5385,9 +5572,13 @@ function UsageMobileItem({
         <Label className="mb-1.5 block text-xs">ชื่อวัตถุดิบ</Label>
         <UsageIngredientSelect
           value={item.ingredientId}
+          initialQuery={item.draftIngredientName}
           store={store}
           onChange={(ingredientId) =>
-            store.updateUsageItem(item.id, { ingredientId })
+            store.updateUsageItem(item.id, {
+              ingredientId,
+              draftIngredientName: undefined,
+            })
           }
           disabled={!store.canEditUsage}
           className="w-full min-w-0"
@@ -5473,9 +5664,13 @@ function UsageDraftTableRow({
       <TableCell>
         <UsageIngredientSelect
           value={item.ingredientId}
+          initialQuery={item.draftIngredientName}
           store={store}
           onChange={(ingredientId) =>
-            store.updateUsageItem(item.id, { ingredientId })
+            store.updateUsageItem(item.id, {
+              ingredientId,
+              draftIngredientName: undefined,
+            })
           }
           disabled={!store.canEditUsage}
           className="w-full min-w-0"
@@ -5533,19 +5728,23 @@ function UsageDraftTableRow({
 
 function UsageIngredientSelect({
   value,
+  initialQuery,
   store,
   onChange,
   disabled = false,
   className,
 }: {
   value: string
+  initialQuery?: string
   store: Store
   onChange: (ingredientId: string) => void
   disabled?: boolean
   className?: string
 }) {
   const selectedRow = store.inventoryRows.find((row) => row.ingredientId === value)
-  const [query, setQuery] = useState(selectedRow?.ingredient.name ?? "")
+  const [query, setQuery] = useState(
+    selectedRow?.ingredient.name ?? initialQuery ?? ""
+  )
   const deferredQuery = useDeferredValue(query)
   const [isOpen, setIsOpen] = useState(false)
   const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =

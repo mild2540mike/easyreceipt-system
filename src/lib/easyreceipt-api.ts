@@ -239,6 +239,7 @@ type ApiStockMovement = {
   reason?: string
   batchId?: string
   batchName?: string
+  receiptImagePath?: string | null
   occurredAt: string
 }
 
@@ -293,6 +294,7 @@ export type UsageBatchApiInput = {
     batchId: string
     name: string
     reason: string
+    receiptImage?: StoredPurchaseReceiptImage
     items: UsageApiInput["items"]
   }[]
 }
@@ -326,6 +328,7 @@ export type NormalizedStockMovement = {
   reason: string
   batchId: string
   batchName: string
+  receiptImagePath: string | null
   occurredAt: string
 }
 
@@ -616,6 +619,7 @@ function normalizeStockMovement(row: ApiStockMovement): NormalizedStockMovement 
     reason: row.reason ?? "",
     batchId: row.batchId ?? "",
     batchName: row.batchName ?? "",
+    receiptImagePath: row.receiptImagePath ?? null,
     occurredAt: row.occurredAt,
   }
 }
@@ -986,6 +990,54 @@ export async function apiCreateBranchUsageBatch(
   return {
     inventoryRows: data.inventory.map(normalizeInventoryRow),
     movements: data.movements.map(normalizeStockMovement),
+  }
+}
+
+export async function apiScanBranchUsage(
+  branchId: string,
+  image: PurchaseScanImageInput
+): Promise<PurchaseScanResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage/scan`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ image }),
+    }
+  )
+  const data = await parseJsonResponse<{ scan: PurchaseScanResult }>(response)
+
+  return data.scan
+}
+
+export async function apiUploadBranchUsageReceiptImage(
+  branchId: string,
+  image: PurchaseScanImageInput
+): Promise<StoredPurchaseReceiptImage> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage/receipt-image`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ image }),
+    }
+  )
+  const data = await parseJsonResponse<{
+    receiptImage: StoredPurchaseReceiptImage & { path?: string }
+  }>(response)
+
+  return {
+    originalName: data.receiptImage.originalName,
+    storedName: data.receiptImage.storedName,
+    type: data.receiptImage.type,
+    size: data.receiptImage.size,
+    url: data.receiptImage.url,
   }
 }
 

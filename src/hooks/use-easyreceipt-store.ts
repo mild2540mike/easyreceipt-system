@@ -46,7 +46,9 @@ import {
   apiLogout,
   apiPinBranchRecipe,
   apiScanBranchPurchase,
+  apiScanBranchUsage,
   apiUploadBranchPurchaseReceiptImage,
+  apiUploadBranchUsageReceiptImage,
   apiUnpinBranchRecipe,
   apiUpdateBranchBudget,
   apiUpdateBranchInventory,
@@ -133,10 +135,22 @@ export type NewIngredientFromPurchaseInput = {
 export type UsageDraftItem = {
   id: string
   ingredientId: string
+  draftIngredientName?: string
   quantity: number
   batchId?: string
   batchName?: string
   reason?: string
+  receiptImage?: PurchaseScanImageInput
+  storedReceiptImage?: StoredPurchaseReceiptImage
+}
+
+type UsageDraftGroup = {
+  batchId: string
+  name: string
+  reason: string
+  items: UsageBatchApiInput["groups"][number]["items"]
+  receiptImage?: PurchaseScanImageInput
+  storedReceiptImage?: StoredPurchaseReceiptImage
 }
 
 export type InventoryEditInput = {
@@ -570,6 +584,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const [inventoryMutationError, setInventoryMutationError] = useState("")
   const [purchaseMutationError, setPurchaseMutationError] = useState("")
   const [purchaseScanError, setPurchaseScanError] = useState("")
+  const [usageScanError, setUsageScanError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
   const [memberMutationError, setMemberMutationError] = useState("")
 
@@ -719,6 +734,16 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const activeUsageDate =
     activeWorkspace.usageDate ?? createEmptyBranchWorkspace("").usageDate
   const usageDateKey = bangkokDateKey(activeUsageDate)
+  const usageScanContextRef = useRef({
+    branchId: activeBranchId,
+    dateKey: usageDateKey,
+  })
+  useEffect(() => {
+    usageScanContextRef.current = {
+      branchId: activeBranchId,
+      dateKey: usageDateKey,
+    }
+  }, [activeBranchId, usageDateKey])
   const canViewPurchase = memberCanViewMenu(currentMember, "purchase")
   const canViewUsage = memberCanViewMenu(currentMember, "usage")
   const canViewRecipes = memberCanViewMenu(currentMember, "recipes")
@@ -1084,6 +1109,24 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     },
   })
 
+  const scanUsageMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      image,
+    }: {
+      branchId: string
+      image: PurchaseScanImageInput
+    }) => apiScanBranchUsage(branchId, image),
+    onMutate: () => {
+      setUsageScanError("")
+    },
+    onError: (error) => {
+      setUsageScanError(
+        errorMessage(error, "ไม่สามารถอ่านข้อความจากรูปได้")
+      )
+    },
+  })
+
   const uploadPurchaseReceiptMutation = useMutation({
     mutationFn: ({
       branchId,
@@ -1098,6 +1141,24 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setPurchaseMutationError(
         errorMessage(error, "ไม่สามารถบันทึกรูปบิลได้")
+      )
+    },
+  })
+
+  const uploadUsageReceiptMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      image,
+    }: {
+      branchId: string
+      image: PurchaseScanImageInput
+    }) => apiUploadBranchUsageReceiptImage(branchId, image),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+    onError: (error) => {
+      setInventoryMutationError(
+        errorMessage(error, "ไม่สามารถบันทึกรูปบิลของใช้ไปได้")
       )
     },
   })
@@ -2173,6 +2234,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         batchId,
         batchName: existingItem?.batchName ?? "",
         reason: existingItem?.reason ?? "",
+        receiptImage: existingItem?.receiptImage,
+        storedReceiptImage: existingItem?.storedReceiptImage,
       }
       const usageItems = [...workspace.usageItems]
 
@@ -2372,6 +2435,117 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     setPurchaseScanError("")
   }
 
+  async function scanUsageImage(image: PurchaseScanImageInput) {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false as const,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditUsage) {
+      return {
+        ok: false as const,
+        error: "บัญชีนี้ไม่มีสิทธิ์สแกนรายการของใช้ไป",
+      }
+    }
+
+    const branchIdAtStart = activeBranchId
+    const dateKeyAtStart = usageDateKey
+    const batchNamesAtStart = Array.from(
+      new Set(usageItems.map((item) => item.batchName?.trim() ?? ""))
+    )
+
+    try {
+      const scan = await scanUsageMutation.mutateAsync({
+        branchId: branchIdAtStart,
+        image,
+      })
+      const currentContext = usageScanContextRef.current
+
+      if (
+        currentContext.branchId !== branchIdAtStart ||
+        currentContext.dateKey !== dateKeyAtStart
+      ) {
+        const error = "มีการเปลี่ยนสาขาหรือวันที่ระหว่างสแกน กรุณาสแกนรูปใหม่"
+        setUsageScanError(error)
+        return { ok: false as const, error }
+      }
+
+      const batchName = uniquePurchaseBillName(scan.billName, batchNamesAtStart)
+      const batchId = `${branchIdAtStart}-usage-scan-${Date.now()}`
+      const now = Date.now()
+      let needsReviewCount = 0
+      let overStockCount = 0
+      let dateWarning = ""
+
+      for (const item of scan.items) {
+        if (!item.ingredientId || item.quantity <= 0) {
+          needsReviewCount += 1
+          continue
+        }
+
+        const inventory = inventoryRowByIngredientId.get(item.ingredientId)
+
+        if (!inventory || item.quantity > inventory.onHand) {
+          overStockCount += 1
+        }
+      }
+
+      updateBranchWorkspace(branchIdAtStart, (workspace) => {
+        let nextUsageDate = workspace.usageDate
+
+        if (scan.receiptDate && scan.receiptDate !== dateKeyAtStart) {
+          const todayKey = bangkokDateKey(new Date())
+
+          if (workspace.usageItems.length === 0 && scan.receiptDate <= todayKey) {
+            nextUsageDate = new Date(`${scan.receiptDate}T12:00:00+07:00`)
+          } else if (scan.receiptDate > todayKey) {
+            dateWarning = `วันที่ในรูป ${scan.receiptDate} เป็นวันที่ในอนาคต ระบบจึงคงวันที่เดิมไว้`
+          } else {
+            dateWarning = `วันที่ในรูป ${scan.receiptDate} ไม่ตรงกับวันที่ที่เลือก ระบบคงวันที่เดิมไว้เพราะมีรายการอยู่แล้ว`
+          }
+        }
+
+        const nextItems = scan.items.map((item, index): UsageDraftItem => ({
+          id: `${batchId}-item-${now}-${index}`,
+          ingredientId: item.ingredientId ?? "",
+          draftIngredientName: item.ingredientId ? undefined : item.rawName,
+          quantity: item.quantity,
+          batchId,
+          batchName,
+          reason: "สแกนจากบิล",
+          receiptImage: image,
+        }))
+
+        return {
+          ...workspace,
+          usageDate: nextUsageDate,
+          usageItems: [...workspace.usageItems, ...nextItems],
+        }
+      })
+
+      return {
+        ok: true as const,
+        batchId,
+        batchName,
+        itemCount: scan.items.length,
+        needsReviewCount,
+        overStockCount,
+        dateWarning,
+        warnings: scan.warnings,
+      }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถอ่านข้อความจากรูปได้")
+      setUsageScanError(message)
+      return { ok: false as const, error: message }
+    }
+  }
+
+  function clearUsageScanError() {
+    setUsageScanError("")
+  }
+
   async function uploadReceiptImagesForBills(
     branchId: string,
     bills: ReturnType<typeof groupPurchaseItemsByBill>
@@ -2401,6 +2575,36 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
 
     return uploadedBills
+  }
+
+  async function uploadReceiptImagesForUsageGroups(
+    branchId: string,
+    groups: UsageDraftGroup[]
+  ) {
+    const uploadedGroups: UsageDraftGroup[] = []
+
+    for (const group of groups) {
+      if (group.storedReceiptImage || !group.receiptImage) {
+        uploadedGroups.push(group)
+        continue
+      }
+
+      const storedReceiptImage = await uploadUsageReceiptMutation.mutateAsync({
+        branchId,
+        image: group.receiptImage,
+      })
+      uploadedGroups.push({ ...group, storedReceiptImage })
+      updateBranchWorkspace(branchId, (workspace) => ({
+        ...workspace,
+        usageItems: workspace.usageItems.map((item) =>
+          (item.batchId ?? "legacy") === group.batchId
+            ? { ...item, storedReceiptImage }
+            : item
+        ),
+      }))
+    }
+
+    return uploadedGroups
   }
 
   async function savePurchaseDraft(): Promise<ActionResult> {
@@ -2872,17 +3076,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       groupsByBatchId.set(batchId, [...(groupsByBatchId.get(batchId) ?? []), item])
     }
 
-    const groups = Array.from(groupsByBatchId, ([batchId, items]) => ({
-      batchId,
-      name: items[0]?.batchName?.trim() ?? "",
-      reason: items[0]?.reason?.trim() ?? "",
-      items: items
-        .map((item) => ({
-          ingredientId: item.ingredientId,
-          quantity: Math.max(item.quantity, 0),
-        }))
-        .filter((item) => item.ingredientId && item.quantity > 0),
-    }))
+    const groups: UsageDraftGroup[] = Array.from(
+      groupsByBatchId,
+      ([batchId, items]) => ({
+        batchId,
+        name: items[0]?.batchName?.trim() ?? "",
+        reason: items[0]?.reason?.trim() ?? "",
+        receiptImage: items.find((item) => item.receiptImage)?.receiptImage,
+        storedReceiptImage: items.find((item) => item.storedReceiptImage)
+          ?.storedReceiptImage,
+        items: items
+          .map((item) => ({
+            ingredientId: item.ingredientId,
+            quantity: Math.max(item.quantity, 0),
+          }))
+          .filter((item) => item.ingredientId && item.quantity > 0),
+      })
+    )
 
     if (groups.length === 0 || groups.some((group) => group.items.length === 0)) {
       return {
@@ -2936,12 +3146,22 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
     try {
       const usageTimestamp = purchaseTimestampForSelectedDate(usageDate)
+      const uploadedGroups = await uploadReceiptImagesForUsageGroups(
+        activeBranchId,
+        groups
+      )
 
       await createUsageMutation.mutateAsync({
         branchId: activeBranchId,
         input: {
           occurredAt: usageTimestamp.toISOString(),
-          groups,
+          groups: uploadedGroups.map((group) => ({
+            batchId: group.batchId,
+            name: group.name,
+            reason: group.reason,
+            receiptImage: group.storedReceiptImage,
+            items: group.items,
+          })),
         },
       })
       updateActiveWorkspace((workspace) => ({
@@ -3384,6 +3604,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     updateUsageBatchReason,
     removeUsageBatch,
     removeUsageItem,
+    scanUsageImage,
+    clearUsageScanError,
     submitUsageDraft,
     draftPurchasesForDate: draftPurchaseHistory,
     savedPurchasesForDate: savedPurchaseHistory,
@@ -3410,12 +3632,15 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isPurchaseSaving:
       createPurchaseMutation.isPending || uploadPurchaseReceiptMutation.isPending,
     isPurchaseScanning: scanPurchaseMutation.isPending,
-    isUsageSaving: createUsageMutation.isPending,
+    isUsageSaving:
+      createUsageMutation.isPending || uploadUsageReceiptMutation.isPending,
+    isUsageScanning: scanUsageMutation.isPending,
     isPurchaseDraftDeleting:
       deletePurchaseDraftMutation.isPending ||
       deletePurchaseDraftItemMutation.isPending,
     purchaseError,
     purchaseScanError,
+    usageScanError,
     usageError,
     canManageBranchBudget,
     isBranchBudgetSaving: updateBranchBudgetMutation.isPending,

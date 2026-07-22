@@ -16,6 +16,11 @@ import {
   memberCanEditMenu,
   memberCanViewMenu,
 } from "../common/permissions"
+import {
+  purchaseScanRequestSchema,
+  scanPurchaseReceipt,
+} from "../purchases/purchase-scan"
+import { saveUsageReceiptImage } from "./usage-receipt-image"
 
 const updateInventorySchema = z.object({
   name: z.string().min(1),
@@ -66,6 +71,33 @@ const usageSchema = z.object({
     .min(1),
 })
 
+const storedUsageReceiptImageSchema = z
+  .object({
+    originalName: z.string().trim().min(1).max(255),
+    storedName: z.string().trim().min(1).max(255).regex(/^[a-zA-Z0-9._-]+$/),
+    type: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    size: z.coerce.number().int().positive().max(5 * 1024 * 1024),
+    path: z
+      .string()
+      .trim()
+      .regex(/^public\/uploads\/usage\/[a-zA-Z0-9._-]+$/)
+      .optional(),
+    url: z.string().trim().regex(/^\/uploads\/usage\/[a-zA-Z0-9._-]+$/),
+  })
+  .strict()
+  .refine((image) => image.url === `/uploads/usage/${image.storedName}`, {
+    message: "Stored usage receipt image URL does not match its filename.",
+    path: ["url"],
+  })
+  .refine(
+    (image) =>
+      !image.path || image.path === `public/uploads/usage/${image.storedName}`,
+    {
+      message: "Stored usage receipt image path does not match its filename.",
+      path: ["path"],
+    }
+  )
+
 const usageBatchSchema = z.object({
   occurredAt: z.coerce.date().optional(),
   groups: z
@@ -73,6 +105,7 @@ const usageBatchSchema = z.object({
       usageSchema.omit({ occurredAt: true }).extend({
         batchId: z.string().trim().min(1).max(180),
         name: z.string().trim().min(1).max(120),
+        receiptImage: storedUsageReceiptImageSchema.optional(),
       })
     )
     .min(1)
@@ -146,13 +179,14 @@ type StockMovementAuditMetadata = {
   reason: string
   batchId: string
   batchName: string
+  receiptImagePath: string | null
 }
 
 function stockMovementAuditMetadata(
   metadataJson: string | null
 ): StockMovementAuditMetadata {
   if (!metadataJson) {
-    return { reason: "", batchId: "", batchName: "" }
+    return { reason: "", batchId: "", batchName: "", receiptImagePath: null }
   }
 
   try {
@@ -160,16 +194,27 @@ function stockMovementAuditMetadata(
       reason?: unknown
       batchId?: unknown
       batchName?: unknown
+      receiptImage?: unknown
     }
+    const receiptImage =
+      metadata.receiptImage && typeof metadata.receiptImage === "object"
+        ? (metadata.receiptImage as { url?: unknown })
+        : null
+    const receiptImagePath =
+      typeof receiptImage?.url === "string" &&
+      /^\/uploads\/usage\/[a-zA-Z0-9._-]+$/.test(receiptImage.url)
+        ? receiptImage.url
+        : null
 
     return {
       reason: typeof metadata.reason === "string" ? metadata.reason : "",
       batchId: typeof metadata.batchId === "string" ? metadata.batchId : "",
       batchName:
         typeof metadata.batchName === "string" ? metadata.batchName : "",
+      receiptImagePath,
     }
   } catch {
-    return { reason: "", batchId: "", batchName: "" }
+    return { reason: "", batchId: "", batchName: "", receiptImagePath: null }
   }
 }
 
@@ -203,6 +248,7 @@ function serializeStockMovement(
     reason: metadata?.reason ?? "",
     batchId: metadata?.batchId ?? "",
     batchName: metadata?.batchName ?? "",
+    receiptImagePath: metadata?.receiptImagePath ?? null,
     occurredAt: row.occurredAt,
   }
 }
@@ -430,6 +476,61 @@ inventoryRouter.post(
 )
 
 inventoryRouter.post(
+  "/usage/scan",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = purchaseScanRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "usage")) {
+      throw forbidden("Member does not have permission to scan usage records.")
+    }
+
+    const inventoryRows = await prisma.branchInventory.findMany({
+      where: {
+        branchId,
+        ingredient: { isActive: true },
+      },
+      select: {
+        ingredient: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+          },
+        },
+      },
+    })
+    const scan = await scanPurchaseReceipt({
+      image: input.image,
+      memberId: access.member.id,
+      ingredients: inventoryRows.map((row) => row.ingredient),
+    })
+
+    res.json({ scan })
+  })
+)
+
+inventoryRouter.post(
+  "/usage/receipt-image",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = purchaseScanRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "usage")) {
+      throw forbidden("Member does not have permission to upload usage receipts.")
+    }
+
+    const receiptImage = await saveUsageReceiptImage(input.image)
+
+    res.status(201).json({ receiptImage })
+  })
+)
+
+inventoryRouter.post(
   "/usage",
   asyncHandler(async (req, res) => {
     const member = getAuthMember(req)
@@ -635,6 +736,7 @@ inventoryRouter.post(
           batchId: group.batchId,
           name: group.name.trim(),
           reason: group.reason.trim(),
+          receiptImage: group.receiptImage,
           items: Array.from(quantityByIngredientId, ([ingredientId, quantity]) => ({
             ingredientId,
             quantity,
@@ -734,6 +836,7 @@ inventoryRouter.post(
                 batchId: group.batchId,
                 batchName: group.name,
                 reason: group.reason,
+                receiptImage: group.receiptImage,
                 ingredientId: item.ingredientId,
                 ingredientName: inventory.ingredient.name,
                 quantity: item.quantity,
@@ -761,6 +864,7 @@ inventoryRouter.post(
               batchId: group.batchId,
               name: group.name,
               reason: group.reason,
+              receiptImage: group.receiptImage,
               occurredAt: occurredAt.toISOString(),
               itemCount: group.items.length,
               items: group.items.slice(0, 10).map((item) => {
