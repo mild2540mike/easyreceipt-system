@@ -14,6 +14,18 @@ import type {
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_EASYRECEIPT_API_URL
 
+function apiAssetUrl(path: string) {
+  if (!apiBaseUrl) {
+    return path
+  }
+
+  try {
+    return new URL(path, apiBaseUrl).toString()
+  } catch {
+    return path
+  }
+}
+
 type ApiMember = {
   id: string
   organizationId: string
@@ -619,7 +631,9 @@ function normalizeStockMovement(row: ApiStockMovement): NormalizedStockMovement 
     reason: row.reason ?? "",
     batchId: row.batchId ?? "",
     batchName: row.batchName ?? "",
-    receiptImagePath: row.receiptImagePath ?? null,
+    receiptImagePath: row.receiptImagePath
+      ? apiAssetUrl(row.receiptImagePath)
+      : null,
     occurredAt: row.occurredAt,
   }
 }
@@ -638,7 +652,11 @@ function normalizePurchase(purchase: ApiPurchase): NormalizedPurchase {
     status,
     total: toNumber(purchase.totalAmount),
     receiptImagePath: purchase.receiptImageStoredName
-      ? `/uploads/purchase/${encodeURIComponent(purchase.receiptImageStoredName)}`
+      ? apiAssetUrl(
+          `/uploads/purchase/${encodeURIComponent(
+            purchase.receiptImageStoredName
+          )}`
+        )
       : null,
     items: purchase.items.map((item) => ({
       id: item.id,

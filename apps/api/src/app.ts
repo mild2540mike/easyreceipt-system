@@ -1,3 +1,5 @@
+import path from "node:path"
+
 import cookieParser from "cookie-parser"
 import cors from "cors"
 import express from "express"
@@ -23,6 +25,7 @@ import { reportsRouter } from "./modules/reports/reports.routes"
 
 export function createApp() {
   const app = express()
+  const uploadsDirectory = path.join(process.cwd(), "public", "uploads")
 
   app.get("/api/v1/openapi.json", openApiJsonHandler)
   app.use("/api/v1/docs", swaggerUiServe, swaggerUiHandler)
@@ -32,6 +35,18 @@ export function createApp() {
     cors({
       origin: env.FRONTEND_ORIGIN,
       credentials: true,
+    })
+  )
+  app.use(
+    "/uploads",
+    (_req, res, next) => {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin")
+      next()
+    },
+    express.static(uploadsDirectory, {
+      dotfiles: "deny",
+      index: false,
+      maxAge: "1d",
     })
   )
   app.use(express.json({ limit: "8mb" }))
