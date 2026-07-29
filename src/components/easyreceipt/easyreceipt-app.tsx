@@ -2890,14 +2890,14 @@ function PurchaseView({ store }: { store: Store }) {
               />
             </div>
             <div className="min-w-52">
-              <Label className="mb-2 block">เพิ่มจากรูป</Label>
+              <Label className="mb-2 block">อัปโหลดรูปบิล</Label>
               <input
                 ref={purchaseScanInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                capture="environment"
                 className="sr-only"
                 tabIndex={-1}
+                aria-label="เลือกรูปบิลจากมือถือ"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0]
                   event.currentTarget.value = ""
@@ -2926,10 +2926,13 @@ function PurchaseView({ store }: { store: Store }) {
                 ) : (
                   <>
                     <ImageUp className="size-4" />
-                    สแกนบิล
+                    เลือกรูปบิล
                   </>
                 )}
               </Button>
+              <p className="mt-1.5 text-xs text-muted-foreground sm:hidden">
+                เลือกจากคลังรูป ไฟล์ หรือถ่ายรูปใหม่บนมือถือ
+              </p>
             </div>
           </div>
         </div>
@@ -4711,14 +4714,14 @@ function UsageView({ store }: { store: Store }) {
               />
             </div>
             <div className="min-w-52">
-              <Label className="mb-2 block">เพิ่มจากรูป</Label>
+              <Label className="mb-2 block">อัปโหลดรูปบิล</Label>
               <input
                 ref={usageScanInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                capture="environment"
                 className="sr-only"
                 tabIndex={-1}
+                aria-label="เลือกรูปบิลจากมือถือ"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0]
                   event.currentTarget.value = ""
@@ -4747,10 +4750,13 @@ function UsageView({ store }: { store: Store }) {
                 ) : (
                   <>
                     <ImageUp className="size-4" />
-                    สแกนบิล
+                    เลือกรูปบิล
                   </>
                 )}
               </Button>
+              <p className="mt-1.5 text-xs text-muted-foreground sm:hidden">
+                เลือกจากคลังรูป ไฟล์ หรือถ่ายรูปใหม่บนมือถือ
+              </p>
             </div>
           </div>
         </div>
