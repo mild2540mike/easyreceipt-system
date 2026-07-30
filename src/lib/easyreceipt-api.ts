@@ -1185,6 +1185,13 @@ export async function apiDeleteBranchPurchaseDraft(
   await ensureEmptyResponse(response)
 }
 
+export async function apiDeleteBranchPurchase(
+  branchId: string,
+  purchaseId: string
+): Promise<void> {
+  return apiDeleteBranchPurchaseDraft(branchId, purchaseId)
+}
+
 export async function apiDeleteBranchPurchaseDraftItem(
   branchId: string,
   purchaseId: string,
@@ -1195,6 +1202,25 @@ export async function apiDeleteBranchPurchaseDraftItem(
     {
       method: "DELETE",
       credentials: "include",
+    }
+  )
+
+  await ensureEmptyResponse(response)
+}
+
+export async function apiDeleteBranchUsageBatch(
+  branchId: string,
+  movementIds: string[]
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage/batches`,
+    {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ movementIds }),
     }
   )
 

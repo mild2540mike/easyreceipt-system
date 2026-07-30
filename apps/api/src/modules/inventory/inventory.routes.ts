@@ -20,7 +20,10 @@ import {
   purchaseScanRequestSchema,
   scanPurchaseReceipt,
 } from "../purchases/purchase-scan"
-import { saveUsageReceiptImage } from "./usage-receipt-image"
+import {
+  removeUsageReceiptImage,
+  saveUsageReceiptImage,
+} from "./usage-receipt-image"
 
 const updateInventorySchema = z.object({
   name: z.string().min(1),
@@ -110,6 +113,16 @@ const usageBatchSchema = z.object({
     )
     .min(1)
     .max(50),
+})
+
+const deleteUsageBatchSchema = z.object({
+  movementIds: z
+    .array(z.string().trim().min(1).max(64))
+    .min(1)
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "Movement IDs must be unique.",
+    }),
 })
 
 export const inventoryRouter = Router({ mergeParams: true })
@@ -702,6 +715,177 @@ inventoryRouter.post(
         serializeStockMovement(movement)
       ),
     })
+  })
+)
+
+inventoryRouter.delete(
+  "/usage/batches",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = deleteUsageBatchSchema.parse(req.body)
+
+    const receiptImagePath = await prisma.$transaction(async (tx) => {
+      const access = await assertBranchAccess(tx, member.id, branchId)
+
+      if (access.member.role !== "owner") {
+        throw forbidden("เฉพาะ Owner เท่านั้นที่ลบข้อมูลของใช้ไปได้")
+      }
+
+      const movements = await tx.stockMovement.findMany({
+        where: {
+          id: { in: input.movementIds },
+          branchId,
+          movementType: "usage_out",
+        },
+        include: {
+          ingredient: true,
+        },
+      })
+
+      if (movements.length !== input.movementIds.length) {
+        throw notFound("ไม่พบรายการของใช้ไปครบตามกลุ่มที่เลือก")
+      }
+
+      const auditLogs = await tx.auditLog.findMany({
+        where: {
+          branchId,
+          action: "usage_out",
+          entityType: "stock_movement",
+          entityId: { in: input.movementIds },
+        },
+        orderBy: { createdAt: "desc" },
+      })
+      const metadataByMovementId = new Map<string, StockMovementAuditMetadata>()
+
+      for (const log of auditLogs) {
+        if (!metadataByMovementId.has(log.entityId)) {
+          metadataByMovementId.set(
+            log.entityId,
+            stockMovementAuditMetadata(log.metadataJson)
+          )
+        }
+      }
+
+      const groupKeys = new Set(
+        movements.map((movement) => {
+          const metadata = metadataByMovementId.get(movement.id)
+
+          return metadata?.batchId
+            ? `batch:${metadata.batchId}`
+            : [
+                "legacy",
+                metadata?.batchName ?? "",
+                metadata?.reason ?? "",
+                movement.occurredAt.toISOString(),
+              ].join(":")
+        })
+      )
+
+      if (groupKeys.size !== 1) {
+        throw badRequest("รายการที่เลือกไม่ได้อยู่ในรอบของใช้ไปเดียวกัน")
+      }
+
+      const totalsByIngredientId = new Map<
+        string,
+        { quantity: number; value: number }
+      >()
+
+      for (const movement of movements) {
+        const current = totalsByIngredientId.get(movement.ingredientId) ?? {
+          quantity: 0,
+          value: 0,
+        }
+        current.quantity = roundQuantity(
+          current.quantity + Number(movement.quantity)
+        )
+        current.value = roundMoney(
+          current.value +
+            Number(movement.quantity) * Number(movement.unitCost)
+        )
+        totalsByIngredientId.set(movement.ingredientId, current)
+      }
+
+      const inventoryRows = await tx.branchInventory.findMany({
+        where: {
+          branchId,
+          ingredientId: { in: Array.from(totalsByIngredientId.keys()) },
+        },
+      })
+      const inventoryByIngredientId = new Map(
+        inventoryRows.map((row) => [row.ingredientId, row] as const)
+      )
+
+      if (inventoryRows.length !== totalsByIngredientId.size) {
+        throw notFound("ไม่พบข้อมูลคลังวัตถุดิบที่ต้องคืนครบถ้วน")
+      }
+
+      for (const [ingredientId, restored] of totalsByIngredientId) {
+        const inventory = inventoryByIngredientId.get(ingredientId)
+
+        if (!inventory) {
+          throw notFound("ไม่พบข้อมูลคลังวัตถุดิบที่ต้องคืน")
+        }
+
+        const beforeQuantity = Number(inventory.onHand)
+        const afterQuantity = roundQuantity(
+          beforeQuantity + restored.quantity
+        )
+        const currentValue = beforeQuantity * Number(inventory.costPerUnit)
+        const nextCostPerUnit =
+          afterQuantity > 0
+            ? roundMoney((currentValue + restored.value) / afterQuantity)
+            : 0
+
+        await tx.branchInventory.update({
+          where: {
+            branchId_ingredientId: { branchId, ingredientId },
+          },
+          data: {
+            onHand: afterQuantity,
+            costPerUnit: nextCostPerUnit,
+            lastUpdatedAt: new Date(),
+          },
+        })
+      }
+
+      await tx.auditLog.deleteMany({
+        where: {
+          branchId,
+          action: "usage_out",
+          entityId: { in: input.movementIds },
+          entityType: {
+            in: ["stock_movement", "stock_movement_batch"],
+          },
+        },
+      })
+      await tx.stockMovement.deleteMany({
+        where: {
+          id: { in: input.movementIds },
+          branchId,
+          movementType: "usage_out",
+        },
+      })
+      await tx.auditLog.create({
+        data: {
+          organizationId: access.branch.organizationId,
+          branchId,
+          memberId: member.id,
+          action: "usage_batch_deleted",
+          entityType: "stock_movement_batch",
+          entityId: input.movementIds[0],
+        },
+      })
+
+      return (
+        Array.from(metadataByMovementId.values()).find(
+          (metadata) => metadata.receiptImagePath
+        )?.receiptImagePath ?? null
+      )
+    })
+
+    await removeUsageReceiptImage(receiptImagePath)
+    res.status(204).send()
   })
 )
 

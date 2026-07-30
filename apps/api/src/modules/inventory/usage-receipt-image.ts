@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import {
@@ -43,5 +43,25 @@ export async function saveUsageReceiptImage(input: PurchaseReceiptImageInput) {
     size: buffer.length,
     path: `public/uploads/usage/${storedName}`,
     url: `${usageReceiptUploadUrlDir}/${storedName}`,
+  }
+}
+
+export async function removeUsageReceiptImage(receiptImagePath: string | null) {
+  if (!receiptImagePath?.startsWith(`${usageReceiptUploadUrlDir}/`)) {
+    return
+  }
+
+  const storedName = receiptImagePath.slice(usageReceiptUploadUrlDir.length + 1)
+
+  if (!storedName || path.basename(storedName) !== storedName) {
+    return
+  }
+
+  try {
+    await unlink(path.join(usageReceiptUploadDir, storedName))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error
+    }
   }
 }

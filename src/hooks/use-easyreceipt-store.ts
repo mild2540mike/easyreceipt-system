@@ -28,9 +28,11 @@ import {
   apiCreateBranchUsageBatch,
   apiCreateBranchStockOut,
   apiCreateBranchRecipe,
+  apiDeleteBranchPurchase,
   apiDeleteBranchPurchaseDraft,
   apiDeleteBranchPurchaseDraftItem,
   apiDeleteBranchRecipe,
+  apiDeleteBranchUsageBatch,
   apiGetBranchDashboard,
   apiGetBranches,
   apiGetBranchInventory,
@@ -1201,6 +1203,32 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     },
   })
 
+  const deleteSavedPurchaseMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      purchaseId,
+    }: {
+      branchId: string
+      purchaseId: string
+    }) => apiDeleteBranchPurchase(branchId, purchaseId),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+  })
+
+  const deleteUsageBatchMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      movementIds,
+    }: {
+      branchId: string
+      movementIds: string[]
+    }) => apiDeleteBranchUsageBatch(branchId, movementIds),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+  })
+
   const createRecipeMutation = useMutation({
     mutationFn: ({
       branchId,
@@ -1814,6 +1842,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   const canManageMembers = memberCanEditMenu(currentMember, "members")
   const canManageMenuPermissions = currentMember?.role === "owner"
+  const canDeleteDailyRecords = currentMember?.role === "owner"
   const canManageBranchBudget = memberCanEditMenu(currentMember, "budgets")
   const canEditPurchase = memberCanEditMenu(currentMember, "purchase")
   const canEditInventory = memberCanEditMenu(currentMember, "stock")
@@ -2761,6 +2790,107 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
   }
 
+  async function deleteSavedPurchase(
+    purchaseId: string
+  ): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canDeleteDailyRecords) {
+      return {
+        ok: false,
+        error: "เฉพาะ Owner เท่านั้นที่ลบบิลซื้อเข้าที่บันทึกแล้วได้",
+      }
+    }
+
+    try {
+      await deleteSavedPurchaseMutation.mutateAsync({
+        branchId: activeBranchId,
+        purchaseId,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: inventoryQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notificationsQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
+      ])
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถลบบิลซื้อเข้าได้")
+      setPurchaseMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
+  async function deleteSavedUsageBatch(
+    movementIds: string[]
+  ): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canDeleteDailyRecords) {
+      return {
+        ok: false,
+        error: "เฉพาะ Owner เท่านั้นที่ลบรอบของใช้ไปได้",
+      }
+    }
+
+    if (movementIds.length === 0) {
+      return {
+        ok: false,
+        error: "ไม่พบรายการของใช้ไปที่ต้องการลบ",
+      }
+    }
+
+    try {
+      await deleteUsageBatchMutation.mutateAsync({
+        branchId: activeBranchId,
+        movementIds,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: usageMovementsQueryKey(activeBranchId, usageDateKey),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: inventoryQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notificationsQueryKey(activeBranchId),
+        }),
+        queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
+      ])
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(error, "ไม่สามารถลบรอบของใช้ไปได้")
+      setInventoryMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
   async function submitPurchase(): Promise<ActionResult> {
     if (!currentMember || !activeBranchId) {
       return {
@@ -3612,6 +3742,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     savedPurchaseTotalForDate,
     purchaseBudgetStatus,
     canEditPurchase,
+    canDeleteDailyRecords,
     updatePurchaseItem,
     addPurchaseItem,
     addPurchaseBill,
@@ -3625,6 +3756,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     savePurchaseDraft,
     deletePurchaseDraft,
     deletePurchaseDraftItem,
+    deleteSavedPurchase,
+    deleteSavedUsageBatch,
     submitPurchase,
     isPurchasesLoading,
     isUsageMovementsLoading,
@@ -3638,6 +3771,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isPurchaseDraftDeleting:
       deletePurchaseDraftMutation.isPending ||
       deletePurchaseDraftItemMutation.isPending,
+    isDailyRecordDeleting:
+      deleteSavedPurchaseMutation.isPending ||
+      deleteUsageBatchMutation.isPending,
     purchaseError,
     purchaseScanError,
     usageScanError,

@@ -280,28 +280,128 @@ purchasesRouter.delete(
     const receiptImageStoredName = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (!memberCanEditMenu(access.member, "purchase")) {
-        throw forbidden("Member does not have permission to edit purchases.")
-      }
-
       const purchase = await tx.purchase.findFirst({
         where: {
           id: purchaseId,
           branchId,
         },
-        select: {
-          id: true,
-          status: true,
-          receiptImageStoredName: true,
+        include: {
+          items: true,
         },
       })
 
       if (!purchase) {
-        throw notFound("Purchase draft not found.")
+        throw notFound("ไม่พบข้อมูลบิลซื้อเข้าที่ต้องการลบ")
       }
 
-      if (purchase.status !== "draft") {
-        throw forbidden("Only draft purchases can be deleted.")
+      if (purchase.status === "draft") {
+        if (!memberCanEditMenu(access.member, "purchase")) {
+          throw forbidden("Member does not have permission to edit purchases.")
+        }
+      } else {
+        if (access.member.role !== "owner") {
+          throw forbidden("เฉพาะ Owner เท่านั้นที่ลบบิลซื้อเข้าที่บันทึกแล้วได้")
+        }
+
+        if (!["saved", "posted"].includes(purchase.status)) {
+          throw badRequest("สถานะบิลนี้ไม่รองรับการลบ")
+        }
+
+        const totalsByIngredientId = new Map<
+          string,
+          { quantity: number; value: number }
+        >()
+
+        for (const item of purchase.items) {
+          const current = totalsByIngredientId.get(item.ingredientId) ?? {
+            quantity: 0,
+            value: 0,
+          }
+          current.quantity = roundQuantity(
+            current.quantity + Number(item.quantity)
+          )
+          current.value = roundMoney(current.value + Number(item.lineTotal))
+          totalsByIngredientId.set(item.ingredientId, current)
+        }
+
+        const inventoryRows = await tx.branchInventory.findMany({
+          where: {
+            branchId,
+            ingredientId: { in: Array.from(totalsByIngredientId.keys()) },
+          },
+          include: {
+            ingredient: true,
+          },
+        })
+        const inventoryByIngredientId = new Map(
+          inventoryRows.map((row) => [row.ingredientId, row] as const)
+        )
+
+        if (inventoryRows.length !== totalsByIngredientId.size) {
+          throw notFound("ไม่พบข้อมูลคลังวัตถุดิบของบิลนี้ครบถ้วน")
+        }
+
+        for (const [ingredientId, removed] of totalsByIngredientId) {
+          const inventory = inventoryByIngredientId.get(ingredientId)
+
+          if (!inventory) {
+            throw notFound("ไม่พบข้อมูลคลังวัตถุดิบของบิลนี้")
+          }
+
+          const beforeQuantity = Number(inventory.onHand)
+          const afterQuantity = roundQuantity(
+            beforeQuantity - removed.quantity
+          )
+          const reservedQuantity = Number(inventory.reservedQuantity)
+          const currentValue = beforeQuantity * Number(inventory.costPerUnit)
+          const remainingValue = roundMoney(currentValue - removed.value)
+
+          if (afterQuantity < reservedQuantity - 0.0005) {
+            throw badRequest(
+              `ลบบิลไม่ได้ เพราะ ${inventory.ingredient.name} ถูกใช้หรือจองไปแล้ว`
+            )
+          }
+
+          if (remainingValue < -0.01) {
+            throw badRequest(
+              `ลบบิลไม่ได้ เพราะมูลค่าสต็อก ${inventory.ingredient.name} ไม่เพียงพอสำหรับการย้อนรายการ`
+            )
+          }
+
+          await tx.branchInventory.update({
+            where: {
+              branchId_ingredientId: { branchId, ingredientId },
+            },
+            data: {
+              onHand: afterQuantity,
+              costPerUnit:
+                afterQuantity > 0
+                  ? roundMoney(Math.max(remainingValue, 0) / afterQuantity)
+                  : 0,
+              lastUpdatedAt: new Date(),
+            },
+          })
+        }
+
+        const purchaseItemIds = purchase.items.map((item) => item.id)
+
+        if (purchaseItemIds.length > 0) {
+          await tx.stockMovement.deleteMany({
+            where: {
+              branchId,
+              purchaseItemId: { in: purchaseItemIds },
+            },
+          })
+        }
+
+        await tx.auditLog.deleteMany({
+          where: {
+            branchId,
+            action: "purchase_received",
+            entityType: "purchase",
+            entityId: purchase.id,
+          },
+        })
       }
 
       await tx.purchaseItem.deleteMany({
@@ -314,6 +414,19 @@ purchasesRouter.delete(
           id: purchase.id,
         },
       })
+
+      if (purchase.status !== "draft") {
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "purchase_deleted",
+            entityType: "purchase",
+            entityId: purchase.id,
+          },
+        })
+      }
 
       return purchase.receiptImageStoredName
     })

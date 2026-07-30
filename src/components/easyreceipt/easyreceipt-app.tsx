@@ -160,6 +160,7 @@ import type {
   NotificationChange,
   SystemNotification,
 } from "@/lib/easyreceipt-api"
+import { saveDailySummaryImages } from "@/lib/daily-summary-image"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -1061,6 +1062,76 @@ type UsageHistoryGroup = {
   movements: UsageHistoryMovement[]
   supplierGroups: UsageHistorySupplierGroup[]
 }
+
+function PermanentDeleteDialog({
+  open,
+  title,
+  itemName,
+  consequence,
+  isDeleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean
+  title: string
+  itemName: string
+  consequence: string
+  isDeleting: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isDeleting) {
+          onOpenChange(nextOpen)
+        }
+      }}
+    >
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            การดำเนินการนี้ไม่สามารถย้อนกลับได้
+          </DialogDescription>
+        </DialogHeader>
+        <div className="px-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <div className="font-semibold">{itemName}</div>
+            <p className="mt-1 leading-relaxed">{consequence}</p>
+          </div>
+        </div>
+        <DialogFooter className="grid grid-cols-1 gap-2 p-4 pt-2 min-[390px]:grid-cols-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-full"
+            onClick={() => onOpenChange(false)}
+            disabled={isDeleting}
+          >
+            ยกเลิก
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            className="h-11 w-full"
+            onClick={onConfirm}
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            ลบถาวร
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 type WidgetPosition = { right: number; bottom: number }
 type DropdownPosition = {
   left: number
@@ -2634,6 +2705,10 @@ function PurchaseView({ store }: { store: Store }) {
   const [purchaseHistoryView, setPurchaseHistoryView] = useState<
     "table" | "mobile"
   >("mobile")
+  const [purchaseGroupToDelete, setPurchaseGroupToDelete] =
+    useState<SavedPurchaseBillGroup | null>(null)
+  const [isExportingPurchaseImage, setIsExportingPurchaseImage] =
+    useState(false)
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
@@ -2776,6 +2851,71 @@ function PurchaseView({ store }: { store: Store }) {
         ? "ลบรายการฉบับร่างแล้ว"
         : (result.error ?? "ไม่สามารถลบรายการฉบับร่างได้")
     )
+  }
+
+  async function handleExportPurchaseImage() {
+    if (savedPurchaseGroups.length === 0 || isExportingPurchaseImage) {
+      return
+    }
+
+    setPurchaseMessage("")
+    setIsExportingPurchaseImage(true)
+
+    try {
+      const result = await saveDailySummaryImages({
+        type: "purchase",
+        branchName: store.activeBranch?.name ?? "-",
+        date: store.purchaseDate,
+        groups: savedPurchaseGroups.map((group) => ({
+          title: group.billName,
+          total: group.total,
+          rows: group.rows.map(({ item }) => ({
+            name:
+              item.ingredient?.name ??
+              store.ingredientById.get(item.ingredientId)?.name ??
+              "วัตถุดิบ",
+            quantity: item.quantity,
+            unit: item.unit,
+            price: item.lineTotal,
+          })),
+        })),
+      })
+
+      if (result !== "cancelled") {
+        setPurchaseMessage(
+          result === "shared"
+            ? "เปิดเมนูแชร์รูปสรุปของมาเพิ่มแล้ว"
+            : "บันทึกรูปสรุปของมาเพิ่มเรียบร้อยแล้ว"
+        )
+      }
+    } catch (error) {
+      setPurchaseMessage(
+        error instanceof Error
+          ? error.message
+          : "ไม่สามารถสร้างรูปสรุปของมาเพิ่มได้"
+      )
+    } finally {
+      setIsExportingPurchaseImage(false)
+    }
+  }
+
+  async function handleDeleteSavedPurchase() {
+    if (!purchaseGroupToDelete || store.isDailyRecordDeleting) {
+      return
+    }
+
+    setPurchaseMessage("")
+    const result = await store.deleteSavedPurchase(
+      purchaseGroupToDelete.purchaseId
+    )
+
+    if (!result.ok) {
+      setPurchaseMessage(result.error ?? "ไม่สามารถลบบิลซื้อเข้าได้")
+      return
+    }
+
+    setPurchaseGroupToDelete(null)
+    setPurchaseMessage("ลบบิลซื้อเข้าและปรับยอดคลังเรียบร้อยแล้ว")
   }
 
   function togglePurchaseBill(purchaseId: string) {
@@ -3124,7 +3264,25 @@ function PurchaseView({ store }: { store: Store }) {
                 รายการที่บันทึกแล้วของวันที่เลือก แยกตามชื่อบิลและซัพพลายเออร์
               </p>
             </div>
-            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 bg-background"
+                onClick={() => void handleExportPurchaseImage()}
+                disabled={
+                  savedPurchaseGroups.length === 0 ||
+                  isExportingPurchaseImage
+                }
+              >
+                {isExportingPurchaseImage ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                บันทึกเป็นรูป
+              </Button>
               <Badge variant="secondary" className="h-7 shrink-0">
                 {savedPurchaseRows.length} รายการ
               </Badge>
@@ -3165,6 +3323,9 @@ function PurchaseView({ store }: { store: Store }) {
                         count={group.rows.length}
                         total={group.total}
                         receiptImagePath={group.receiptImagePath}
+                        canDelete={store.canDeleteDailyRecords}
+                        isDeleting={store.isDailyRecordDeleting}
+                        onDelete={() => setPurchaseGroupToDelete(group)}
                       />
                       {group.supplierGroups.map((supplierGroup) => (
                         <Fragment
@@ -3212,6 +3373,7 @@ function PurchaseView({ store }: { store: Store }) {
                   store={store}
                   expanded={expandedPurchaseBillIds.has(group.purchaseId)}
                   onToggle={() => togglePurchaseBill(group.purchaseId)}
+                  onDelete={() => setPurchaseGroupToDelete(group)}
                 />
               ))}
               {savedPurchaseRows.length === 0 && (
@@ -3303,6 +3465,20 @@ function PurchaseView({ store }: { store: Store }) {
         </DialogContent>
       </Dialog>
 
+      <PermanentDeleteDialog
+        open={Boolean(purchaseGroupToDelete)}
+        title="ลบบิลซื้อเข้าถาวร"
+        itemName={purchaseGroupToDelete?.billName ?? ""}
+        consequence="ระบบจะลบบิล รูปใบเสร็จ และย้อนจำนวนกับต้นทุนออกจากคลัง หากวัตถุดิบถูกใช้หรือจองไปแล้ว ระบบจะไม่อนุญาตให้ลบ"
+        isDeleting={store.isDailyRecordDeleting}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPurchaseGroupToDelete(null)
+          }
+        }}
+        onConfirm={() => void handleDeleteSavedPurchase()}
+      />
+
     </div>
   )
 }
@@ -3370,11 +3546,13 @@ function PurchaseHistoryMobileGroup({
   store,
   expanded,
   onToggle,
+  onDelete,
 }: {
   group: SavedPurchaseBillGroup
   store: Store
   expanded: boolean
   onToggle: () => void
+  onDelete: () => void
 }) {
   return (
     <section>
@@ -3408,11 +3586,29 @@ function PurchaseHistoryMobileGroup({
             />
           </span>
         </button>
-        {group.receiptImagePath && (
-          <PurchaseReceiptImageLink
-            receiptImagePath={group.receiptImagePath}
-            className="mr-3 shrink-0"
-          />
+        {(group.receiptImagePath || store.canDeleteDailyRecords) && (
+          <div className="mr-3 flex shrink-0 items-center gap-1">
+            {group.receiptImagePath && (
+              <PurchaseReceiptImageLink
+                receiptImagePath={group.receiptImagePath}
+                className="shrink-0"
+              />
+            )}
+            {store.canDeleteDailyRecords && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                className="size-9 text-red-600 hover:bg-red-100 hover:text-red-700"
+                onClick={onDelete}
+                disabled={store.isDailyRecordDeleting}
+                title={`ลบบิล ${group.billName}`}
+              >
+                <Trash2 className="size-4" />
+                <span className="sr-only">ลบบิล {group.billName}</span>
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -3489,11 +3685,17 @@ function PurchaseBillGroupHeader({
   count,
   total,
   receiptImagePath,
+  canDelete,
+  isDeleting,
+  onDelete,
 }: {
   billName: string
   count: number
   total: number
   receiptImagePath: string | null
+  canDelete: boolean
+  isDeleting: boolean
+  onDelete: () => void
 }) {
   return (
     <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
@@ -3516,6 +3718,20 @@ function PurchaseBillGroupHeader({
               <span className="hidden sm:inline">รวม </span>
               {formatCurrency(total)}
             </div>
+            {canDelete && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-red-600 hover:bg-red-100 hover:text-red-700"
+                onClick={onDelete}
+                disabled={isDeleting}
+                title={`ลบบิล ${billName}`}
+              >
+                <Trash2 className="size-4" />
+                <span className="sr-only">ลบบิล {billName}</span>
+              </Button>
+            )}
           </div>
         </div>
       </TableCell>
@@ -4468,6 +4684,9 @@ function UsageView({ store }: { store: Store }) {
   const [usageHistoryView, setUsageHistoryView] = useState<"mobile" | "table">(
     "mobile"
   )
+  const [usageGroupToDelete, setUsageGroupToDelete] =
+    useState<UsageHistoryGroup | null>(null)
+  const [isExportingUsageImage, setIsExportingUsageImage] = useState(false)
   const usageMessageIsError =
     Boolean(store.usageError) ||
     usageMessage.includes("ไม่") ||
@@ -4607,6 +4826,78 @@ function UsageView({ store }: { store: Store }) {
     }
 
     setUsageMessage("บันทึกของใช้ไปทุกรอบและตัดคลังวัตถุดิบเรียบร้อย")
+  }
+
+  async function handleExportUsageImage() {
+    if (usageHistoryGroups.length === 0 || isExportingUsageImage) {
+      return
+    }
+
+    setUsageMessage("")
+    setIsExportingUsageImage(true)
+
+    try {
+      const result = await saveDailySummaryImages({
+        type: "usage",
+        branchName: store.activeBranch?.name ?? "-",
+        date: store.usageDate,
+        groups: usageHistoryGroups.map((group) => ({
+          title: group.name,
+          subtitle: group.movements[0]?.reason
+            ? `เหตุผล: ${group.movements[0].reason}`
+            : undefined,
+          total: group.movements.reduce(
+            (total, movement) =>
+              total + movement.quantity * movement.unitCost,
+            0
+          ),
+          rows: group.movements.map((movement) => ({
+            name:
+              movement.ingredient?.name ??
+              store.ingredientById.get(movement.ingredientId)?.name ??
+              "วัตถุดิบ",
+            quantity: movement.quantity,
+            unit: movement.unit,
+            price: movement.quantity * movement.unitCost,
+          })),
+        })),
+      })
+
+      if (result !== "cancelled") {
+        setUsageMessage(
+          result === "shared"
+            ? "เปิดเมนูแชร์รูปสรุปของใช้ไปแล้ว"
+            : "บันทึกรูปสรุปของใช้ไปเรียบร้อยแล้ว"
+        )
+      }
+    } catch (error) {
+      setUsageMessage(
+        error instanceof Error
+          ? error.message
+          : "ไม่สามารถสร้างรูปสรุปของใช้ไปได้"
+      )
+    } finally {
+      setIsExportingUsageImage(false)
+    }
+  }
+
+  async function handleDeleteSavedUsageBatch() {
+    if (!usageGroupToDelete || store.isDailyRecordDeleting) {
+      return
+    }
+
+    setUsageMessage("")
+    const result = await store.deleteSavedUsageBatch(
+      usageGroupToDelete.movements.map((movement) => movement.id)
+    )
+
+    if (!result.ok) {
+      setUsageMessage(result.error ?? "ไม่สามารถลบรอบของใช้ไปได้")
+      return
+    }
+
+    setUsageGroupToDelete(null)
+    setUsageMessage("ลบรอบของใช้ไปและคืนยอดเข้าคลังเรียบร้อยแล้ว")
   }
 
   function toggleUsageHistoryGroup(groupId: string) {
@@ -4847,7 +5138,24 @@ function UsageView({ store }: { store: Store }) {
                 รายการของวันที่เลือก แยกตามชื่อรายการและซัพพลายเออร์
               </p>
             </div>
-            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 bg-background"
+                onClick={() => void handleExportUsageImage()}
+                disabled={
+                  usageHistoryGroups.length === 0 || isExportingUsageImage
+                }
+              >
+                {isExportingUsageImage ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                บันทึกเป็นรูป
+              </Button>
               <Badge variant="secondary" className="h-7 shrink-0">
                 {store.usageMovements.length} รายการ
               </Badge>
@@ -4875,6 +5183,9 @@ function UsageView({ store }: { store: Store }) {
                   group={group}
                   expanded={expandedUsageHistoryGroupIds.has(group.id)}
                   onToggle={() => toggleUsageHistoryGroup(group.id)}
+                  canDelete={store.canDeleteDailyRecords}
+                  isDeleting={store.isDailyRecordDeleting}
+                  onDelete={() => setUsageGroupToDelete(group)}
                 />
               ))}
               {store.usageMovements.length === 0 && (
@@ -4905,6 +5216,9 @@ function UsageView({ store }: { store: Store }) {
                         name={group.name}
                         count={group.movements.length}
                         receiptImagePath={group.receiptImagePath}
+                        canDelete={store.canDeleteDailyRecords}
+                        isDeleting={store.isDailyRecordDeleting}
+                        onDelete={() => setUsageGroupToDelete(group)}
                       />
                       {group.supplierGroups.map((supplierGroup) => (
                         <Fragment key={`${group.id}-${supplierGroup.supplier}`}>
@@ -4940,6 +5254,20 @@ function UsageView({ store }: { store: Store }) {
           </TabsContent>
         </Tabs>
       </section>
+
+      <PermanentDeleteDialog
+        open={Boolean(usageGroupToDelete)}
+        title="ลบรอบของใช้ไปถาวร"
+        itemName={usageGroupToDelete?.name ?? ""}
+        consequence="ระบบจะลบรายการและรูปหลักฐานของรอบนี้ แล้วคืนจำนวนกับต้นทุนกลับเข้าคลังวัตถุดิบ"
+        isDeleting={store.isDailyRecordDeleting}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUsageGroupToDelete(null)
+          }
+        }}
+        onConfirm={() => void handleDeleteSavedUsageBatch()}
+      />
     </div>
   )
 }
@@ -5005,10 +5333,16 @@ function UsageHistoryMobileGroup({
   group,
   expanded,
   onToggle,
+  canDelete,
+  isDeleting,
+  onDelete,
 }: {
   group: UsageHistoryGroup
   expanded: boolean
   onToggle: () => void
+  canDelete: boolean
+  isDeleting: boolean
+  onDelete: () => void
 }) {
   return (
     <section>
@@ -5037,11 +5371,29 @@ function UsageHistoryMobileGroup({
             )}
           />
         </button>
-        {group.receiptImagePath && (
-          <PurchaseReceiptImageLink
-            receiptImagePath={group.receiptImagePath}
-            className="mr-3 shrink-0 border-sky-200 text-sky-950"
-          />
+        {(group.receiptImagePath || canDelete) && (
+          <div className="mr-3 flex shrink-0 items-center gap-1">
+            {group.receiptImagePath && (
+              <PurchaseReceiptImageLink
+                receiptImagePath={group.receiptImagePath}
+                className="shrink-0 border-sky-200 text-sky-950"
+              />
+            )}
+            {canDelete && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                className="size-9 text-red-600 hover:bg-red-100 hover:text-red-700"
+                onClick={onDelete}
+                disabled={isDeleting}
+                title={`ลบรอบ ${group.name}`}
+              >
+                <Trash2 className="size-4" />
+                <span className="sr-only">ลบรอบ {group.name}</span>
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -5105,10 +5457,16 @@ function UsageHistoryGroupHeader({
   name,
   count,
   receiptImagePath,
+  canDelete,
+  isDeleting,
+  onDelete,
 }: {
   name: string
   count: number
   receiptImagePath: string | null
+  canDelete: boolean
+  isDeleting: boolean
+  onDelete: () => void
 }) {
   return (
     <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
@@ -5121,9 +5479,25 @@ function UsageHistoryGroupHeader({
               {count} รายการ
             </Badge>
           </div>
-          {receiptImagePath && (
-            <PurchaseReceiptImageLink receiptImagePath={receiptImagePath} />
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {receiptImagePath && (
+              <PurchaseReceiptImageLink receiptImagePath={receiptImagePath} />
+            )}
+            {canDelete && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-red-600 hover:bg-red-100 hover:text-red-700"
+                onClick={onDelete}
+                disabled={isDeleting}
+                title={`ลบรอบ ${name}`}
+              >
+                <Trash2 className="size-4" />
+                <span className="sr-only">ลบรอบ {name}</span>
+              </Button>
+            )}
+          </div>
         </div>
       </TableCell>
     </TableRow>
