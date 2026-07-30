@@ -186,6 +186,8 @@ function createPageCanvas({
     throw new Error("ไม่สามารถสร้างรูปสรุปได้")
   }
 
+  const drawingContext = context
+
   canvas.width = canvasWidth
   canvas.height = height
   context.fillStyle = "#ffffff"
@@ -202,14 +204,14 @@ function createPageCanvas({
       maximumWidth?: number
     } = {}
   ) {
-    context.textAlign = options.align ?? "left"
-    context.textBaseline = "alphabetic"
-    context.fillStyle = options.color ?? "#0f172a"
-    context.font = options.font ?? `400 22px ${fontFamily}`
+    drawingContext.textAlign = options.align ?? "left"
+    drawingContext.textBaseline = "alphabetic"
+    drawingContext.fillStyle = options.color ?? "#0f172a"
+    drawingContext.font = options.font ?? `400 22px ${fontFamily}`
     const text = options.maximumWidth
-      ? ellipsize(context, value, options.maximumWidth)
+      ? ellipsize(drawingContext, value, options.maximumWidth)
       : value
-    context.fillText(text, x, y)
+    drawingContext.fillText(text, x, y)
   }
 
   context.fillStyle = type === "purchase" ? "#fff7ed" : "#f0fdf4"
