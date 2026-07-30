@@ -3,7 +3,7 @@ name: Deploy to Windows Server via PM2
 on:
   push:
     branches:
-      - main # เปลี่ยนเป็นชื่อ branch ที่ต้องการ deploy (เช่น master, release)
+      - master # เปลี่ยนเป็นชื่อ branch ที่ต้องการ deploy (เช่น master, release)
 
 jobs:
   deploy:
