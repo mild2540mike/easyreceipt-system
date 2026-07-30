@@ -204,14 +204,24 @@ function createPageCanvas({
       maximumWidth?: number
     } = {}
   ) {
-    drawingContext.textAlign = options.align ?? "left"
+    drawingContext.textAlign = "left"
     drawingContext.textBaseline = "alphabetic"
+    drawingContext.direction = "ltr"
     drawingContext.fillStyle = options.color ?? "#0f172a"
     drawingContext.font = options.font ?? `400 22px ${fontFamily}`
     const text = options.maximumWidth
       ? ellipsize(drawingContext, value, options.maximumWidth)
       : value
-    drawingContext.fillText(text, x, y)
+    const textWidth = drawingContext.measureText(text).width
+    const align = options.align ?? "left"
+    const drawingX =
+      align === "right" || align === "end"
+        ? x - textWidth
+        : align === "center"
+          ? x - textWidth / 2
+          : x
+
+    drawingContext.fillText(text, drawingX, y)
   }
 
   context.fillStyle = type === "purchase" ? "#fff7ed" : "#f0fdf4"
