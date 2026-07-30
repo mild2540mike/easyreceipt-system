@@ -13,6 +13,9 @@ jobs:
       # 1. ดึงโค้ดล่าสุดจาก Repository ลงมาที่เครื่อง Server
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          # Uploaded receipts live under public/uploads on this self-hosted runner.
+          clean: false
 
       # 2. ตั้งค่า Node.js บนตัว Runner
       - name: Setup Node.js
@@ -32,12 +35,18 @@ jobs:
         shell: powershell
         run: |
           npm run build
+          npm run api:build
 
       # 5. สั่ง PM2 รีโหลด/เริ่มทำงานแอปพลิเคชัน
       - name: Deploy and Reload PM2
         shell: powershell
         run: |
-          # reload แอปเดิม ถ้ายังไม่เคยรันอยู่ให้ start ใหม่จาก ecosystem.config.js หรือคำสั่ง start
-          pm2 reload ecosystem.config.js --env production || pm2 start ecosystem.config.js --env production
-          
+          pm2 startOrReload ecosystem.config.js --env production
+          if ($LASTEXITCODE -ne 0) {
+            throw "PM2 could not start or reload the applications."
+          }
+
           pm2 save
+          if ($LASTEXITCODE -ne 0) {
+            throw "PM2 could not save the current process list."
+          }
