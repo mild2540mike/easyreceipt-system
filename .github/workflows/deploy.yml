@@ -1,0 +1,43 @@
+name: Deploy to Windows Server via PM2
+
+on:
+  push:
+    branches:
+      - main # เปลี่ยนเป็นชื่อ branch ที่ต้องการ deploy (เช่น master, release)
+
+jobs:
+  deploy:
+    runs-on: self-hosted # ดึงเครื่อง Windows Server ของคุณมาทำงาน
+
+    steps:
+      # 1. ดึงโค้ดล่าสุดจาก Repository ลงมาที่เครื่อง Server
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. ตั้งค่า Node.js บนตัว Runner
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24' # ระบุเวอร์ชัน Node.js ที่โครงการใช้
+          cache: 'npm'
+
+      # 3. ติดตั้ง Dependencies (ใช้นามสกุล Powershell บน Windows)
+      - name: Install Dependencies
+        shell: powershell
+        run: |
+          npm ci
+
+      # 4. สั่ง Build โปรเจกต์
+      - name: Build Project
+        shell: powershell
+        run: |
+          npm run build
+
+      # 5. สั่ง PM2 รีโหลด/เริ่มทำงานแอปพลิเคชัน
+      - name: Deploy and Reload PM2
+        shell: powershell
+        run: |
+          # reload แอปเดิม ถ้ายังไม่เคยรันอยู่ให้ start ใหม่จาก ecosystem.config.js หรือคำสั่ง start
+          pm2 reload ecosystem.config.js --env production || pm2 start ecosystem.config.js --env production
+          
+          pm2 save
