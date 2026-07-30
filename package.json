@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run db:generate",
     "build": "next build",
     "start": "next start",
+    "postinstall": "npm run db:generate",
     "lint": "eslint",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
@@ -14,6 +16,7 @@
     "db:seed": "prisma generate && prisma db seed",
     "db:studio": "prisma studio",
     "api:dev": "tsx watch apps/api/src/server.ts",
+    "preapi:build": "npm run db:generate",
     "api:build": "tsc -p apps/api/tsconfig.json",
     "preapi:start": "npm run db:migrate:deploy",
     "api:start": "node apps/api/dist/server.js"
