@@ -351,6 +351,7 @@ export const openApiDocument = {
               "purchase_received",
               "usage_out",
               "inventory_updated",
+              "inventory_deleted",
               "auth_login",
               "auth_logout",
             ],
@@ -690,6 +691,24 @@ export const openApiDocument = {
         },
         responses: {
           "200": { description: "Updated inventory row." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Inventory"],
+        summary: "Remove an unused ingredient from the current branch inventory.",
+        description:
+          "Deletes only the branch inventory row. Ingredient master data and historical records are retained.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/branchId" },
+          { $ref: "#/components/parameters/ingredientId" },
+        ],
+        responses: {
+          "204": { description: "Inventory row removed from the branch." },
           "400": { $ref: "#/components/responses/ValidationError" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

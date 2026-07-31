@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Noto_Sans_Thai } from "next/font/google";
 import { EasyReceiptProvider } from "@/components/easyreceipt/easyreceipt-provider";
 import { EasyReceiptQueryProvider } from "@/components/easyreceipt/query-provider";
@@ -19,9 +19,43 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "timetoeat System",
   description: "Mobile-first purchase, stock, recipe, and cash-flow prototype.",
+  applicationName: "timetoeat",
+  manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icon.svg",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+      {
+        url: "/icons/timetoeat-192.png",
+        type: "image/png",
+        sizes: "192x192",
+      },
+      {
+        url: "/icons/timetoeat-512.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
+    apple: [
+      {
+        url: "/icons/apple-touch-icon.png",
+        type: "image/png",
+        sizes: "180x180",
+      },
+    ],
+    shortcut: ["/favicon.ico"],
   },
+  appleWebApp: {
+    capable: true,
+    title: "timetoeat",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#1f6f8b",
 };
 
 export default function RootLayout({

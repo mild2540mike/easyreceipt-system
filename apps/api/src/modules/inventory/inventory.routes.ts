@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import { randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -1325,5 +1325,130 @@ inventoryRouter.patch(
     })
 
     res.json({ inventory })
+  })
+)
+
+inventoryRouter.delete(
+  "/:ingredientId",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const ingredientId = routeParam(req.params.ingredientId, "ingredientId")
+
+    await prisma.$transaction(
+      async (tx) => {
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "stock")) {
+          throw forbidden("Member does not have permission to delete inventory.")
+        }
+
+        const inventory = await tx.branchInventory.findUnique({
+          where: {
+            branchId_ingredientId: {
+              branchId,
+              ingredientId,
+            },
+          },
+          include: {
+            ingredient: true,
+          },
+        })
+
+        if (!inventory) {
+          throw notFound("ไม่พบรายการวัตถุดิบในคลังสาขานี้")
+        }
+
+        if (Math.abs(Number(inventory.onHand)) > 0.0005) {
+          throw badRequest(
+            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมียอดคงเหลือในคลัง`
+          )
+        }
+
+        if (Math.abs(Number(inventory.reservedQuantity)) > 0.0005) {
+          throw badRequest(
+            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมียอดจองใช้งานอยู่`
+          )
+        }
+
+        const [activeReservation, draftPurchaseItem, recipeItem] =
+          await Promise.all([
+            tx.stockReservation.findFirst({
+              where: {
+                branchId,
+                ingredientId,
+                status: "active",
+              },
+              select: { id: true },
+            }),
+            tx.purchaseItem.findFirst({
+              where: {
+                ingredientId,
+                purchase: {
+                  branchId,
+                  status: "draft",
+                },
+              },
+              select: { id: true },
+            }),
+            tx.recipeItem.findFirst({
+              where: {
+                ingredientId,
+                recipe: {
+                  branchId,
+                },
+              },
+              select: { id: true },
+            }),
+          ])
+
+        if (activeReservation) {
+          throw badRequest(
+            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมีสูตรอาหารจองวัตถุดิบนี้อยู่`
+          )
+        }
+
+        if (draftPurchaseItem) {
+          throw badRequest(
+            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังอยู่ในบิลรับเข้าฉบับร่าง`
+          )
+        }
+
+        if (recipeItem) {
+          throw badRequest(
+            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังถูกใช้ในสูตรอาหารของสาขา`
+          )
+        }
+
+        await tx.branchInventory.delete({
+          where: {
+            id: inventory.id,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "inventory_deleted",
+            entityType: "branch_inventory",
+            entityId: ingredientId,
+            metadataJson: JSON.stringify({
+              branchInventoryId: inventory.id,
+              ingredientId,
+              ingredientName: inventory.ingredient.name,
+              onHand: Number(inventory.onHand),
+              reservedQuantity: Number(inventory.reservedQuantity),
+            }).slice(0, 4000),
+          },
+        })
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }
+    )
+
+    res.status(204).send()
   })
 )

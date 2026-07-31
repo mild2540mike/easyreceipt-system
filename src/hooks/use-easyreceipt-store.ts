@@ -28,6 +28,7 @@ import {
   apiCreateBranchUsageBatch,
   apiCreateBranchStockOut,
   apiCreateBranchRecipe,
+  apiDeleteBranchInventoryItem,
   apiDeleteBranchPurchase,
   apiDeleteBranchPurchaseDraft,
   apiDeleteBranchPurchaseDraftItem,
@@ -983,6 +984,37 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setInventoryMutationError(
         errorMessage(error, "Inventory could not be updated.")
+      )
+    },
+  })
+
+  const deleteInventoryMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      ingredientId,
+    }: {
+      branchId: string
+      ingredientId: string
+    }) => apiDeleteBranchInventoryItem(branchId, ingredientId),
+    onMutate: () => {
+      setInventoryMutationError("")
+    },
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: inventoryQueryKey(variables.branchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKey(variables.branchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: notificationsQueryKey(variables.branchId),
+        }),
+      ])
+    },
+    onError: (error) => {
+      setInventoryMutationError(
+        errorMessage(error, "ไม่สามารถลบวัตถุดิบออกจากคลังได้")
       )
     },
   })
@@ -3119,6 +3151,48 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
   }
 
+  async function deleteInventoryItem(
+    ingredientId: string
+  ): Promise<ActionResult> {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditInventory) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์ลบรายการคลังวัตถุดิบ",
+      }
+    }
+
+    if (!inventoryList.some((item) => item.ingredientId === ingredientId)) {
+      return {
+        ok: false,
+        error: "ไม่พบรายการวัตถุดิบในคลังสาขานี้",
+      }
+    }
+
+    try {
+      await deleteInventoryMutation.mutateAsync({
+        branchId: activeBranchId,
+        ingredientId,
+      })
+
+      return { ok: true }
+    } catch (error) {
+      const message = errorMessage(
+        error,
+        "ไม่สามารถลบวัตถุดิบออกจากคลังได้"
+      )
+      setInventoryMutationError(message)
+
+      return { ok: false, error: message }
+    }
+  }
+
   async function recordStockOut(input: StockOutInput): Promise<ActionResult> {
     if (!currentMember || !activeBranchId) {
       return {
@@ -3787,6 +3861,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     inventoryRows,
     isInventoryLoading,
     isInventorySaving: updateInventoryMutation.isPending,
+    isInventoryDeleting: deleteInventoryMutation.isPending,
     isIngredientSaving: createIngredientMutation.isPending,
     isStockOutSaving: createStockOutMutation.isPending,
     inventoryError,
@@ -3795,6 +3870,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     canEditUsage,
     addIngredientFromPurchase,
     updateInventoryItem,
+    deleteInventoryItem,
     recordStockOut,
     lowStockItems,
     purchaseOrderRows,

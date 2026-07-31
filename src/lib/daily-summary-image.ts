@@ -388,15 +388,18 @@ function downloadBlob(filename: string, blob: Blob) {
 
   link.href = url
   link.download = filename
+  link.target = "_blank"
+  link.rel = "noopener"
+  link.style.display = "none"
   document.body.appendChild(link)
   link.click()
   link.remove()
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000)
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 30_000)
 }
 
 export async function saveDailySummaryImages(
   input: DailySummaryImageInput
-): Promise<"shared" | "downloaded" | "cancelled"> {
+): Promise<"downloaded"> {
   if (input.groups.length === 0) {
     throw new Error("ยังไม่มีข้อมูลที่บันทึกแล้วสำหรับสร้างรูป")
   }
@@ -431,32 +434,6 @@ export async function saveDailySummaryImages(
       ? `${baseFilename}-part-${index + 1}.png`
       : `${baseFilename}.png`
   )
-  const files = blobs.map(
-    (blob, index) => new File([blob], filenames[index], { type: "image/png" })
-  )
-  const canShareFiles =
-    window.matchMedia("(max-width: 767px)").matches &&
-    typeof navigator.share === "function" &&
-    typeof navigator.canShare === "function" &&
-    navigator.canShare({ files })
-
-  if (canShareFiles) {
-    try {
-      await navigator.share({
-        title:
-          input.type === "purchase"
-            ? "สรุปของมาเพิ่มประจำวัน"
-            : "สรุปของใช้ไปประจำวัน",
-        files,
-      })
-      return "shared"
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return "cancelled"
-      }
-    }
-  }
-
   blobs.forEach((blob, index) => downloadBlob(filenames[index], blob))
   return "downloaded"
 }

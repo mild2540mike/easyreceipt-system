@@ -348,6 +348,7 @@ export type NotificationType =
   | "purchase_received"
   | "usage_out"
   | "inventory_updated"
+  | "inventory_deleted"
   | "auth_login"
   | "auth_logout"
 
@@ -853,6 +854,23 @@ export async function apiUpdateBranchInventory(
   const data = await parseJsonResponse<{ inventory: ApiInventoryRow }>(response)
 
   return normalizeInventoryRow(data.inventory)
+}
+
+export async function apiDeleteBranchInventoryItem(
+  branchId: string,
+  ingredientId: string
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(
+      branchId
+    )}/inventory/${encodeURIComponent(ingredientId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    }
+  )
+
+  await ensureEmptyResponse(response)
 }
 
 export async function apiCreateBranchIngredientFromPurchase(

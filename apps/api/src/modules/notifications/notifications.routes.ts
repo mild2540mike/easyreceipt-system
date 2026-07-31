@@ -18,6 +18,7 @@ const inventoryActions = [
   "purchase_received",
   "usage_out",
   "inventory_updated",
+  "inventory_deleted",
 ] as const
 const authActions = ["auth_login", "auth_logout"] as const
 
@@ -71,6 +72,14 @@ function notificationCopy(
     }
   }
 
+  if (action === "inventory_deleted") {
+    const ingredientName = String(metadata.ingredientName || "วัตถุดิบ")
+    return {
+      title: `ลบออกจากคลัง · ${ingredientName}`,
+      summary: `${actorName} ลบรายการวัตถุดิบออกจากคลังสาขา`,
+    }
+  }
+
   if (action === "auth_logout") {
     return {
       title: "ออกจากระบบ",
@@ -110,6 +119,11 @@ notificationsRouter.get(
         {
           branchId,
           action: inventoryActions[2],
+          entityType: "branch_inventory",
+        },
+        {
+          branchId,
+          action: inventoryActions[3],
           entityType: "branch_inventory",
         },
         {

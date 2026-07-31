@@ -1068,6 +1068,9 @@ function PermanentDeleteDialog({
   title,
   itemName,
   consequence,
+  description = "การดำเนินการนี้ไม่สามารถย้อนกลับได้",
+  confirmLabel = "ลบถาวร",
+  error = "",
   isDeleting,
   onOpenChange,
   onConfirm,
@@ -1076,6 +1079,9 @@ function PermanentDeleteDialog({
   title: string
   itemName: string
   consequence: string
+  description?: string
+  confirmLabel?: string
+  error?: string
   isDeleting: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
@@ -1092,15 +1098,21 @@ function PermanentDeleteDialog({
       <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            การดำเนินการนี้ไม่สามารถย้อนกลับได้
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="px-4">
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
             <div className="font-semibold">{itemName}</div>
             <p className="mt-1 leading-relaxed">{consequence}</p>
           </div>
+          {error && (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            >
+              {error}
+            </div>
+          )}
         </div>
         <DialogFooter className="grid grid-cols-1 gap-2 p-4 pt-2 min-[390px]:grid-cols-2">
           <Button
@@ -1124,7 +1136,7 @@ function PermanentDeleteDialog({
             ) : (
               <Trash2 className="size-4" />
             )}
-            ลบถาวร
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2862,7 +2874,7 @@ function PurchaseView({ store }: { store: Store }) {
     setIsExportingPurchaseImage(true)
 
     try {
-      const result = await saveDailySummaryImages({
+      await saveDailySummaryImages({
         type: "purchase",
         branchName: store.activeBranch?.name ?? "-",
         date: store.purchaseDate,
@@ -2881,13 +2893,9 @@ function PurchaseView({ store }: { store: Store }) {
         })),
       })
 
-      if (result !== "cancelled") {
-        setPurchaseMessage(
-          result === "shared"
-            ? "เปิดเมนูแชร์รูปสรุปของมาเพิ่มแล้ว"
-            : "บันทึกรูปสรุปของมาเพิ่มเรียบร้อยแล้ว"
-        )
-      }
+      setPurchaseMessage(
+        "เริ่มดาวน์โหลดรูปสรุปของมาเพิ่มแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์"
+      )
     } catch (error) {
       setPurchaseMessage(
         error instanceof Error
@@ -3275,6 +3283,7 @@ function PurchaseView({ store }: { store: Store }) {
                   savedPurchaseGroups.length === 0 ||
                   isExportingPurchaseImage
                 }
+                title="ดาวน์โหลดไฟล์ PNG ลงอุปกรณ์"
               >
                 {isExportingPurchaseImage ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
@@ -4837,7 +4846,7 @@ function UsageView({ store }: { store: Store }) {
     setIsExportingUsageImage(true)
 
     try {
-      const result = await saveDailySummaryImages({
+      await saveDailySummaryImages({
         type: "usage",
         branchName: store.activeBranch?.name ?? "-",
         date: store.usageDate,
@@ -4863,13 +4872,9 @@ function UsageView({ store }: { store: Store }) {
         })),
       })
 
-      if (result !== "cancelled") {
-        setUsageMessage(
-          result === "shared"
-            ? "เปิดเมนูแชร์รูปสรุปของใช้ไปแล้ว"
-            : "บันทึกรูปสรุปของใช้ไปเรียบร้อยแล้ว"
-        )
-      }
+      setUsageMessage(
+        "เริ่มดาวน์โหลดรูปสรุปของใช้ไปแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์"
+      )
     } catch (error) {
       setUsageMessage(
         error instanceof Error
@@ -5148,6 +5153,7 @@ function UsageView({ store }: { store: Store }) {
                 disabled={
                   usageHistoryGroups.length === 0 || isExportingUsageImage
                 }
+                title="ดาวน์โหลดไฟล์ PNG ลงอุปกรณ์"
               >
                 {isExportingUsageImage ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
@@ -6268,7 +6274,11 @@ function StockView({ store }: { store: Store }) {
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     null
   )
+  const [deletingIngredientId, setDeletingIngredientId] = useState<
+    string | null
+  >(null)
   const [stockMessage, setStockMessage] = useState("")
+  const [stockDeleteError, setStockDeleteError] = useState("")
   const [stockSearch, setStockSearch] = useState("")
   const [stockCategory, setStockCategory] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
@@ -6278,6 +6288,9 @@ function StockView({ store }: { store: Store }) {
   )
   const editingItem = store.inventoryRows.find(
     (item) => item.ingredientId === editingIngredientId
+  )
+  const deletingItem = store.inventoryRows.find(
+    (item) => item.ingredientId === deletingIngredientId
   )
   const stockCategoryOptions = Array.from(
     new Set(store.inventoryRows.map((item) => item.ingredient.category))
@@ -6459,6 +6472,20 @@ function StockView({ store }: { store: Store }) {
     setStockMessage("")
   }
 
+  function startStockDelete(item: InventoryRow) {
+    if (!store.canEditInventory) {
+      return
+    }
+
+    setDeletingIngredientId(item.ingredientId)
+    setStockDeleteError("")
+  }
+
+  function cancelStockDelete() {
+    setDeletingIngredientId(null)
+    setStockDeleteError("")
+  }
+
   async function saveStockEdit(draft: StockEditDraft) {
     if (!editingIngredientId || store.isInventorySaving) {
       return
@@ -6476,6 +6503,35 @@ function StockView({ store }: { store: Store }) {
 
     setEditingIngredientId(null)
     setStockMessage("")
+  }
+
+  async function confirmStockDelete() {
+    if (
+      !deletingIngredientId ||
+      !deletingItem ||
+      store.isInventoryDeleting
+    ) {
+      return
+    }
+
+    if (deletingItem.incoming > 0) {
+      setStockDeleteError(
+        "ลบไม่ได้เพราะวัตถุดิบนี้ยังอยู่ในรายการรับเข้าหรือบิลฉบับร่าง กรุณานำออกจากรายการดังกล่าวก่อน"
+      )
+      return
+    }
+
+    const result = await store.deleteInventoryItem(deletingIngredientId)
+
+    if (!result.ok) {
+      setStockDeleteError(
+        result.error ?? "ไม่สามารถลบวัตถุดิบออกจากคลังได้"
+      )
+      return
+    }
+
+    setDeletingIngredientId(null)
+    setStockDeleteError("")
   }
 
   return (
@@ -6621,18 +6677,34 @@ function StockView({ store }: { store: Store }) {
                           {item.ingredient.supplier || "ไม่ระบุซัพพลายเออร์"}
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="icon-lg"
-                        className="size-11 shrink-0"
-                        onClick={() => startStockEdit(item)}
-                        disabled={!store.canEditInventory}
-                      >
-                        <Pencil className="size-4" />
-                        <span className="sr-only">
-                          แก้ไข {item.ingredient.name}
-                        </span>
-                      </Button>
+                      <div className="flex shrink-0 gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon-lg"
+                          className="size-11"
+                          onClick={() => startStockEdit(item)}
+                          disabled={!store.canEditInventory}
+                        >
+                          <Pencil className="size-4" />
+                          <span className="sr-only">
+                            แก้ไข {item.ingredient.name}
+                          </span>
+                        </Button>
+                        {store.canEditInventory && (
+                          <Button
+                            variant="outline"
+                            size="icon-lg"
+                            className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            onClick={() => startStockDelete(item)}
+                            title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                          >
+                            <Trash2 className="size-4" />
+                            <span className="sr-only">
+                              ลบ {item.ingredient.name} ออกจากคลัง
+                            </span>
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="mt-4 flex items-end justify-between gap-3">
@@ -6712,7 +6784,7 @@ function StockView({ store }: { store: Store }) {
                   ราคาปัจจุบัน/หน่วย
                 </TableHead>
                 <TableHead className="min-w-32">สถานะ</TableHead>
-                <TableHead className="w-20 text-right">แก้ไข</TableHead>
+                <TableHead className="w-32 text-right">จัดการ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -6778,18 +6850,34 @@ function StockView({ store }: { store: Store }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="icon-lg"
-                      className="size-11"
-                      onClick={() => startStockEdit(item)}
-                      disabled={!store.canEditInventory}
-                    >
-                      <Pencil className="size-4" />
-                      <span className="sr-only">
-                        แก้ไข {item.ingredient.name}
-                      </span>
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon-lg"
+                        className="size-11"
+                        onClick={() => startStockEdit(item)}
+                        disabled={!store.canEditInventory}
+                      >
+                        <Pencil className="size-4" />
+                        <span className="sr-only">
+                          แก้ไข {item.ingredient.name}
+                        </span>
+                      </Button>
+                      {store.canEditInventory && (
+                        <Button
+                          variant="outline"
+                          size="icon-lg"
+                          className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                          onClick={() => startStockDelete(item)}
+                          title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                        >
+                          <Trash2 className="size-4" />
+                          <span className="sr-only">
+                            ลบ {item.ingredient.name} ออกจากคลัง
+                          </span>
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -6812,7 +6900,7 @@ function StockView({ store }: { store: Store }) {
               <TableHead className="text-right">ราคาปัจจุบัน/หน่วย</TableHead>
               <TableHead>สถานะ</TableHead>
               <TableHead>อัปเดตล่าสุด</TableHead>
-              <TableHead className="w-20 text-right">แก้ไข</TableHead>
+              <TableHead className="w-32 text-right">จัดการ</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -6876,18 +6964,34 @@ function StockView({ store }: { store: Store }) {
                 </TableCell>
                 <TableCell>{item.lastUpdated}</TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="outline"
-                    size="icon-lg"
-                    className="size-11"
-                    onClick={() => startStockEdit(item)}
-                    disabled={!store.canEditInventory}
-                  >
-                    <Pencil className="size-4" />
-                    <span className="sr-only">
-                      แก้ไข {item.ingredient.name}
-                    </span>
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon-lg"
+                      className="size-11"
+                      onClick={() => startStockEdit(item)}
+                      disabled={!store.canEditInventory}
+                    >
+                      <Pencil className="size-4" />
+                      <span className="sr-only">
+                        แก้ไข {item.ingredient.name}
+                      </span>
+                    </Button>
+                    {store.canEditInventory && (
+                      <Button
+                        variant="outline"
+                        size="icon-lg"
+                        className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                        onClick={() => startStockDelete(item)}
+                        title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                      >
+                        <Trash2 className="size-4" />
+                        <span className="sr-only">
+                          ลบ {item.ingredient.name} ออกจากคลัง
+                        </span>
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -6906,6 +7010,22 @@ function StockView({ store }: { store: Store }) {
         isSaving={store.isInventorySaving}
         onCancel={cancelStockEdit}
         onSave={saveStockEdit}
+      />
+      <PermanentDeleteDialog
+        open={Boolean(deletingIngredientId)}
+        title="ลบวัตถุดิบออกจากคลัง"
+        itemName={deletingItem?.ingredient.name ?? "รายการวัตถุดิบ"}
+        description="รายการจะถูกนำออกจากคลังของสาขาปัจจุบันเท่านั้น"
+        consequence="วัตถุดิบกลางและประวัติย้อนหลังจะยังคงอยู่ รายการที่มียอดคงเหลือ ยอดจอง บิลรับเข้าฉบับร่าง หรือถูกใช้ในสูตรอาหารจะไม่สามารถลบได้ และวัตถุดิบอาจกลับเข้าคลังเมื่อมีการซื้อเข้าใหม่"
+        confirmLabel="ลบออกจากคลัง"
+        error={stockDeleteError}
+        isDeleting={store.isInventoryDeleting}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelStockDelete()
+          }
+        }}
+        onConfirm={() => void confirmStockDelete()}
       />
     </div>
   )
