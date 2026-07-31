@@ -40,22 +40,13 @@ jobs:
       # 5. สั่ง PM2 รีโหลด/เริ่มทำงานแอปพลิเคชัน
       - name: Deploy and Reload PM2
         shell: powershell
-        env:
-          # Keep PM2 and its child processes alive after the runner job exits.
-          RUNNER_TRACKING_ID: ""
         run: |
-          $pm2Command = Join-Path $PWD "node_modules\.bin\pm2.cmd"
-
-          if (-not (Test-Path -LiteralPath $pm2Command)) {
-            throw "Local PM2 command was not installed by npm ci."
-          }
-
-          & $pm2Command startOrReload ecosystem.config.js --env production
+          pm2 startOrReload ecosystem.config.js --env production
           if ($LASTEXITCODE -ne 0) {
             throw "PM2 could not start or reload the applications."
           }
 
-          & $pm2Command save
+          pm2 save
           if ($LASTEXITCODE -ne 0) {
             throw "PM2 could not save the current process list."
           }
