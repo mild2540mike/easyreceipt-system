@@ -23,6 +23,12 @@ const envSchema = z.object({
     z.string().trim().min(1).optional()
   ),
   OPENAI_RECEIPT_MODEL: z.string().trim().min(1).default("gpt-5.6-sol"),
+  OPENAI_RECEIPT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(30_000)
+    .max(120_000)
+    .default(90_000),
 })
 
 export const env = envSchema.parse(process.env)

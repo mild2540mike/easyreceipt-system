@@ -300,7 +300,10 @@ async function extractReceiptWithOpenAI(
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 45_000)
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    env.OPENAI_RECEIPT_TIMEOUT_MS
+  )
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -314,7 +317,7 @@ async function extractReceiptWithOpenAI(
         model: env.OPENAI_RECEIPT_MODEL,
         store: false,
         safety_identifier: safetyIdentifier,
-        reasoning: { effort: "medium" },
+        reasoning: { effort: "low" },
         max_output_tokens: 4_000,
         instructions: [
           "Extract purchase receipt data from the supplied image.",
@@ -336,7 +339,7 @@ async function extractReceiptWithOpenAI(
               {
                 type: "input_image",
                 image_url: dataUrl,
-                detail: "original",
+                detail: "high",
               },
             ],
           },
