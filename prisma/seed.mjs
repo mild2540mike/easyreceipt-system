@@ -1,8 +1,7 @@
 import "dotenv/config"
 import { PrismaMssql } from "@prisma/adapter-mssql"
 import { PrismaClient } from "@prisma/client"
-
-import { stockSeedItems, stockSeedStats } from "./stock-seed-data.mjs"
+// import { stockSeedItems, stockSeedStats } from "./stock-seed-data.mjs"
 
 const connectionString = process.env.DATABASE_URL
 
@@ -229,30 +228,31 @@ async function clearDatabase(tx) {
   await tx.organization.deleteMany()
 }
 
-async function seedBranchWorkspace(tx, branch) {
-  for (const item of stockSeedItems) {
-    await tx.branchInventory.create({
-      data: {
-        branchId: branch.id,
-        ingredientId: item.id,
-        onHand: 0,
-        reorderPoint: round(item.inventory.reorderPoint),
-        costPerUnit: round(item.inventory.costPerUnit, 2),
-        lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
-      },
-    })
-  }
+// remove the comment below to seed branch workspace stock inventory for each branch
+// async function seedBranchWorkspace(tx, branch) {
+//   for (const item of stockSeedItems) {
+//     await tx.branchInventory.create({
+//       data: {
+//         branchId: branch.id,
+//         ingredientId: item.id,
+//         onHand: 0,
+//         reorderPoint: round(item.inventory.reorderPoint),
+//         costPerUnit: round(item.inventory.costPerUnit, 2),
+//         lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
+//       },
+//     })
+//   }
 
-  await tx.branchInventory.updateMany({
-    where: {
-      branchId: branch.id,
-    },
-    data: {
-      onHand: 0,
-      lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
-    },
-  })
-}
+//   await tx.branchInventory.updateMany({
+//     where: {
+//       branchId: branch.id,
+//     },
+//     data: {
+//       onHand: 0,
+//       lastUpdatedAt: new Date("2026-06-27T08:00:00+07:00"),
+//     },
+//   })
+// }
 
 async function main() {
   await prisma.$transaction(
@@ -307,38 +307,41 @@ async function main() {
         })
       }
 
-      for (const ingredient of stockSeedItems) {
-        await tx.ingredient.create({
-          data: {
-            id: ingredient.id,
-            organizationId: organization.id,
-            name: ingredient.name,
-            category: ingredient.category,
-            unit: ingredient.unit,
-            defaultPrice: ingredient.defaultPrice,
-            supplier: ingredient.supplier,
-          },
-        })
-      }
+      // remove the comment below to seed stock ingredients for the organization
+      // for (const ingredient of stockSeedItems) {
+      //   await tx.ingredient.create({
+      //     data: {
+      //       id: ingredient.id,
+      //       organizationId: organization.id,
+      //       name: ingredient.name,
+      //       category: ingredient.category,
+      //       unit: ingredient.unit,
+      //       defaultPrice: ingredient.defaultPrice,
+      //       supplier: ingredient.supplier,
+      //     },
+      //   })
+      // }
 
-      for (const branch of branches) {
-        await seedBranchWorkspace(tx, branch)
-      }
+      // remove the comment below to seed branch workspace stock inventory for each branch
+      // for (const branch of branches) {
+      //   await seedBranchWorkspace(tx, branch)
+      // }
 
-      await tx.auditLog.create({
-        data: {
-          organizationId: organization.id,
-          memberId: "member-owner",
-          action: "seed",
-          entityType: "database",
-          entityId: organization.id,
-          metadataJson: JSON.stringify({
-            branches: branches.length,
-            ingredients: stockSeedItems.length,
-            skippedStockRows: stockSeedStats.skippedRows,
-          }),
-        },
-      })
+      // remove the comment below to create an audit log entry for the seed operation
+      // await tx.auditLog.create({
+      //   data: {
+      //     organizationId: organization.id,
+      //     memberId: "member-owner",
+      //     action: "seed",
+      //     entityType: "database",
+      //     entityId: organization.id,
+      //     metadataJson: JSON.stringify({
+      //       branches: branches.length,
+      //       ingredients: stockSeedItems.length,
+      //       skippedStockRows: stockSeedStats.skippedRows,
+      //     }),
+      //   },
+      // })
     },
     {
       timeout: 120000,
