@@ -117,87 +117,93 @@ async function main() {
     throw new Error("ยังไม่ได้ deploy migration สำหรับ price attribution กรุณารัน migration ก่อน --apply")
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    let insertedInventoryRows = 0
-    for (const { branch, ingredient } of missingInventory) {
-      const existing = await tx.branchInventory.findUnique({
-        where: {
-          branchId_ingredientId: {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      let insertedInventoryRows = 0
+      for (const { branch, ingredient } of missingInventory) {
+        const existing = await tx.branchInventory.findUnique({
+          where: {
+            branchId_ingredientId: {
+              branchId: branch.id,
+              ingredientId: ingredient.id,
+            },
+          },
+          select: { id: true },
+        })
+        if (existing) continue
+
+        await tx.branchInventory.create({
+          data: {
             branchId: branch.id,
             ingredientId: ingredient.id,
+            onHand: 0,
+            reservedQuantity: 0,
+            reorderPoint: 0,
+            costPerUnit: 0,
           },
-        },
-        select: { id: true },
-      })
-      if (existing) continue
+          select: { id: true },
+        })
+        insertedInventoryRows += 1
+      }
 
-      await tx.branchInventory.create({
-        data: {
-          branchId: branch.id,
-          ingredientId: ingredient.id,
-          onHand: 0,
-          reservedQuantity: 0,
-          reorderPoint: 0,
-          costPerUnit: 0,
-        },
-        select: { id: true },
-      })
-      insertedInventoryRows += 1
-    }
+      let backfilledPriceAttribution = 0
+      for (const ingredient of ingredients) {
+        const current = await tx.ingredient.findUnique({
+          where: { id: ingredient.id },
+          select: { lastPriceUpdatedAt: true, lastPriceSource: true },
+        })
+        if (current?.lastPriceUpdatedAt || current?.lastPriceSource) continue
 
-    let backfilledPriceAttribution = 0
-    for (const ingredient of ingredients) {
-      const current = await tx.ingredient.findUnique({
-        where: { id: ingredient.id },
-        select: { lastPriceUpdatedAt: true, lastPriceSource: true },
-      })
-      if (current?.lastPriceUpdatedAt || current?.lastPriceSource) continue
-
-      const latestPurchaseItem = await tx.purchaseItem.findFirst({
-        where: {
-          ingredientId: ingredient.id,
-          purchase: {
-            branch: { organizationId: organization.id },
-            status: { in: ["saved", "posted"] },
-          },
-        },
-        orderBy: [
-          { purchase: { createdAt: "desc" } },
-          { createdAt: "desc" },
-        ],
-        select: {
-          purchase: {
-            select: {
-              createdAt: true,
-              createdByMemberId: true,
-              branchId: true,
+        const latestPurchaseItem = await tx.purchaseItem.findFirst({
+          where: {
+            ingredientId: ingredient.id,
+            purchase: {
+              branch: { organizationId: organization.id },
+              status: { in: ["saved", "posted"] },
             },
           },
-        },
-      })
-
-      await tx.ingredient.update({
-        where: { id: ingredient.id },
-        data: latestPurchaseItem
-          ? {
-              lastPriceUpdatedByMemberId: latestPurchaseItem.purchase.createdByMemberId,
-              lastPriceUpdatedBranchId: latestPurchaseItem.purchase.branchId,
-              lastPriceUpdatedAt: latestPurchaseItem.purchase.createdAt,
-              lastPriceSource: "purchase",
-            }
-          : {
-              lastPriceUpdatedByMemberId: null,
-              lastPriceUpdatedBranchId: null,
-              lastPriceUpdatedAt: ingredient.updatedAt,
-              lastPriceSource: "migration",
+          orderBy: [
+            { purchase: { createdAt: "desc" } },
+            { createdAt: "desc" },
+          ],
+          select: {
+            purchase: {
+              select: {
+                createdAt: true,
+                createdByMemberId: true,
+                branchId: true,
+              },
             },
-        select: { id: true },
-      })
-      backfilledPriceAttribution += 1
-    }
+          },
+        })
 
-    return { insertedInventoryRows, backfilledPriceAttribution }
-  })
+        await tx.ingredient.update({
+          where: { id: ingredient.id },
+          data: latestPurchaseItem
+            ? {
+                lastPriceUpdatedByMemberId: latestPurchaseItem.purchase.createdByMemberId,
+                lastPriceUpdatedBranchId: latestPurchaseItem.purchase.branchId,
+                lastPriceUpdatedAt: latestPurchaseItem.purchase.createdAt,
+                lastPriceSource: "purchase",
+              }
+            : {
+                lastPriceUpdatedByMemberId: null,
+                lastPriceUpdatedBranchId: null,
+                lastPriceUpdatedAt: ingredient.updatedAt,
+                lastPriceSource: "migration",
+              },
+          select: { id: true },
+        })
+        backfilledPriceAttribution += 1
+      }
+
+      return { insertedInventoryRows, backfilledPriceAttribution }
+    },
+    {
+      maxWait: 30_000,
+      timeout: 120_000,
+    }
+  )
 
   const afterRows = await prisma.branchInventory.count({
     where: {
