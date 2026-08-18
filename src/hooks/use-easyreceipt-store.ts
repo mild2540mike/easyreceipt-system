@@ -69,6 +69,7 @@ import {
   type ReportSummary,
   type StockOutApiInput,
   type UsageBatchApiInput,
+  type UpdateInventoryApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 import { uniquePurchaseBillName } from "@/lib/purchase-scan"
@@ -199,6 +200,7 @@ export type BranchWorkspace = {
   purchaseItems: PurchaseItem[]
   usageDate: Date
   usageItems: UsageDraftItem[]
+  usageFormDraftSavedSignature: string | null
   purchaseOrderDraftItems: PurchaseItem[]
   purchaseOrderDraftSavedAt: string | null
 }
@@ -211,6 +213,7 @@ export type BranchReportSummary = {
 
 const sessionMemberKey = "easyreceipt.memberId"
 const sessionBranchKey = "easyreceipt.branchId"
+const formDraftStoragePrefix = "easyreceipt.form-draft.v1"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
 const branchesQueryKey = ["easyreceipt", "branches"] as const
 const membersQueryKey = (memberId: string) =>
@@ -285,6 +288,127 @@ function clearSessionValue(key: string) {
     window.sessionStorage.removeItem(key)
   } catch {
     // Session persistence is best-effort for this local prototype.
+  }
+}
+
+type PersistedFormDraft = {
+  version: 1
+  purchaseDate: string
+  purchaseItems: PurchaseItem[]
+  usageDate: string
+  usageItems: UsageDraftItem[]
+  usageSavedSignature?: string | null
+  savedAt: string
+}
+
+function formDraftStorageKey(memberId: string, branchId: string) {
+  return `${formDraftStoragePrefix}:${memberId}:${branchId}`
+}
+
+function draftDate(value: unknown) {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function readFormDraft(memberId: string, branchId: string) {
+  if (typeof window === "undefined" || !memberId || !branchId) {
+    return null
+  }
+
+  try {
+    const rawDraft = window.localStorage.getItem(
+      formDraftStorageKey(memberId, branchId)
+    )
+
+    if (!rawDraft) {
+      return null
+    }
+
+    const draft = JSON.parse(rawDraft) as Partial<PersistedFormDraft>
+    const purchaseDate = draftDate(draft.purchaseDate)
+    const usageDate = draftDate(draft.usageDate)
+
+    if (
+      draft.version !== 1 ||
+      !purchaseDate ||
+      !usageDate ||
+      !Array.isArray(draft.purchaseItems) ||
+      !Array.isArray(draft.usageItems)
+    ) {
+      return null
+    }
+
+    return {
+      purchaseDate,
+      purchaseItems: draft.purchaseItems,
+      usageDate,
+      usageItems: draft.usageItems,
+      usageSavedSignature:
+        typeof draft.usageSavedSignature === "string"
+          ? draft.usageSavedSignature
+          : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function storablePurchaseItems(items: PurchaseItem[]) {
+  return items.map((item) => {
+    const storableItem = { ...item }
+    delete storableItem.receiptImage
+    return storableItem
+  })
+}
+
+function storableUsageItems(items: UsageDraftItem[]) {
+  return items.map((item) => {
+    const storableItem = { ...item }
+    delete storableItem.receiptImage
+    return storableItem
+  })
+}
+
+function usageFormDraftSignature(workspace: BranchWorkspace) {
+  return JSON.stringify({
+    date: workspace.usageDate.toISOString(),
+    items: storableUsageItems(workspace.usageItems),
+  })
+}
+
+function persistFormDraft(memberId: string, workspace: BranchWorkspace) {
+  if (typeof window === "undefined" || !memberId || !workspace.branchId) {
+    return false
+  }
+
+  const storageKey = formDraftStorageKey(memberId, workspace.branchId)
+
+  try {
+    if (
+      workspace.purchaseItems.length === 0 &&
+      workspace.usageItems.length === 0
+    ) {
+      window.localStorage.removeItem(storageKey)
+      return true
+    }
+
+    const draft: PersistedFormDraft = {
+      version: 1,
+      purchaseDate: workspace.purchaseDate.toISOString(),
+      purchaseItems: storablePurchaseItems(workspace.purchaseItems),
+      usageDate: workspace.usageDate.toISOString(),
+      usageItems: storableUsageItems(workspace.usageItems),
+      usageSavedSignature: workspace.usageFormDraftSavedSignature,
+      savedAt: new Date().toISOString(),
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(draft))
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -439,9 +563,26 @@ function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
     purchaseItems: [],
     usageDate: new Date(),
     usageItems: [],
+    usageFormDraftSavedSignature: null,
     purchaseOrderDraftItems: [],
     purchaseOrderDraftSavedAt: null,
   }
+}
+
+function createBranchWorkspace(memberId: string, branchId: string) {
+  const workspace = createEmptyBranchWorkspace(branchId)
+  const draft = readFormDraft(memberId, branchId)
+
+  return draft
+    ? {
+        ...workspace,
+        purchaseDate: draft.purchaseDate,
+        purchaseItems: draft.purchaseItems,
+        usageDate: draft.usageDate,
+        usageItems: draft.usageItems,
+        usageFormDraftSavedSignature: draft.usageSavedSignature,
+      }
+    : workspace
 }
 
 function mergeInventorySnapshot(
@@ -608,20 +749,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     branches.find((branch) => branch.id === activeBranchId) ??
     accessibleBranches[0]
 
-  const ensureBranchWorkspace = useCallback((branchId: string) => {
-    if (!branchId) {
-      return
-    }
+  const ensureBranchWorkspace = useCallback(
+    (branchId: string, memberId: string) => {
+      if (!branchId) {
+        return
+      }
 
-    setBranchWorkspaces((workspaces) =>
-      workspaces[branchId]
-        ? workspaces
-        : {
-            ...workspaces,
-            [branchId]: createEmptyBranchWorkspace(branchId),
-          }
-    )
-  }, [])
+      setBranchWorkspaces((workspaces) =>
+        workspaces[branchId]
+          ? workspaces
+          : {
+              ...workspaces,
+              [branchId]: createBranchWorkspace(memberId, branchId),
+            }
+      )
+    },
+    []
+  )
 
   const updateBranchWorkspace = useCallback(
     (
@@ -829,6 +973,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     queryFn: () => apiGetBranchInventory(activeBranchId),
     enabled: shouldLoadInventory,
     staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   })
 
   const purchasesQuery = useQuery({
@@ -946,7 +1092,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onSuccess: (row, variables) => {
       syncBranchInventoryRow(variables.branchId, row)
       void queryClient.invalidateQueries({
-        queryKey: inventoryQueryKey(variables.branchId),
+        queryKey: ["easyreceipt", "inventory"],
       })
     },
     onError: (error) => {
@@ -964,7 +1110,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }: {
       branchId: string
       ingredientId: string
-      input: Omit<InventoryEditInput, "ingredientId" | "reserved">
+      input: UpdateInventoryApiInput
     }) => apiUpdateBranchInventory(branchId, ingredientId, input),
     onMutate: () => {
       setInventoryMutationError("")
@@ -972,7 +1118,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onSuccess: (row, variables) => {
       syncBranchInventoryRow(variables.branchId, row)
       void queryClient.invalidateQueries({
-        queryKey: inventoryQueryKey(variables.branchId),
+        queryKey: ["easyreceipt", "inventory"],
       })
       void queryClient.invalidateQueries({
         queryKey: dashboardQueryKey(variables.branchId),
@@ -1002,7 +1148,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onSuccess: async (_, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: inventoryQueryKey(variables.branchId),
+          queryKey: ["easyreceipt", "inventory"],
         }),
         queryClient.invalidateQueries({
           queryKey: dashboardQueryKey(variables.branchId),
@@ -1448,16 +1594,60 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   }, [branchesQuery.data])
 
   useEffect(() => {
-    if (!activeBranchId) {
+    if (!activeBranchId || !currentMember) {
       return
     }
 
     const timeoutId = window.setTimeout(() => {
-      ensureBranchWorkspace(activeBranchId)
+      ensureBranchWorkspace(activeBranchId, currentMember.id)
     }, 0)
 
     return () => window.clearTimeout(timeoutId)
-  }, [activeBranchId, ensureBranchWorkspace])
+  }, [activeBranchId, currentMember, ensureBranchWorkspace])
+
+  const activeFormDraftRef = useRef<{
+    memberId: string
+    workspace: BranchWorkspace
+  } | null>(null)
+
+  useEffect(() => {
+    const workspace = branchWorkspaces[activeBranchId]
+
+    if (!currentMember || !workspace) {
+      activeFormDraftRef.current = null
+      return
+    }
+
+    activeFormDraftRef.current = {
+      memberId: currentMember.id,
+      workspace,
+    }
+    persistFormDraft(currentMember.id, workspace)
+  }, [activeBranchId, branchWorkspaces, currentMember])
+
+  useEffect(() => {
+    function persistCurrentFormDraft() {
+      const current = activeFormDraftRef.current
+
+      if (current) {
+        persistFormDraft(current.memberId, current.workspace)
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        persistCurrentFormDraft()
+      }
+    }
+
+    window.addEventListener("pagehide", persistCurrentFormDraft)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener("pagehide", persistCurrentFormDraft)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [])
 
   useEffect(() => {
     if (!currentMember || accessibleBranchIds.length === 0) {
@@ -1875,9 +2065,11 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const canManageMembers = memberCanEditMenu(currentMember, "members")
   const canManageMenuPermissions = currentMember?.role === "owner"
   const canDeleteDailyRecords = currentMember?.role === "owner"
+  const canManageIngredientCatalog = currentMember?.role === "owner"
   const canManageBranchBudget = memberCanEditMenu(currentMember, "budgets")
   const canEditPurchase = memberCanEditMenu(currentMember, "purchase")
-  const canEditInventory = memberCanEditMenu(currentMember, "stock")
+  const canEditInventory =
+    canManageIngredientCatalog || memberCanEditMenu(currentMember, "stock")
   const canEditRecipes = memberCanEditMenu(currentMember, "recipes")
   const canEditUsage = memberCanEditMenu(currentMember, "usage")
 
@@ -2065,7 +2257,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
     setActiveBranchId(branchId)
     saveBranchSession(branchId)
-    ensureBranchWorkspace(branchId)
+    ensureBranchWorkspace(branchId, currentMember.id)
 
     return true
   }
@@ -2082,6 +2274,37 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       ...workspace,
       usageDate: date,
     }))
+  }
+
+  function saveFormDraft(type: "purchase" | "usage" = "purchase"): ActionResult {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    const workspace = branchWorkspaces[activeBranchId] ?? activeWorkspace
+    const workspaceToPersist =
+      type === "usage"
+        ? {
+            ...workspace,
+            usageFormDraftSavedSignature: usageFormDraftSignature(workspace),
+          }
+        : workspace
+
+    const didPersist = persistFormDraft(currentMember.id, workspaceToPersist)
+
+    if (didPersist && type === "usage") {
+      updateBranchWorkspace(activeBranchId, () => workspaceToPersist)
+    }
+
+    return didPersist
+      ? { ok: true }
+      : {
+          ok: false,
+          error: "พื้นที่จัดเก็บในอุปกรณ์ไม่เพียงพอ กรุณาลองลบข้อมูลเว็บไซต์เก่าแล้วบันทึกอีกครั้ง",
+        }
   }
 
   async function login(username: string, password: string) {
@@ -2849,7 +3072,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
           queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
         }),
         queryClient.invalidateQueries({
-          queryKey: inventoryQueryKey(activeBranchId),
+          queryKey: ["easyreceipt", "inventory"],
         }),
         queryClient.invalidateQueries({
           queryKey: dashboardQueryKey(activeBranchId),
@@ -3131,14 +3354,19 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         branchId: activeBranchId,
         ingredientId: input.ingredientId,
         input: {
-          name,
-          category: input.category.trim() || "วัตถุดิบ",
-          unit,
-          defaultPrice: Math.max(input.defaultPrice, 0),
-          supplier: input.supplier.trim() || "-",
-          onHand: Math.max(input.onHand, 0),
-          reorderPoint: Math.max(input.reorderPoint, 0),
-          costPerUnit: Math.max(input.costPerUnit, 0),
+          catalog: canManageIngredientCatalog
+            ? {
+                name,
+                category: input.category.trim() || "วัตถุดิบ",
+                unit,
+                defaultPrice: Math.max(input.defaultPrice, 0),
+                supplier: input.supplier.trim() || "-",
+              }
+            : undefined,
+          inventory: {
+            onHand: Math.max(input.onHand, 0),
+            reorderPoint: Math.max(input.reorderPoint, 0),
+          },
         },
       })
 
@@ -3797,9 +4025,14 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     usageDate,
     usageDateKey,
     usageItems,
+    isUsageFormDraftSaved:
+      usageItems.length > 0 &&
+      activeWorkspace.usageFormDraftSavedSignature ===
+        usageFormDraftSignature(activeWorkspace),
     usageMovements,
     usageReasons,
     setUsageDate,
+    saveFormDraft,
     updateUsageItem,
     addUsageItem,
     addUsageBatch,
@@ -3853,6 +4086,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     usageScanError,
     usageError,
     canManageBranchBudget,
+    canManageIngredientCatalog,
     isBranchBudgetSaving: updateBranchBudgetMutation.isPending,
     updateBranchBudget,
     ingredients: ingredientList,

@@ -396,6 +396,33 @@ function formatThaiTime(value: string) {
   }).format(date)
 }
 
+function formatIngredientPriceAttribution(
+  ingredient: InventoryRow["ingredient"]
+) {
+  const actor =
+    ingredient.lastPriceUpdatedBy?.name ||
+    (ingredient.lastPriceSource === "migration" ? "นำเข้าระบบ" : "ยังไม่ระบุ")
+  const branch = ingredient.lastPriceUpdatedBranch?.name
+  const date = ingredient.lastPriceUpdatedAt
+    ? new Intl.DateTimeFormat("th-TH-u-ca-buddhist", {
+        timeZone: "Asia/Bangkok",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(ingredient.lastPriceUpdatedAt))
+    : "ยังไม่มีวันเวลา"
+
+  return [
+    `บันทึกโดย ${actor}`,
+    branch ? `โรงเรียน ${branch}` : null,
+    date,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}
+
 function statusLabel(status: StockStatus) {
   if (status === "low") {
     return "ต่ำกว่าจุดสั่งซื้อ"
@@ -2752,8 +2779,7 @@ function PurchaseView({ store }: { store: Store }) {
   const hasUnnamedPurchaseBill = purchaseBillGroups.some(
     (bill) => !bill.billName.trim()
   )
-  const canSavePurchaseDraft =
-    store.purchaseItems.length > 0 && !hasIncompletePurchaseItems
+  const canSavePurchaseDraft = store.purchaseItems.length > 0
   const canSubmitPurchase =
     hasPurchasesToSubmit && !hasIncompletePurchaseItems
   const purchaseMessageIsError =
@@ -2782,12 +2808,28 @@ function PurchaseView({ store }: { store: Store }) {
 
   async function handleSavePurchaseDraft() {
     setPurchaseMessage("")
+    const localResult = store.saveFormDraft()
+
+    if (!localResult.ok) {
+      setPurchaseMessage(
+        localResult.error ?? "ไม่สามารถบันทึกฉบับร่างในอุปกรณ์ได้"
+      )
+      return
+    }
+
+    if (hasIncompletePurchaseItems) {
+      setPurchaseMessage(
+        "บันทึกร่างไว้ในอุปกรณ์แล้ว เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ"
+      )
+      return
+    }
+
     const result = await store.savePurchaseDraft()
 
     setPurchaseMessage(
       result.ok
-        ? "บันทึกฉบับร่างลงฐานข้อมูลแล้ว และแสดงในหน้าแดชบอร์ดส่วนใบสั่งซื้อวัตถุดิบ"
-        : (result.error ?? "ไม่สามารถบันทึกฉบับร่างได้")
+        ? "บันทึกฉบับร่างเข้าระบบแล้ว สามารถกลับมาเปิดต่อได้ภายหลัง"
+        : `บันทึกร่างไว้ในอุปกรณ์แล้ว แต่ส่งเข้าระบบไม่สำเร็จ: ${result.error ?? "กรุณาลองใหม่"}`
     )
   }
 
@@ -3208,14 +3250,10 @@ function PurchaseView({ store }: { store: Store }) {
                   !canSavePurchaseDraft ||
                   store.isPurchaseSaving
                 }
-                title="บันทึกรายการเป็นฉบับร่าง"
+                title="บันทึกรายการที่กรอกไว้ในอุปกรณ์ก่อนออกจากหน้านี้"
               >
-                {store.isPurchaseSaving ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <ReceiptText className="size-4" />
-                )}
-                เก็บร่าง
+                <ReceiptText className="size-4" />
+                บันทึกร่าง
               </Button>
               <Button
                 className="col-span-2 h-9 text-sm sm:h-10"
@@ -4837,6 +4875,17 @@ function UsageView({ store }: { store: Store }) {
     setUsageMessage("บันทึกของใช้ไปทุกรอบและตัดคลังวัตถุดิบเรียบร้อย")
   }
 
+  function handleSaveUsageDraft() {
+    setUsageMessage("")
+    const result = store.saveFormDraft("usage")
+
+    setUsageMessage(
+      result.ok
+        ? "บันทึกร่างไว้ในอุปกรณ์แล้ว เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ"
+        : (result.error ?? "ไม่สามารถบันทึกฉบับร่างได้")
+    )
+  }
+
   async function handleExportUsageImage() {
     if (usageHistoryGroups.length === 0 || isExportingUsageImage) {
       return
@@ -5066,6 +5115,7 @@ function UsageView({ store }: { store: Store }) {
               reason={batch.reason}
               items={batch.items}
               reasonOptions={usageReasonOptions}
+              isDraftSaved={store.isUsageFormDraftSaved}
               store={store}
             />
           ))}
@@ -5110,18 +5160,31 @@ function UsageView({ store }: { store: Store }) {
                 ? `${usageBatches.length} รอบ · ${readyRows.length} รายการพร้อมบันทึก`
                 : "เพิ่มอย่างน้อย 1 รอบก่อนบันทึก"}
             </p>
-            <Button
-              className="h-11 w-full sm:w-auto sm:min-w-44"
-              onClick={handleSubmitUsage}
-              disabled={!canSubmitUsage}
-            >
-              {store.isUsageSaving ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <Save className="size-4" />
-              )}
-              บันทึก
-            </Button>
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-52">
+              <Button
+                type="button"
+                variant="outline"
+                className="col-span-2 h-11 bg-background text-sm"
+                onClick={handleSaveUsageDraft}
+                disabled={!store.canEditUsage || store.usageItems.length === 0}
+                title="บันทึกรายการที่กรอกไว้ในอุปกรณ์ก่อนออกจากหน้านี้"
+              >
+                <ReceiptText className="size-4" />
+                บันทึกร่าง
+              </Button>
+              <Button
+                className="col-span-2 h-11 text-sm"
+                onClick={handleSubmitUsage}
+                disabled={!canSubmitUsage}
+              >
+                {store.isUsageSaving ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
+                บันทึก
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -5564,6 +5627,7 @@ function UsageBatchCard({
   reason,
   items,
   reasonOptions,
+  isDraftSaved,
   store,
 }: {
   batchId: string
@@ -5571,6 +5635,7 @@ function UsageBatchCard({
   reason: string
   items: UsageDraftItem[]
   reasonOptions: string[]
+  isDraftSaved: boolean
   store: Store
 }) {
   const isDesktopLayout = useDesktopLayout()
@@ -5578,11 +5643,26 @@ function UsageBatchCard({
   return (
     <div
       data-usage-batch-id={batchId}
-      className="min-w-0 overflow-hidden rounded-lg border border-border bg-background"
+      className={cn(
+        "min-w-0 overflow-hidden rounded-lg border bg-background",
+        isDraftSaved ? "border-amber-200" : "border-border"
+      )}
     >
-      <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        className={cn(
+          "flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between",
+          isDraftSaved
+            ? "border-amber-200 bg-amber-50/70"
+            : "border-border bg-background"
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Minus className="size-4 shrink-0 text-rose-600" />
+          <ReceiptText
+            className={cn(
+              "size-4 shrink-0",
+              isDraftSaved ? "text-amber-700" : "text-muted-foreground"
+            )}
+          />
           <BufferedStoreInput
             value={name}
             onCommit={(nextName) =>
@@ -5596,6 +5676,14 @@ function UsageBatchCard({
           <Badge variant="secondary" className="hidden h-6 shrink-0 text-xs sm:inline-flex">
             {items.length} รายการ
           </Badge>
+          {isDraftSaved && (
+            <Badge
+              variant="outline"
+              className="h-6 shrink-0 border-amber-200 bg-amber-50 text-xs text-amber-800"
+            >
+              ฉบับร่าง
+            </Badge>
+          )}
         </div>
         <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:justify-end">
           <Button
@@ -5621,7 +5709,14 @@ function UsageBatchCard({
         </div>
       </div>
 
-      <div className="border-b border-border p-3 sm:p-4">
+      <div
+        className={cn(
+          "border-b p-3 sm:p-4",
+          isDraftSaved
+            ? "border-amber-200 bg-amber-50/20"
+            : "border-border bg-background"
+        )}
+      >
         <Label className="mb-2 block text-sm">เหตุผลรวมของรายการนี้</Label>
         <UsageReasonCombobox
           value={reason}
@@ -5663,6 +5758,7 @@ function UsageBatchCard({
                   key={item.id}
                   index={index}
                   item={item}
+                  isDraftSaved={isDraftSaved}
                   store={store}
                 />
               ))}
@@ -5670,12 +5766,18 @@ function UsageBatchCard({
           </FreezableTable>
         </div>
       ) : (
-        <div className="divide-y divide-border">
+        <div
+          className={cn(
+            "divide-y",
+            isDraftSaved ? "divide-amber-200" : "divide-border"
+          )}
+        >
           {items.map((item, index) => (
             <UsageMobileItem
               key={item.id}
               index={index}
               item={item}
+              isDraftSaved={isDraftSaved}
               store={store}
             />
           ))}
@@ -5919,10 +6021,12 @@ function UsageReasonCombobox({
 function UsageMobileItem({
   index,
   item,
+  isDraftSaved,
   store,
 }: {
   index: number
   item: UsageDraftItem
+  isDraftSaved: boolean
   store: Store
 }) {
   const inventoryRow = store.inventoryRows.find(
@@ -5936,7 +6040,13 @@ function UsageMobileItem({
   )
 
   return (
-    <div className={cn("space-y-3 p-3", isOverStock && "bg-red-50/60")}>
+    <div
+      className={cn(
+        "space-y-3 p-3",
+        isDraftSaved ? "bg-amber-50/30" : "bg-background",
+        isOverStock && "bg-red-50/60"
+      )}
+    >
       <div className="flex items-center justify-between gap-3">
         <Badge variant="secondary" className="h-6">
           รายการ {index + 1}
@@ -6026,10 +6136,12 @@ function UsageMobileItem({
 function UsageDraftTableRow({
   index,
   item,
+  isDraftSaved,
   store,
 }: {
   index: number
   item: UsageDraftItem
+  isDraftSaved: boolean
   store: Store
 }) {
   const inventoryRow = store.inventoryRows.find(
@@ -6043,7 +6155,14 @@ function UsageDraftTableRow({
   )
 
   return (
-    <TableRow className={cn(isOverStock && "bg-red-50/60")}>
+    <TableRow
+      className={cn(
+        isDraftSaved
+          ? "bg-amber-50/60 hover:bg-amber-50/60"
+          : "bg-background hover:bg-muted/30",
+        isOverStock && "bg-red-50/60 hover:bg-red-50/60"
+      )}
+    >
       <TableCell className="text-center align-top">
         {index + 1}
       </TableCell>
@@ -6281,10 +6400,10 @@ function StockView({ store }: { store: Store }) {
   const [stockDeleteError, setStockDeleteError] = useState("")
   const [stockSearch, setStockSearch] = useState("")
   const [stockCategory, setStockCategory] = useState("all")
-  const [stockFilter, setStockFilter] = useState("all")
+  const [stockFilter, setStockFilter] = useState("in-stock")
   const [stockFilterModalOpen, setStockFilterModalOpen] = useState(false)
   const [stockViewMode, setStockViewMode] = useState<"mobile" | "table">(
-    "mobile"
+    "table"
   )
   const editingItem = store.inventoryRows.find(
     (item) => item.ingredientId === editingIngredientId
@@ -6473,7 +6592,7 @@ function StockView({ store }: { store: Store }) {
   }
 
   function startStockDelete(item: InventoryRow) {
-    if (!store.canEditInventory) {
+    if (!store.canManageIngredientCatalog) {
       return
     }
 
@@ -6690,17 +6809,17 @@ function StockView({ store }: { store: Store }) {
                             แก้ไข {item.ingredient.name}
                           </span>
                         </Button>
-                        {store.canEditInventory && (
+                        {store.canManageIngredientCatalog && (
                           <Button
                             variant="outline"
                             size="icon-lg"
                             className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
                             onClick={() => startStockDelete(item)}
-                            title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                            title={`ปิดใช้งาน ${item.ingredient.name} ทุกโรงเรียน`}
                           >
                             <Trash2 className="size-4" />
                             <span className="sr-only">
-                              ลบ {item.ingredient.name} ออกจากคลัง
+                              ปิดใช้งาน {item.ingredient.name} ทุกโรงเรียน
                             </span>
                           </Button>
                         )}
@@ -6729,32 +6848,20 @@ function StockView({ store }: { store: Store }) {
                           +{formatNumber(item.incoming)} {item.ingredient.unit}
                         </dd>
                       </div>
-                      <div>
+                      <div className="col-span-2 rounded-lg bg-muted/50 p-3">
                         <dt className="text-xs text-muted-foreground">
-                          ราคาปัจจุบัน/หน่วย
+                          ราคาล่าสุด/หน่วย
                         </dt>
-                        <dd
-                          className={cn(
-                            "mt-0.5 font-semibold tabular-nums",
-                            item.costPerUnit > item.ingredient.defaultPrice
-                              ? "text-amber-700"
-                              : "text-emerald-700"
-                          )}
-                        >
-                          {formatCurrency(item.costPerUnit)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">
-                          ราคาตลาด/หน่วย
-                        </dt>
-                        <dd className="mt-0.5 font-medium tabular-nums">
+                        <dd className="mt-0.5 font-semibold tabular-nums">
                           {formatCurrency(item.ingredient.defaultPrice)}
                         </dd>
+                        <dd className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {formatIngredientPriceAttribution(item.ingredient)}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-muted-foreground">
-                          อัปเดตล่าสุด
+                          อัปเดตสต็อกล่าสุด
                         </dt>
                         <dd className="mt-0.5 font-medium">{item.lastUpdated}</dd>
                       </div>
@@ -6777,11 +6884,8 @@ function StockView({ store }: { store: Store }) {
                 <TableHead className="min-w-28 text-right">จองใช้</TableHead>
                 */}
                 <TableHead className="min-w-28 text-right">รับเข้า</TableHead>
-                <TableHead className="min-w-36 text-right">
-                  ราคาตลาด/หน่วย
-                </TableHead>
-                <TableHead className="min-w-40 text-right">
-                  ราคาปัจจุบัน/หน่วย
+                <TableHead className="min-w-72">
+                  ราคาล่าสุด/หน่วย
                 </TableHead>
                 <TableHead className="min-w-32">สถานะ</TableHead>
                 <TableHead className="w-32 text-right">จัดการ</TableHead>
@@ -6828,18 +6932,13 @@ function StockView({ store }: { store: Store }) {
                   <TableCell className="text-right text-emerald-700">
                     +{formatNumber(item.incoming)} {item.ingredient.unit}
                   </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(item.ingredient.defaultPrice)}
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right font-semibold",
-                      item.costPerUnit > item.ingredient.defaultPrice
-                        ? "text-amber-700"
-                        : "text-emerald-700"
-                    )}
-                  >
-                    {formatCurrency(item.costPerUnit)}
+                  <TableCell>
+                    <div className="font-semibold tabular-nums">
+                      {formatCurrency(item.ingredient.defaultPrice)}
+                    </div>
+                    <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                      {formatIngredientPriceAttribution(item.ingredient)}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -6863,17 +6962,17 @@ function StockView({ store }: { store: Store }) {
                           แก้ไข {item.ingredient.name}
                         </span>
                       </Button>
-                      {store.canEditInventory && (
+                      {store.canManageIngredientCatalog && (
                         <Button
                           variant="outline"
                           size="icon-lg"
                           className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
                           onClick={() => startStockDelete(item)}
-                          title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                          title={`ปิดใช้งาน ${item.ingredient.name} ทุกโรงเรียน`}
                         >
                           <Trash2 className="size-4" />
                           <span className="sr-only">
-                            ลบ {item.ingredient.name} ออกจากคลัง
+                            ปิดใช้งาน {item.ingredient.name} ทุกโรงเรียน
                           </span>
                         </Button>
                       )}
@@ -6896,10 +6995,9 @@ function StockView({ store }: { store: Store }) {
               <TableHead className="text-right">จองใช้</TableHead>
               */}
               <TableHead className="text-right">รับเข้า</TableHead>
-              <TableHead className="text-right">ราคาตลาด/หน่วย</TableHead>
-              <TableHead className="text-right">ราคาปัจจุบัน/หน่วย</TableHead>
+              <TableHead>ราคาล่าสุด/หน่วย</TableHead>
               <TableHead>สถานะ</TableHead>
-              <TableHead>อัปเดตล่าสุด</TableHead>
+              <TableHead>อัปเดตสต็อกล่าสุด</TableHead>
               <TableHead className="w-32 text-right">จัดการ</TableHead>
             </TableRow>
           </TableHeader>
@@ -6941,18 +7039,13 @@ function StockView({ store }: { store: Store }) {
                 <TableCell className="text-right text-emerald-700">
                   +{formatNumber(item.incoming)} {item.ingredient.unit}
                 </TableCell>
-                <TableCell className="text-right">
-                  {formatCurrency(item.ingredient.defaultPrice)}
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    "text-right font-semibold",
-                    item.costPerUnit > item.ingredient.defaultPrice
-                      ? "text-amber-700"
-                      : "text-emerald-700"
-                  )}
-                >
-                  {formatCurrency(item.costPerUnit)}
+                <TableCell className="max-w-80">
+                  <div className="font-semibold tabular-nums">
+                    {formatCurrency(item.ingredient.defaultPrice)}
+                  </div>
+                  <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                    {formatIngredientPriceAttribution(item.ingredient)}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Badge
@@ -6977,17 +7070,17 @@ function StockView({ store }: { store: Store }) {
                         แก้ไข {item.ingredient.name}
                       </span>
                     </Button>
-                    {store.canEditInventory && (
+                    {store.canManageIngredientCatalog && (
                       <Button
                         variant="outline"
                         size="icon-lg"
                         className="size-11 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
                         onClick={() => startStockDelete(item)}
-                        title={`ลบ ${item.ingredient.name} ออกจากคลัง`}
+                        title={`ปิดใช้งาน ${item.ingredient.name} ทุกโรงเรียน`}
                       >
                         <Trash2 className="size-4" />
                         <span className="sr-only">
-                          ลบ {item.ingredient.name} ออกจากคลัง
+                          ปิดใช้งาน {item.ingredient.name} ทุกโรงเรียน
                         </span>
                       </Button>
                     )}
@@ -7008,16 +7101,17 @@ function StockView({ store }: { store: Store }) {
         item={editingItem}
         message={stockMessage}
         isSaving={store.isInventorySaving}
+        canManageCatalog={store.canManageIngredientCatalog}
         onCancel={cancelStockEdit}
         onSave={saveStockEdit}
       />
       <PermanentDeleteDialog
         open={Boolean(deletingIngredientId)}
-        title="ลบวัตถุดิบออกจากคลัง"
+        title="ปิดใช้งานวัตถุดิบทุกโรงเรียน"
         itemName={deletingItem?.ingredient.name ?? "รายการวัตถุดิบ"}
-        description="รายการจะถูกนำออกจากคลังของสาขาปัจจุบันเท่านั้น"
-        consequence="วัตถุดิบกลางและประวัติย้อนหลังจะยังคงอยู่ รายการที่มียอดคงเหลือ ยอดจอง บิลรับเข้าฉบับร่าง หรือถูกใช้ในสูตรอาหารจะไม่สามารถลบได้ และวัตถุดิบอาจกลับเข้าคลังเมื่อมีการซื้อเข้าใหม่"
-        confirmLabel="ลบออกจากคลัง"
+        description="รายการนี้จะถูกซ่อนจากทุกโรงเรียน แต่ประวัติเดิมจะยังคงอยู่"
+        consequence="ระบบจะไม่อนุญาตให้ปิดใช้งาน หากโรงเรียนใดยังมียอดคงเหลือ ยอดจอง บิลรับเข้าฉบับร่าง หรือสูตรอาหารที่เปิดใช้งานอ้างอิงวัตถุดิบนี้"
+        confirmLabel="ปิดใช้งานทุกโรงเรียน"
         error={stockDeleteError}
         isDeleting={store.isInventoryDeleting}
         onOpenChange={(open) => {
@@ -7062,6 +7156,7 @@ function StockEditDialog({
   item,
   message,
   isSaving,
+  canManageCatalog,
   onCancel,
   onSave,
 }: {
@@ -7069,6 +7164,7 @@ function StockEditDialog({
   item?: InventoryRow
   message: string
   isSaving: boolean
+  canManageCatalog: boolean
   onCancel: () => void
   onSave: (draft: StockEditDraft) => void
 }) {
@@ -7087,15 +7183,16 @@ function StockEditDialog({
         <DialogHeader className="border-b">
           <DialogTitle>แก้ไขวัตถุดิบ</DialogTitle>
           <DialogDescription>
-            {item
-              ? `อัปเดตข้อมูลฐานวัตถุดิบหลักของ ${item.ingredient.name}`
-              : "อัปเดตข้อมูลฐานวัตถุดิบหลัก"}
+            {canManageCatalog
+              ? `ข้อมูลทะเบียนและราคากลางจะอัปเดตให้ทุกโรงเรียน ส่วนยอดสต็อกเป็นของโรงเรียนนี้`
+              : `แก้ไขยอดสต็อกของ ${item?.ingredient.name ?? "โรงเรียนนี้"} ได้ โดยทะเบียนกลางแก้ได้เฉพาะ Owner`}
           </DialogDescription>
         </DialogHeader>
         <StockEditForm
           draft={draft}
           message={message}
           isSaving={isSaving}
+          canManageCatalog={canManageCatalog}
           onChange={setDraft}
           onCancel={onCancel}
           onSave={() => onSave(draft)}
@@ -7109,6 +7206,7 @@ function StockEditForm({
   draft,
   message,
   isSaving,
+  canManageCatalog,
   onChange,
   onCancel,
   onSave,
@@ -7116,6 +7214,7 @@ function StockEditForm({
   draft: StockEditDraft
   message: string
   isSaving: boolean
+  canManageCatalog: boolean
   onChange: (draft: StockEditDraft) => void
   onCancel: () => void
   onSave: () => void
@@ -7132,12 +7231,25 @@ function StockEditForm({
         onSave()
       }}
     >
+      <div
+        className={cn(
+          "rounded-lg border px-3 py-2 text-sm",
+          canManageCatalog
+            ? "border-sky-200 bg-sky-50 text-sky-800"
+            : "border-border bg-muted/50 text-muted-foreground"
+        )}
+      >
+        {canManageCatalog
+          ? "ชื่อ หมวดหมู่ หน่วย ซัพพลายเออร์ และราคาล่าสุดเป็นทะเบียนกลางของทุกโรงเรียน"
+          : "ข้อมูลทะเบียนกลางแสดงเพื่ออ้างอิง และแก้ไขได้เฉพาะ Owner"}
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label className="mb-2 block">ชื่อวัตถุดิบ</Label>
           <Input
             className="h-11"
             value={draft.name}
+            disabled={!canManageCatalog}
             onChange={(event) => patchDraft({ name: event.target.value })}
           />
         </div>
@@ -7146,6 +7258,7 @@ function StockEditForm({
           <Input
             className="h-11"
             value={draft.category}
+            disabled={!canManageCatalog}
             onChange={(event) => patchDraft({ category: event.target.value })}
           />
         </div>
@@ -7154,6 +7267,7 @@ function StockEditForm({
           <Input
             className="h-11"
             value={draft.unit}
+            disabled={!canManageCatalog}
             onChange={(event) => patchDraft({ unit: event.target.value })}
           />
         </div>
@@ -7162,6 +7276,7 @@ function StockEditForm({
           <Input
             className="h-11"
             value={draft.supplier}
+            disabled={!canManageCatalog}
             onChange={(event) => patchDraft({ supplier: event.target.value })}
           />
         </div>
@@ -7187,14 +7302,9 @@ function StockEditForm({
           onChange={(value) => patchDraft({ reorderPoint: value })}
         />
         <FieldNumber
-          label="ราคาปัจจุบัน/หน่วย"
-          value={draft.costPerUnit}
-          clearZeroOnFocus
-          onChange={(value) => patchDraft({ costPerUnit: value })}
-        />
-        <FieldNumber
-          label="ราคาตลาด/หน่วย"
+          label="ราคาล่าสุด/หน่วย (ทุกโรงเรียน)"
           value={draft.defaultPrice}
+          disabled={!canManageCatalog}
           clearZeroOnFocus
           onChange={(value) => patchDraft({ defaultPrice: value })}
         />

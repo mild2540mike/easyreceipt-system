@@ -44,6 +44,7 @@ model Branch {
   cookingRuns      CookingRun[]
   stockMovements   StockMovement[]
   auditLogs        AuditLog[]
+  ingredientPriceUpdates Ingredient[] @relation("IngredientPriceUpdatedBranch")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -74,6 +75,7 @@ model Member {
   stockMovements StockMovement[]      @relation("StockMovementCreatedBy")
   usageReasons   UsageReason[]        @relation("UsageReasonCreatedBy")
   auditLogs      AuditLog[]           @relation("AuditLogActor")
+  ingredientPriceUpdates Ingredient[] @relation("IngredientPriceUpdatedBy")
 
   @@unique([organizationId, username])
   @@index([organizationId, role, status])
@@ -95,26 +97,35 @@ model MemberBranchAccess {
 }
 
 model Ingredient {
-  id             String   @id @default(cuid()) @db.NVarChar(64)
-  organizationId String   @db.NVarChar(64)
-  name           String   @db.NVarChar(160)
-  category       String   @db.NVarChar(100)
-  unit           String   @db.NVarChar(32)
-  defaultPrice   Decimal  @default(0) @db.Decimal(18, 2)
-  supplier       String   @default("-") @db.NVarChar(180)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now()) @db.DateTime2
-  updatedAt      DateTime @updatedAt @db.DateTime2
+  id                           String    @id @default(cuid()) @db.NVarChar(64)
+  organizationId               String    @db.NVarChar(64)
+  name                         String    @db.NVarChar(160)
+  category                     String    @db.NVarChar(100)
+  unit                         String    @db.NVarChar(32)
+  defaultPrice                 Decimal   @default(0) @db.Decimal(18, 2)
+  supplier                     String    @default("-") @db.NVarChar(180)
+  isActive                     Boolean   @default(true)
+  lastPriceUpdatedByMemberId   String?   @db.NVarChar(64)
+  lastPriceUpdatedBranchId     String?   @db.NVarChar(64)
+  lastPriceUpdatedAt           DateTime? @db.DateTime2
+  lastPriceSource              String?   @db.NVarChar(32)
+  createdAt                    DateTime  @default(now()) @db.DateTime2
+  updatedAt                    DateTime  @updatedAt @db.DateTime2
 
-  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  inventoryItems BranchInventory[]
-  purchaseItems  PurchaseItem[]
-  recipeItems    RecipeItem[]
-  reservations   StockReservation[]
-  stockMovements StockMovement[]
+  organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lastPriceUpdatedBy      Member?            @relation("IngredientPriceUpdatedBy", fields: [lastPriceUpdatedByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lastPriceUpdatedBranch  Branch?            @relation("IngredientPriceUpdatedBranch", fields: [lastPriceUpdatedBranchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventoryItems         BranchInventory[]
+  purchaseItems          PurchaseItem[]
+  recipeItems            RecipeItem[]
+  reservations           StockReservation[]
+  stockMovements         StockMovement[]
 
   @@unique([organizationId, name, unit])
   @@index([organizationId, category])
+  @@index([lastPriceUpdatedByMemberId])
+  @@index([lastPriceUpdatedBranchId])
+  @@index([lastPriceUpdatedAt])
   @@map("ingredients")
 }
 

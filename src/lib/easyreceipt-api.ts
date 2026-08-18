@@ -212,6 +212,10 @@ type ApiIngredient = {
   unit: string
   defaultPrice: number | string
   supplier: string
+  lastPriceUpdatedAt?: string | null
+  lastPriceUpdatedBy?: { id: string; name: string } | null
+  lastPriceUpdatedBranch?: { id: string; code: string; name: string } | null
+  lastPriceSource?: Ingredient["lastPriceSource"]
 }
 
 export type ApiInventoryRow = {
@@ -261,14 +265,17 @@ type ApiUsageReason = {
 }
 
 export type UpdateInventoryApiInput = {
-  name: string
-  category: string
-  unit: string
-  defaultPrice: number
-  supplier: string
-  onHand: number
-  reorderPoint: number
-  costPerUnit: number
+  catalog?: {
+    name?: string
+    category?: string
+    unit?: string
+    defaultPrice?: number
+    supplier?: string
+  }
+  inventory?: {
+    onHand?: number
+    reorderPoint?: number
+  }
 }
 
 export type CreateIngredientFromPurchaseApiInput = {
@@ -599,6 +606,10 @@ function normalizeIngredient(ingredient: ApiIngredient): Ingredient {
     unit: ingredient.unit,
     defaultPrice: toNumber(ingredient.defaultPrice),
     supplier: ingredient.supplier,
+    lastPriceUpdatedAt: ingredient.lastPriceUpdatedAt ?? null,
+    lastPriceUpdatedBy: ingredient.lastPriceUpdatedBy ?? null,
+    lastPriceUpdatedBranch: ingredient.lastPriceUpdatedBranch ?? null,
+    lastPriceSource: ingredient.lastPriceSource ?? null,
   }
 }
 

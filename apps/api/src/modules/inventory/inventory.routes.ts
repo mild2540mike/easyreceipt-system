@@ -24,17 +24,48 @@ import {
   removeUsageReceiptImage,
   saveUsageReceiptImage,
 } from "./usage-receipt-image"
+import {
+  ingredientPriceAttributionInclude,
+  recordIngredientPrice,
+} from "./ingredient-price"
 
-const updateInventorySchema = z.object({
-  name: z.string().min(1),
-  category: z.string().min(1).default("วัตถุดิบ"),
-  unit: z.string().min(1),
-  defaultPrice: z.coerce.number().min(0),
-  supplier: z.string().min(1).default("-"),
-  onHand: z.coerce.number().min(0),
-  reorderPoint: z.coerce.number().min(0),
-  costPerUnit: z.coerce.number().min(0),
+const catalogUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  unit: z.string().min(1).optional(),
+  defaultPrice: z.coerce.number().min(0).optional(),
+  supplier: z.string().min(1).optional(),
 })
+
+const branchInventoryUpdateSchema = z.object({
+  onHand: z.coerce.number().min(0).optional(),
+  reorderPoint: z.coerce.number().min(0).optional(),
+})
+
+const updateInventorySchema = z
+  .object({
+    catalog: catalogUpdateSchema.optional(),
+    inventory: branchInventoryUpdateSchema.optional(),
+    // Flat fields remain accepted for one deployment cycle for older clients.
+    name: z.string().min(1).optional(),
+    category: z.string().min(1).optional(),
+    unit: z.string().min(1).optional(),
+    defaultPrice: z.coerce.number().min(0).optional(),
+    supplier: z.string().min(1).optional(),
+    onHand: z.coerce.number().min(0).optional(),
+    reorderPoint: z.coerce.number().min(0).optional(),
+    costPerUnit: z.coerce.number().min(0).optional(),
+  })
+  .refine(
+    (value) =>
+      Boolean(value.catalog) ||
+      Boolean(value.inventory) ||
+      Object.entries(value).some(
+        ([key, fieldValue]) =>
+          key !== "catalog" && key !== "inventory" && fieldValue !== undefined
+      ),
+    { message: "At least one catalog or inventory field is required." }
+  )
 
 const createIngredientSchema = z.object({
   name: z.string().min(1),
@@ -128,7 +159,9 @@ const deleteUsageBatchSchema = z.object({
 export const inventoryRouter = Router({ mergeParams: true })
 
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
-  include: { ingredient: true }
+  include: {
+    ingredient: { include: typeof ingredientPriceAttributionInclude }
+  }
 }>
 
 type StockMovementWithDetails = Prisma.StockMovementGetPayload<{
@@ -165,7 +198,6 @@ function bangkokDateRange(date: string) {
 
 function serializeInventoryRow(row: InventoryRowWithIngredient) {
   const costPerUnit = Number(row.costPerUnit)
-  const marketPrice = Number(row.ingredient.defaultPrice)
 
   return {
     id: row.id,
@@ -173,7 +205,7 @@ function serializeInventoryRow(row: InventoryRowWithIngredient) {
     ingredientId: row.ingredientId,
     ingredient: {
       ...row.ingredient,
-      defaultPrice: marketPrice > 0 ? marketPrice : costPerUnit,
+      defaultPrice: Number(row.ingredient.defaultPrice),
     },
     onHand: Number(row.onHand),
     reservedQuantity: Number(row.reservedQuantity),
@@ -313,8 +345,10 @@ inventoryRouter.get(
     await assertBranchAccess(prisma, member.id, branchId)
 
     const rows = await prisma.branchInventory.findMany({
-      where: { branchId },
-      include: { ingredient: true },
+      where: { branchId, ingredient: { isActive: true } },
+      include: {
+        ingredient: { include: ingredientPriceAttributionInclude },
+      },
       orderBy: { ingredient: { name: "asc" } },
     })
 
@@ -437,54 +471,131 @@ inventoryRouter.post(
       const unit = input.unit.trim() || "กก."
       const unitPrice = roundMoney(input.unitPrice)
       const supplier = input.supplier.trim() || "ยังไม่ระบุ"
-      const existingIngredient = await tx.ingredient.findFirst({
-        where: {
+      const uniqueIngredientWhere = {
+        organizationId_name_unit: {
           organizationId: access.branch.organizationId,
           name,
           unit,
+        },
+      } as const
+      let ingredient = await tx.ingredient.findUnique({
+        where: uniqueIngredientWhere,
+      })
+      let created = false
+
+      if (ingredient && !ingredient.isActive) {
+        throw badRequest("วัตถุดิบนี้ถูกปิดใช้งาน กรุณาให้ Owner เปิดใช้งานก่อน")
+      }
+
+      if (!ingredient) {
+        try {
+          ingredient = await tx.ingredient.create({
+            data: {
+              organizationId: access.branch.organizationId,
+              name,
+              category: "วัตถุดิบใหม่",
+              unit,
+              defaultPrice: unitPrice,
+              supplier,
+              lastPriceUpdatedByMemberId: member.id,
+              lastPriceUpdatedBranchId: branchId,
+              lastPriceUpdatedAt: new Date(),
+              lastPriceSource: "ingredient_create",
+            },
+          })
+          created = true
+        } catch (error) {
+          if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+            throw error
+          }
+          ingredient = await tx.ingredient.findUnique({
+            where: uniqueIngredientWhere,
+          })
+          if (!ingredient?.isActive) {
+            throw badRequest("วัตถุดิบนี้มีอยู่แล้วหรือถูกปิดใช้งาน")
+          }
+        }
+      }
+
+      if (!ingredient) {
+        throw badRequest("ไม่สามารถสร้างวัตถุดิบได้")
+      }
+
+      const branches = await tx.branch.findMany({
+        where: {
+          organizationId: access.branch.organizationId,
           isActive: true,
         },
+        select: { id: true },
       })
-      const ingredient =
-        existingIngredient ??
-        (await tx.ingredient.create({
+
+      for (const branch of branches) {
+        await tx.branchInventory.upsert({
+          where: {
+            branchId_ingredientId: {
+              branchId: branch.id,
+              ingredientId: ingredient.id,
+            },
+          },
+          create: {
+            branchId: branch.id,
+            ingredientId: ingredient.id,
+            onHand: 0,
+            reservedQuantity: 0,
+            reorderPoint: 0,
+            costPerUnit: 0,
+          },
+          update: {},
+          select: { id: true },
+        })
+      }
+
+      if (created) {
+        await tx.auditLog.create({
           data: {
             organizationId: access.branch.organizationId,
-            name,
-            category: "วัตถุดิบใหม่",
-            unit,
-            defaultPrice: unitPrice,
-            supplier,
+            branchId,
+            memberId: member.id,
+            action: "ingredient_catalog_created",
+            entityType: "ingredient",
+            entityId: ingredient.id,
+            metadataJson: JSON.stringify({ name, unit, supplier, defaultPrice: unitPrice }),
           },
-        }))
+        })
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "ingredient_price_recorded",
+            entityType: "ingredient",
+            entityId: ingredient.id,
+            metadataJson: JSON.stringify({
+              ingredientId: ingredient.id,
+              ingredientName: name,
+              source: "ingredient_create",
+              beforePrice: 0,
+              price: unitPrice,
+              recordedAt: ingredient.lastPriceUpdatedAt?.toISOString(),
+            }).slice(0, 4000),
+          },
+        })
+      }
 
-      return tx.branchInventory.upsert({
+      return tx.branchInventory.findUniqueOrThrow({
         where: {
           branchId_ingredientId: {
             branchId,
             ingredientId: ingredient.id,
           },
         },
-        create: {
-          branchId,
-          ingredientId: ingredient.id,
-          onHand: 0,
-          reservedQuantity: 0,
-          reorderPoint: 0,
-          costPerUnit: unitPrice,
-          lastUpdatedAt: new Date(),
-        },
-        update: {
-          costPerUnit: unitPrice,
-          lastUpdatedAt: new Date(),
-        },
         include: {
-          ingredient: true,
+          ingredient: { include: ingredientPriceAttributionInclude },
         },
       })
     })
 
-    res.status(201).json({ inventory })
+    res.status(201).json({ inventory: serializeInventoryRow(inventory) })
   })
 )
 
@@ -1196,7 +1307,10 @@ inventoryRouter.patch(
     const inventory = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (!memberCanEditMenu(access.member, "stock")) {
+      if (
+        access.member.role !== "owner" &&
+        !memberCanEditMenu(access.member, "stock")
+      ) {
         throw forbidden("Member does not have permission to edit inventory.")
       }
 
@@ -1204,7 +1318,11 @@ inventoryRouter.patch(
         where: { id: ingredientId },
       })
 
-      if (!currentIngredient) {
+      if (
+        !currentIngredient ||
+        currentIngredient.organizationId !== access.branch.organizationId ||
+        !currentIngredient.isActive
+      ) {
         throw notFound("Ingredient not found.")
       }
 
@@ -1221,54 +1339,46 @@ inventoryRouter.patch(
         throw notFound("Inventory item not found.")
       }
 
-      const duplicateIngredient = await tx.ingredient.findFirst({
-        where: {
-          organizationId: currentIngredient.organizationId,
-          id: { not: ingredientId },
-          name: input.name.trim(),
-          unit: input.unit.trim(),
-        },
-      })
-
-      if (duplicateIngredient) {
-        throw badRequest("Ingredient name and unit already exist.")
+      const catalogInput = {
+        name: input.name,
+        category: input.category,
+        unit: input.unit,
+        defaultPrice: input.defaultPrice,
+        supplier: input.supplier,
+        ...input.catalog,
       }
-
+      const inventoryInput = {
+        onHand: input.onHand,
+        reorderPoint: input.reorderPoint,
+        ...input.inventory,
+      }
       const nextIngredient = {
-        name: input.name.trim(),
-        category: input.category.trim() || "วัตถุดิบ",
-        unit: input.unit.trim(),
-        defaultPrice: roundMoney(input.defaultPrice),
-        supplier: input.supplier.trim() || "-",
+        name: catalogInput.name?.trim() || currentIngredient.name,
+        category:
+          catalogInput.category?.trim() || currentIngredient.category,
+        unit: catalogInput.unit?.trim() || currentIngredient.unit,
+        defaultPrice:
+          catalogInput.defaultPrice === undefined
+            ? Number(currentIngredient.defaultPrice)
+            : roundMoney(catalogInput.defaultPrice),
+        supplier: catalogInput.supplier?.trim() || currentIngredient.supplier,
       }
       const nextInventory = {
-        onHand: roundQuantity(input.onHand),
-        reorderPoint: roundQuantity(input.reorderPoint),
-        costPerUnit: roundMoney(input.costPerUnit),
+        onHand:
+          inventoryInput.onHand === undefined
+            ? Number(currentInventory.onHand)
+            : roundQuantity(inventoryInput.onHand),
+        reorderPoint:
+          inventoryInput.reorderPoint === undefined
+            ? Number(currentInventory.reorderPoint)
+            : roundQuantity(inventoryInput.reorderPoint),
+        // Legacy clients may still send this branch-only internal value.
+        costPerUnit:
+          input.costPerUnit === undefined
+            ? Number(currentInventory.costPerUnit)
+            : roundMoney(input.costPerUnit),
       }
-
-      await tx.ingredient.update({
-        where: { id: ingredientId },
-        data: nextIngredient,
-      })
-
-      const updatedInventory = await tx.branchInventory.update({
-        where: {
-          branchId_ingredientId: {
-            branchId,
-            ingredientId,
-          },
-        },
-        data: {
-          ...nextInventory,
-          lastUpdatedAt: new Date(),
-        },
-        include: {
-          ingredient: true,
-        },
-      })
-
-      const changes = [
+      const catalogChanges = [
         { field: "name", before: currentIngredient.name, after: nextIngredient.name },
         {
           field: "category",
@@ -1286,6 +1396,8 @@ inventoryRouter.patch(
           before: Number(currentIngredient.defaultPrice),
           after: nextIngredient.defaultPrice,
         },
+      ].filter((change) => String(change.before) !== String(change.after))
+      const inventoryChanges = [
         {
           field: "onHand",
           before: Number(currentInventory.onHand),
@@ -1303,7 +1415,82 @@ inventoryRouter.patch(
         },
       ].filter((change) => String(change.before) !== String(change.after))
 
-      if (changes.length > 0) {
+      if (catalogChanges.length > 0 && access.member.role !== "owner") {
+        throw forbidden("Only Owner can edit the shared ingredient catalog.")
+      }
+
+      if (catalogChanges.length > 0) {
+        const duplicateIngredient = await tx.ingredient.findFirst({
+          where: {
+            organizationId: currentIngredient.organizationId,
+            id: { not: ingredientId },
+            name: nextIngredient.name,
+            unit: nextIngredient.unit,
+          },
+          select: { id: true },
+        })
+
+        if (duplicateIngredient) {
+          throw badRequest("Ingredient name and unit already exist.")
+        }
+
+        await tx.ingredient.update({
+          where: { id: ingredientId },
+          data: {
+            name: nextIngredient.name,
+            category: nextIngredient.category,
+            unit: nextIngredient.unit,
+            supplier: nextIngredient.supplier,
+          },
+        })
+
+        if (
+          catalogChanges.some((change) => change.field === "defaultPrice")
+        ) {
+          await recordIngredientPrice(tx, {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            ingredientId,
+            unitPrice: nextIngredient.defaultPrice,
+            source: "owner_edit",
+          })
+        }
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            action: "ingredient_catalog_updated",
+            entityType: "ingredient",
+            entityId: ingredientId,
+            metadataJson: JSON.stringify({
+              ingredientId,
+              ingredientName: nextIngredient.name,
+              changes: catalogChanges,
+            }).slice(0, 4000),
+          },
+        })
+      }
+
+      const updatedInventory = await tx.branchInventory.update({
+        where: {
+          branchId_ingredientId: {
+            branchId,
+            ingredientId,
+          },
+        },
+        data: {
+          ...nextInventory,
+          lastUpdatedAt: new Date(),
+        },
+        include: {
+          ingredient: { include: ingredientPriceAttributionInclude },
+        },
+      })
+
+      if (inventoryChanges.length > 0) {
         await tx.auditLog.create({
           data: {
             organizationId: access.branch.organizationId,
@@ -1315,7 +1502,7 @@ inventoryRouter.patch(
             metadataJson: JSON.stringify({
               ingredientId,
               ingredientName: nextIngredient.name,
-              changes,
+              changes: inventoryChanges,
             }).slice(0, 4000),
           },
         })
@@ -1324,7 +1511,7 @@ inventoryRouter.patch(
       return updatedInventory
     })
 
-    res.json({ inventory })
+    res.json({ inventory: serializeInventoryRow(inventory) })
   })
 )
 
@@ -1339,35 +1526,40 @@ inventoryRouter.delete(
       async (tx) => {
         const access = await assertBranchAccess(tx, member.id, branchId)
 
-        if (!memberCanEditMenu(access.member, "stock")) {
-          throw forbidden("Member does not have permission to delete inventory.")
+        if (access.member.role !== "owner") {
+          throw forbidden("Only Owner can deactivate shared ingredients.")
         }
 
-        const inventory = await tx.branchInventory.findUnique({
+        const ingredient = await tx.ingredient.findFirst({
           where: {
-            branchId_ingredientId: {
-              branchId,
-              ingredientId,
-            },
-          },
-          include: {
-            ingredient: true,
+            id: ingredientId,
+            organizationId: access.branch.organizationId,
+            isActive: true,
           },
         })
 
-        if (!inventory) {
-          throw notFound("ไม่พบรายการวัตถุดิบในคลังสาขานี้")
+        if (!ingredient) {
+          throw notFound("ไม่พบวัตถุดิบในทะเบียนกลาง")
         }
 
-        if (Math.abs(Number(inventory.onHand)) > 0.0005) {
+        const inventoryInUse = await tx.branchInventory.findFirst({
+          where: {
+            ingredientId,
+            branch: { organizationId: access.branch.organizationId },
+            OR: [{ onHand: { gt: 0 } }, { reservedQuantity: { gt: 0 } }],
+          },
+          include: { branch: { select: { name: true } } },
+        })
+
+        if (inventoryInUse && Number(inventoryInUse.onHand) > 0) {
           throw badRequest(
-            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมียอดคงเหลือในคลัง`
+            `ปิดใช้ ${ingredient.name} ไม่ได้ เพราะยังมียอดคงเหลือที่ ${inventoryInUse.branch.name}`
           )
         }
 
-        if (Math.abs(Number(inventory.reservedQuantity)) > 0.0005) {
+        if (inventoryInUse && Number(inventoryInUse.reservedQuantity) > 0) {
           throw badRequest(
-            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมียอดจองใช้งานอยู่`
+            `ปิดใช้ ${ingredient.name} ไม่ได้ เพราะยังมียอดจองที่ ${inventoryInUse.branch.name}`
           )
         }
 
@@ -1375,9 +1567,9 @@ inventoryRouter.delete(
           await Promise.all([
             tx.stockReservation.findFirst({
               where: {
-                branchId,
                 ingredientId,
                 status: "active",
+                branch: { organizationId: access.branch.organizationId },
               },
               select: { id: true },
             }),
@@ -1385,8 +1577,8 @@ inventoryRouter.delete(
               where: {
                 ingredientId,
                 purchase: {
-                  branchId,
                   status: "draft",
+                  branch: { organizationId: access.branch.organizationId },
                 },
               },
               select: { id: true },
@@ -1395,7 +1587,8 @@ inventoryRouter.delete(
               where: {
                 ingredientId,
                 recipe: {
-                  branchId,
+                  isActive: true,
+                  branch: { organizationId: access.branch.organizationId },
                 },
               },
               select: { id: true },
@@ -1404,26 +1597,25 @@ inventoryRouter.delete(
 
         if (activeReservation) {
           throw badRequest(
-            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังมีสูตรอาหารจองวัตถุดิบนี้อยู่`
+            `ปิดใช้ ${ingredient.name} ไม่ได้ เพราะยังมีรายการจองที่ใช้งานอยู่`
           )
         }
 
         if (draftPurchaseItem) {
           throw badRequest(
-            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังอยู่ในบิลรับเข้าฉบับร่าง`
+            `ปิดใช้ ${ingredient.name} ไม่ได้ เพราะยังอยู่ในบิลรับเข้าฉบับร่าง`
           )
         }
 
         if (recipeItem) {
           throw badRequest(
-            `ลบ ${inventory.ingredient.name} ไม่ได้ เพราะยังถูกใช้ในสูตรอาหารของสาขา`
+            `ปิดใช้ ${ingredient.name} ไม่ได้ เพราะยังถูกใช้ในสูตรอาหารที่เปิดใช้งาน`
           )
         }
 
-        await tx.branchInventory.delete({
-          where: {
-            id: inventory.id,
-          },
+        await tx.ingredient.update({
+          where: { id: ingredientId },
+          data: { isActive: false },
         })
 
         await tx.auditLog.create({
@@ -1431,15 +1623,13 @@ inventoryRouter.delete(
             organizationId: access.branch.organizationId,
             branchId,
             memberId: member.id,
-            action: "inventory_deleted",
-            entityType: "branch_inventory",
+            action: "ingredient_catalog_deactivated",
+            entityType: "ingredient",
             entityId: ingredientId,
             metadataJson: JSON.stringify({
-              branchInventoryId: inventory.id,
               ingredientId,
-              ingredientName: inventory.ingredient.name,
-              onHand: Number(inventory.onHand),
-              reservedQuantity: Number(inventory.reservedQuantity),
+              ingredientName: ingredient.name,
+              scope: "organization",
             }).slice(0, 4000),
           },
         })

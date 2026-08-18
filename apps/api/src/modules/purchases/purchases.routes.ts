@@ -13,6 +13,7 @@ import {
   memberCanEditMenu,
   memberCanViewMenu,
 } from "../common/permissions"
+import { recordIngredientPrice } from "../inventory/ingredient-price"
 import {
   purchaseScanRequestSchema,
   scanPurchaseReceipt,
@@ -121,16 +122,6 @@ function bangkokDateRange(date: Date) {
     start: new Date(`${key}T00:00:00.000+07:00`),
     end: new Date(`${key}T23:59:59.999+07:00`),
   }
-}
-
-function shouldSyncMarketPrice(
-  marketPrice: Prisma.Decimal,
-  currentCostPerUnit: Prisma.Decimal | null | undefined
-) {
-  const market = Number(marketPrice)
-  const currentCost = Number(currentCostPerUnit ?? 0)
-
-  return market <= 0 || Math.abs(market - currentCost) < 0.005
 }
 
 function uploadedReceiptImageData(
@@ -704,17 +695,14 @@ purchasesRouter.post(
           const beforeQuantity = Number(inventory?.onHand ?? 0)
           const afterQuantity = roundQuantity(beforeQuantity + quantity)
 
-          if (
-            shouldSyncMarketPrice(
-              ingredient.defaultPrice,
-              inventory?.costPerUnit
-            )
-          ) {
-            await tx.ingredient.update({
-              where: { id: ingredient.id },
-              data: { defaultPrice: unitPrice },
-            })
-          }
+          await recordIngredientPrice(tx, {
+            organizationId: access.branch.organizationId,
+            branchId,
+            memberId: member.id,
+            ingredientId: ingredient.id,
+            unitPrice,
+            source: "purchase",
+          })
 
           if (inventory) {
             await tx.branchInventory.update({
@@ -1021,17 +1009,14 @@ purchasesRouter.post(
               beforeQuantity = Number(inventory?.onHand ?? 0)
               afterQuantity = roundQuantity(beforeQuantity + quantity)
 
-              if (
-                shouldSyncMarketPrice(
-                  ingredient.defaultPrice,
-                  inventory?.costPerUnit
-                )
-              ) {
-                await tx.ingredient.update({
-                  where: { id: ingredient.id },
-                  data: { defaultPrice: unitPrice },
-                })
-              }
+              await recordIngredientPrice(tx, {
+                organizationId: access.branch.organizationId,
+                branchId,
+                memberId: member.id,
+                ingredientId: ingredient.id,
+                unitPrice,
+                source: "purchase",
+              })
 
               if (inventory) {
                 await tx.branchInventory.update({

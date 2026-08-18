@@ -120,6 +120,15 @@ export type Ingredient = {
   unit: string
   defaultPrice: number
   supplier: string
+  lastPriceUpdatedAt: string | null
+  lastPriceUpdatedBy: { id: string; name: string } | null
+  lastPriceUpdatedBranch: { id: string; code: string; name: string } | null
+  lastPriceSource:
+    | "purchase"
+    | "owner_edit"
+    | "ingredient_create"
+    | "migration"
+    | null
 }
 
 export type PurchaseReceiptImage = {
