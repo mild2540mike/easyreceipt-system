@@ -91,6 +91,12 @@ const createPurchaseBatchSchema = z.object({
   bills: z.array(purchaseBillSchema).min(1).max(50),
 })
 
+const updatePurchaseDraftSchema = z.object({
+  purchaseDate: z.string().min(1),
+  name: z.string().trim().min(1).max(180),
+  items: z.array(purchaseItemSchema).min(1).max(200),
+})
+
 const purchaseQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
@@ -257,6 +263,125 @@ purchasesRouter.get(
           lineTotal: Number(item.lineTotal),
         })),
       })),
+    })
+  })
+)
+
+purchasesRouter.patch(
+  "/:purchaseId",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const purchaseId = routeParam(req.params.purchaseId, "purchaseId")
+    const input = updatePurchaseDraftSchema.parse(req.body)
+
+    const updatedPurchase = await prisma.$transaction(
+      async (tx) => {
+        const access = await assertBranchAccess(tx, member.id, branchId)
+
+        if (!memberCanEditMenu(access.member, "purchase")) {
+          throw forbidden("Member does not have permission to edit purchases.")
+        }
+
+        const purchaseDate = new Date(input.purchaseDate)
+
+        if (Number.isNaN(purchaseDate.getTime())) {
+          throw badRequest("Invalid purchase date.")
+        }
+
+        const purchase = await tx.purchase.findFirst({
+          where: { id: purchaseId, branchId },
+          select: { id: true, status: true },
+        })
+
+        if (!purchase) {
+          throw notFound("Purchase draft not found.")
+        }
+
+        if (purchase.status !== "draft") {
+          throw badRequest("Only draft purchases can be edited.")
+        }
+
+        const ingredientIds = Array.from(
+          new Set(input.items.map((item) => item.ingredientId))
+        )
+        const ingredients = await tx.ingredient.findMany({
+          where: {
+            id: { in: ingredientIds },
+            organizationId: access.branch.organizationId,
+            isActive: true,
+          },
+        })
+        const ingredientById = new Map(
+          ingredients.map((ingredient) => [ingredient.id, ingredient] as const)
+        )
+
+        if (ingredients.length !== ingredientIds.length) {
+          throw notFound("One or more purchase ingredients were not found.")
+        }
+
+        const items = input.items.map((item) => {
+          const ingredient = ingredientById.get(item.ingredientId)
+
+          if (!ingredient) {
+            throw notFound(`Ingredient ${item.ingredientId} not found.`)
+          }
+
+          const quantity = roundQuantity(item.quantity)
+          const unitPrice = roundMoney(item.unitPrice)
+
+          return {
+            purchaseId: purchase.id,
+            ingredientId: item.ingredientId,
+            quantity,
+            unit: item.unit?.trim() || ingredient.unit,
+            unitPrice,
+            lineTotal: roundMoney(quantity * unitPrice),
+          }
+        })
+        const totalAmount = roundMoney(
+          items.reduce((total, item) => total + item.lineTotal, 0)
+        )
+
+        await tx.purchaseItem.deleteMany({
+          where: { purchaseId: purchase.id },
+        })
+        await tx.purchaseItem.createMany({ data: items })
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: {
+            purchaseDate,
+            vendor: input.name,
+            totalAmount,
+          },
+        })
+
+        return tx.purchase.findUniqueOrThrow({
+          where: { id: purchase.id },
+          include: {
+            items: {
+              include: { ingredient: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        })
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }
+    )
+
+    res.json({
+      purchase: {
+        ...updatedPurchase,
+        totalAmount: Number(updatedPurchase.totalAmount),
+        items: updatedPurchase.items.map((item) => ({
+          ...item,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          lineTotal: Number(item.lineTotal),
+        })),
+      },
     })
   })
 )

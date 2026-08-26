@@ -55,6 +55,7 @@ import {
   apiUnpinBranchRecipe,
   apiUpdateBranchBudget,
   apiUpdateBranchInventory,
+  apiUpdateBranchPurchaseDraft,
   apiUpdateBranchRecipe,
   apiUpdateMember,
   type AddMemberApiInput,
@@ -198,6 +199,7 @@ export type BranchWorkspace = {
   recipePlanByRecipeId: Record<string, NormalizedRecipePlan>
   purchaseDate: Date
   purchaseItems: PurchaseItem[]
+  editingPurchaseDraftId: string | null
   usageDate: Date
   usageItems: UsageDraftItem[]
   usageFormDraftSavedSignature: string | null
@@ -219,8 +221,8 @@ const branchesQueryKey = ["easyreceipt", "branches"] as const
 const membersQueryKey = (memberId: string) =>
   ["easyreceipt", "members", memberId] as const
 const reportsQueryKey = ["easyreceipt", "reports", "summary"] as const
-const reportSummaryQueryKey = (dateKey: string) =>
-  [...reportsQueryKey, dateKey] as const
+const reportSummaryQueryKey = (fromDateKey: string, toDateKey: string) =>
+  [...reportsQueryKey, fromDateKey, toDateKey] as const
 const dashboardQueryKey = (branchId: string) =>
   ["easyreceipt", "dashboard", branchId] as const
 const inventoryQueryKey = (branchId: string) =>
@@ -295,6 +297,7 @@ type PersistedFormDraft = {
   version: 1
   purchaseDate: string
   purchaseItems: PurchaseItem[]
+  editingPurchaseDraftId?: string | null
   usageDate: string
   usageItems: UsageDraftItem[]
   usageSavedSignature?: string | null
@@ -345,6 +348,10 @@ function readFormDraft(memberId: string, branchId: string) {
     return {
       purchaseDate,
       purchaseItems: draft.purchaseItems,
+      editingPurchaseDraftId:
+        typeof draft.editingPurchaseDraftId === "string"
+          ? draft.editingPurchaseDraftId
+          : null,
       usageDate,
       usageItems: draft.usageItems,
       usageSavedSignature:
@@ -400,6 +407,7 @@ function persistFormDraft(memberId: string, workspace: BranchWorkspace) {
       version: 1,
       purchaseDate: workspace.purchaseDate.toISOString(),
       purchaseItems: storablePurchaseItems(workspace.purchaseItems),
+      editingPurchaseDraftId: workspace.editingPurchaseDraftId,
       usageDate: workspace.usageDate.toISOString(),
       usageItems: storableUsageItems(workspace.usageItems),
       usageSavedSignature: workspace.usageFormDraftSavedSignature,
@@ -561,6 +569,7 @@ function createEmptyBranchWorkspace(branchId: string): BranchWorkspace {
     recipePlanByRecipeId: {},
     purchaseDate: new Date(),
     purchaseItems: [],
+    editingPurchaseDraftId: null,
     usageDate: new Date(),
     usageItems: [],
     usageFormDraftSavedSignature: null,
@@ -578,6 +587,7 @@ function createBranchWorkspace(memberId: string, branchId: string) {
         ...workspace,
         purchaseDate: draft.purchaseDate,
         purchaseItems: draft.purchaseItems,
+        editingPurchaseDraftId: draft.editingPurchaseDraftId,
         usageDate: draft.usageDate,
         usageItems: draft.usageItems,
         usageFormDraftSavedSignature: draft.usageSavedSignature,
@@ -713,9 +723,11 @@ function buildReportMetrics(
 export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const queryClient = useQueryClient()
   const [activeView, setActiveView] = useState<ViewId>("dashboard")
-  const [reportDateKey, setReportDateKey] = useState(() =>
-    bangkokDateKey(new Date())
-  )
+  const [reportDateRangeKeys, setReportDateRangeKeys] = useState(() => {
+    const today = bangkokDateKey(new Date())
+
+    return { from: today, to: today }
+  })
   const effectiveActiveView = routeActiveView ?? activeView
   const [currentMember, setCurrentMember] = useState<Member | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -1018,9 +1030,14 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     staleTime: 15_000,
   })
 
+  const todayReportDateKey = bangkokDateKey(new Date())
+  const reportQueryRange =
+    effectiveActiveView === "reports"
+      ? reportDateRangeKeys
+      : { from: todayReportDateKey, to: todayReportDateKey }
   const reportsQuery = useQuery({
-    queryKey: reportSummaryQueryKey(reportDateKey),
-    queryFn: () => apiGetReportSummary({ date: reportDateKey }),
+    queryKey: reportSummaryQueryKey(reportQueryRange.from, reportQueryRange.to),
+    queryFn: () => apiGetReportSummary(reportQueryRange),
     enabled: shouldLoadReports,
     staleTime: 15_000,
   })
@@ -1357,6 +1374,40 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setPurchaseMutationError(
         errorMessage(error, "Purchase draft could not be deleted.")
+      )
+    },
+  })
+
+  const updatePurchaseDraftMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      purchaseId,
+      purchaseDate,
+      name,
+      items,
+    }: {
+      branchId: string
+      purchaseId: string
+      purchaseDate: string
+      name: string
+      items: PurchaseItem[]
+    }) =>
+      apiUpdateBranchPurchaseDraft(branchId, purchaseId, {
+        purchaseDate,
+        name,
+        items: items.map((item) => ({
+          ingredientId: item.ingredientId,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+        })),
+      }),
+    onMutate: () => {
+      setPurchaseMutationError("")
+    },
+    onError: (error) => {
+      setPurchaseMutationError(
+        errorMessage(error, "ไม่สามารถแก้ไขฉบับร่างได้")
       )
     },
   })
@@ -1716,6 +1767,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const recipePlanByRecipeId = activeWorkspace.recipePlanByRecipeId
   const purchaseDate = activeWorkspace.purchaseDate
   const purchaseItems = activeWorkspace.purchaseItems
+  const editingPurchaseDraftId = activeWorkspace.editingPurchaseDraftId
   const usageDate = activeWorkspace.usageDate
   const usageItems = activeWorkspace.usageItems
   const purchaseHistory = useMemo(
@@ -1729,6 +1781,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const draftPurchaseHistory = useMemo(
     () => purchaseHistory.filter((purchase) => purchase.status === "draft"),
     [purchaseHistory]
+  )
+  const uneditedDraftPurchaseHistory = useMemo(
+    () =>
+      draftPurchaseHistory.filter(
+        (purchase) => purchase.id !== editingPurchaseDraftId
+      ),
+    [draftPurchaseHistory, editingPurchaseDraftId]
   )
   const latestDraftPurchase = draftPurchaseHistory[0] ?? null
   const purchaseOrderDraftItems = useMemo<PurchaseItem[]>(
@@ -1761,11 +1820,11 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   )
   const draftPurchaseTotalForDate = useMemo(
     () =>
-      draftPurchaseHistory.reduce(
+      uneditedDraftPurchaseHistory.reduce(
         (total, purchase) => total + purchase.total,
         0
       ),
-    [draftPurchaseHistory]
+    [uneditedDraftPurchaseHistory]
   )
   const dashboardSummary = dashboardQuery.data ?? emptyDashboard
   const reportSummary = useMemo(
@@ -1822,7 +1881,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const incomingByIngredient = useMemo(() => {
     const incoming = new Map<string, number>()
 
-    const draftItems = draftPurchaseHistory.flatMap((purchase) => purchase.items)
+    const draftItems = uneditedDraftPurchaseHistory.flatMap(
+      (purchase) => purchase.items
+    )
 
     for (const item of [...draftItems, ...purchaseItems]) {
       if (!item.ingredientId || item.quantity <= 0) {
@@ -1838,7 +1899,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
 
     return incoming
-  }, [draftPurchaseHistory, purchaseItems])
+  }, [purchaseItems, uneditedDraftPurchaseHistory])
 
   const reservedByIngredient = useMemo(() => {
     const reserved = new Map<string, number>()
@@ -2095,18 +2156,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   const reportBranchPurchaseSeries = useMemo<BranchReportSeriesItem[]>(() => {
     if (reportSummary.dailyPurchases.length === 0) {
-      return reportPurchaseSeries.map((item) => ({
-        date: item.label,
-        label: item.label,
-        total: item.total,
-        branches: [
-          {
-            branchId: "total",
-            branchName: "รวม",
-            total: item.total,
-          },
-        ],
-      }))
+      return []
     }
 
     const byDate = new Map<string, BranchReportSeriesItem>()
@@ -2131,7 +2181,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     return Array.from(byDate.values()).sort((first, second) =>
       first.date.localeCompare(second.date)
     )
-  }, [reportPurchaseSeries, reportSummary.dailyPurchases])
+  }, [reportSummary.dailyPurchases])
 
   const reportBranchStockOutSeries = useMemo<BranchReportSeriesItem[]>(() => {
     const byDate = new Map<string, BranchReportSeriesItem>()
@@ -2386,8 +2436,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     })
   }
 
-  function setReportDate(date: Date) {
-    setReportDateKey(calendarDateKey(date))
+  function setReportDateRange(range: { from: Date; to: Date }) {
+    const from = calendarDateKey(range.from)
+    const to = calendarDateKey(range.to)
+
+    setReportDateRangeKeys(
+      from <= to ? { from, to } : { from: to, to: from }
+    )
   }
 
   function addPurchaseBill() {
@@ -2891,6 +2946,91 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     return uploadedGroups
   }
 
+  function beginPurchaseDraftEdit(purchaseId: string): ActionResult {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditPurchase) {
+      return {
+        ok: false,
+        error: "บัญชีนี้ไม่มีสิทธิ์แก้ไขฉบับร่างของมาเพิ่ม",
+      }
+    }
+
+    if (purchaseItems.length > 0 && editingPurchaseDraftId !== purchaseId) {
+      return {
+        ok: false,
+        error: "กรุณาบันทึกหรือล้างรายการที่กำลังกรอกก่อนแก้ไขฉบับร่าง",
+      }
+    }
+
+    const purchase = draftPurchaseHistory.find(
+      (item) => item.id === purchaseId
+    )
+
+    if (!purchase) {
+      return { ok: false, error: "ไม่พบฉบับร่างที่ต้องการแก้ไข" }
+    }
+
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseDate: new Date(purchase.purchasedAt),
+      purchaseItems: purchase.items.map((item) => ({
+        id: `draft-edit-${item.id}`,
+        ingredientId: item.ingredientId,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        billName: purchase.vendor,
+      })),
+      editingPurchaseDraftId: purchase.id,
+    }))
+
+    return { ok: true }
+  }
+
+  function cancelPurchaseDraftEdit() {
+    if (!editingPurchaseDraftId) {
+      return
+    }
+
+    updateActiveWorkspace((workspace) => ({
+      ...workspace,
+      purchaseItems: [],
+      editingPurchaseDraftId: null,
+    }))
+  }
+
+  async function persistEditingPurchaseDraft(items: PurchaseItem[]) {
+    if (!editingPurchaseDraftId) {
+      return
+    }
+
+    const bills = groupPurchaseItemsByBill(items)
+
+    if (bills.length !== 1) {
+      throw new Error("ฉบับร่างหนึ่งรายการต้องมีชื่อบิลเดียว")
+    }
+
+    const bill = bills[0]
+    const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
+
+    await updatePurchaseDraftMutation.mutateAsync({
+      branchId: activeBranchId,
+      purchaseId: editingPurchaseDraftId,
+      purchaseDate: purchaseTimestamp.toISOString(),
+      name: bill.name,
+      items: bill.items,
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ["easyreceipt", "purchases", activeBranchId],
+    })
+  }
+
   async function savePurchaseDraft(): Promise<ActionResult> {
     if (!currentMember || !activeBranchId) {
       return {
@@ -2931,6 +3071,17 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
 
     try {
+      if (editingPurchaseDraftId) {
+        await persistEditingPurchaseDraft(items)
+        updateActiveWorkspace((workspace) => ({
+          ...workspace,
+          purchaseItems: [],
+          editingPurchaseDraftId: null,
+        }))
+
+        return { ok: true }
+      }
+
       const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
       const bills = await uploadReceiptImagesForBills(
         activeBranchId,
@@ -2969,7 +3120,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     if (!currentMember || !activeBranchId) {
       return {
         ok: false,
-        error: "à¸¢à¸±à¸‡à¹„à¸¡à¹ˆà¹„à¸”à¹‰à¹€à¸‚à¹‰à¸²à¸ªà¸¹à¹ˆà¸£à¸°à¸šà¸šà¸«à¸£à¸·à¸­à¹€à¸¥à¸·à¸­à¸à¸ªà¸²à¸‚à¸²",
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
       }
     }
 
@@ -2985,6 +3136,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
         branchId: activeBranchId,
         purchaseId,
       })
+      if (editingPurchaseDraftId === purchaseId) {
+        updateActiveWorkspace((workspace) => ({
+          ...workspace,
+          purchaseItems: [],
+          editingPurchaseDraftId: null,
+        }))
+      }
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: purchasesQueryKey(activeBranchId, purchaseDateKey),
@@ -2996,7 +3154,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
       return { ok: true }
     } catch (error) {
-      const message = errorMessage(error, "à¹„à¸¡à¹ˆà¸ªà¸²à¸¡à¸²à¸£à¸–à¸¥à¸šà¸‰à¸šà¸±à¸šà¸£à¹ˆà¸²à¸‡à¹„à¸”à¹‰")
+      const message = errorMessage(error, "ไม่สามารถลบฉบับร่างได้")
       setPurchaseMutationError(message)
 
       return { ok: false, error: message }
@@ -3200,10 +3358,15 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
     try {
       const purchaseTimestamp = purchaseTimestampForSelectedDate(purchaseDate)
-      const newBills = await uploadReceiptImagesForBills(
-        activeBranchId,
-        groupPurchaseItemsByBill(items)
-      )
+      if (editingPurchaseDraftId) {
+        await persistEditingPurchaseDraft(items)
+      }
+      const newBills = editingPurchaseDraftId
+        ? []
+        : await uploadReceiptImagesForBills(
+            activeBranchId,
+            groupPurchaseItemsByBill(items)
+          )
 
       await createPurchaseMutation.mutateAsync({
         branchId: activeBranchId,
@@ -3222,6 +3385,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       updateActiveWorkspace((workspace) => ({
         ...workspace,
         purchaseItems: [],
+        editingPurchaseDraftId: null,
         purchaseOrderDraftItems: [],
         purchaseOrderDraftSavedAt: null,
       }))
@@ -4045,6 +4209,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     clearUsageScanError,
     submitUsageDraft,
     draftPurchasesForDate: draftPurchaseHistory,
+    editingPurchaseDraftId,
     savedPurchasesForDate: savedPurchaseHistory,
     savedPurchaseTotalForDate,
     purchaseBudgetStatus,
@@ -4060,6 +4225,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     removePurchaseItem,
     scanPurchaseImage,
     clearPurchaseScanError,
+    beginPurchaseDraftEdit,
+    cancelPurchaseDraftEdit,
     savePurchaseDraft,
     deletePurchaseDraft,
     deletePurchaseDraftItem,
@@ -4070,7 +4237,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isUsageMovementsLoading,
     isUsageReasonsLoading: usageReasonsQuery.isPending && shouldLoadUsageReasons,
     isPurchaseSaving:
-      createPurchaseMutation.isPending || uploadPurchaseReceiptMutation.isPending,
+      createPurchaseMutation.isPending ||
+      updatePurchaseDraftMutation.isPending ||
+      uploadPurchaseReceiptMutation.isPending,
     isPurchaseScanning: scanPurchaseMutation.isPending,
     isUsageSaving:
       createUsageMutation.isPending || uploadUsageReceiptMutation.isPending,
@@ -4117,8 +4286,11 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     reportPurchaseSeries,
     reportBranchPurchaseSeries,
     reportBranchStockOutSeries,
-    reportDate: new Date(`${reportDateKey}T12:00:00`),
-    setReportDate,
+    reportDateRange: {
+      from: new Date(`${reportDateRangeKeys.from}T12:00:00`),
+      to: new Date(`${reportDateRangeKeys.to}T12:00:00`),
+    },
+    setReportDateRange,
     dailyBudgetUsageByBranch,
     reportCashFlowMetrics,
     reportBranchSummary,

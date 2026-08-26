@@ -148,6 +148,12 @@ export type PurchaseBatchApiInput = {
   }[]
 }
 
+export type PurchaseDraftUpdateInput = {
+  purchaseDate: string
+  name: string
+  items: PurchaseApiInput["items"]
+}
+
 export type PurchaseScanImageInput = PurchaseReceiptImage
 
 export type PurchaseScanResult = {
@@ -1214,6 +1220,27 @@ export async function apiDeleteBranchPurchaseDraft(
   await ensureEmptyResponse(response)
 }
 
+export async function apiUpdateBranchPurchaseDraft(
+  branchId: string,
+  purchaseId: string,
+  input: PurchaseDraftUpdateInput
+): Promise<NormalizedPurchase> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/${encodeURIComponent(purchaseId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ purchase: ApiPurchase }>(response)
+
+  return normalizePurchase(data.purchase)
+}
+
 export async function apiDeleteBranchPurchase(
   branchId: string,
   purchaseId: string
@@ -1400,12 +1427,20 @@ export async function apiGetCurrentMember() {
 }
 
 export async function apiGetReportSummary(
-  input: { date?: string } = {}
+  input: { date?: string; from?: string; to?: string } = {}
 ): Promise<ReportSummary> {
   const params = new URLSearchParams()
 
   if (input.date) {
     params.set("date", input.date)
+  }
+
+  if (input.from) {
+    params.set("from", input.from)
+  }
+
+  if (input.to) {
+    params.set("to", input.to)
   }
 
   const query = params.toString()

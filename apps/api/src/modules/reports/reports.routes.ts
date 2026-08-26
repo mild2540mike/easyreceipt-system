@@ -19,17 +19,46 @@ const stockOutMovementTypes = [
   "cook_out",
 ]
 
-const reportQuerySchema = z.object({
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .refine((value) => {
-      const date = new Date(`${value}T00:00:00+07:00`)
+const reportDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00+07:00`)
 
-      return !Number.isNaN(date.getTime()) && bangkokDateKey(date) === value
-    }, "Invalid report date.")
-    .optional(),
-})
+    return !Number.isNaN(date.getTime()) && bangkokDateKey(date) === value
+  }, "Invalid report date.")
+
+const reportQuerySchema = z
+  .object({
+    date: reportDateSchema.optional(),
+    from: reportDateSchema.optional(),
+    to: reportDateSchema.optional(),
+  })
+  .superRefine((query, context) => {
+    if (query.date && (query.from || query.to)) {
+      context.addIssue({
+        code: "custom",
+        message: "Report date cannot be combined with a date range.",
+        path: ["date"],
+      })
+    }
+
+    if (Boolean(query.from) !== Boolean(query.to)) {
+      context.addIssue({
+        code: "custom",
+        message: "Both report range dates are required.",
+        path: query.from ? ["to"] : ["from"],
+      })
+    }
+
+    if (query.from && query.to && query.from > query.to) {
+      context.addIssue({
+        code: "custom",
+        message: "Report start date must be on or before the end date.",
+        path: ["from"],
+      })
+    }
+  })
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100
@@ -49,9 +78,10 @@ function bangkokDateKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function bangkokDateRange(date: string) {
-  const start = new Date(`${date}T00:00:00+07:00`)
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+function bangkokDateRange(from: string, to: string) {
+  const start = new Date(`${from}T00:00:00+07:00`)
+  const endDate = new Date(`${to}T00:00:00+07:00`)
+  const end = new Date(endDate.getTime() + 24 * 60 * 60 * 1000)
 
   return { start, end }
 }
@@ -66,7 +96,10 @@ reportsRouter.get(
     }
 
     const query = reportQuerySchema.parse(req.query)
-    const dateRange = query.date ? bangkokDateRange(query.date) : null
+    const rangeStart = query.from ?? query.date
+    const rangeEnd = query.to ?? query.date
+    const dateRange =
+      rangeStart && rangeEnd ? bangkokDateRange(rangeStart, rangeEnd) : null
     const branchIds = await getAccessibleBranchIds(prisma, member.id)
 
     const [
@@ -191,11 +224,11 @@ reportsRouter.get(
       dailyStockOutTotals.set(key, current)
     }
 
-    if (query.date) {
+    if (rangeStart && rangeEnd && rangeStart === rangeEnd) {
       for (const branch of branches) {
-        const key = `${query.date}:${branch.id}`
+        const key = `${rangeStart}:${branch.id}`
         const emptyBranchTotal = {
-          date: query.date,
+          date: rangeStart,
           branchId: branch.id,
           branchName: branch.name,
           total: 0,

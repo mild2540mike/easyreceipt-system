@@ -181,6 +181,19 @@ export const openApiDocument = {
           },
         },
       },
+      PurchaseDraftUpdateInput: {
+        type: "object",
+        required: ["purchaseDate", "name", "items"],
+        properties: {
+          purchaseDate: { type: "string", format: "date-time" },
+          name: { type: "string", example: "ตลาดสด" },
+          items: {
+            type: "array",
+            minItems: 1,
+            items: { $ref: "#/components/schemas/PurchaseItemInput" },
+          },
+        },
+      },
       PurchaseScanInput: {
         type: "object",
         required: ["image"],
@@ -758,6 +771,58 @@ export const openApiDocument = {
         },
       },
     },
+    "/branches/{branchId}/purchases/{purchaseId}": {
+      patch: {
+        tags: ["Purchases"],
+        summary: "Update a purchase draft without changing inventory.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/branchId" },
+          {
+            name: "purchaseId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/PurchaseDraftUpdateInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Purchase draft updated." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Purchases"],
+        summary: "Delete a purchase draft or an eligible saved purchase.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { $ref: "#/components/parameters/branchId" },
+          {
+            name: "purchaseId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "204": { description: "Purchase removed." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
     "/branches/{branchId}/purchases/scan": {
       post: {
         tags: ["Purchases"],
@@ -978,6 +1043,22 @@ export const openApiDocument = {
             required: false,
             description:
               "Filter the entire report to one Asia/Bangkok calendar day. Omit for all-time totals.",
+            schema: { type: "string", format: "date", example: "2026-07-17" },
+          },
+          {
+            name: "from",
+            in: "query",
+            required: false,
+            description:
+              "Start of an inclusive Asia/Bangkok calendar-date range. Must be provided with `to`.",
+            schema: { type: "string", format: "date", example: "2026-07-01" },
+          },
+          {
+            name: "to",
+            in: "query",
+            required: false,
+            description:
+              "End of an inclusive Asia/Bangkok calendar-date range. Must be provided with `from`.",
             schema: { type: "string", format: "date", example: "2026-07-17" },
           },
         ],

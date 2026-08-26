@@ -70,6 +70,7 @@ import {
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { th } from "date-fns/locale"
+import type { DateRange } from "react-day-picker"
 
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -360,10 +361,10 @@ function formatMetricValue(metric: Store["reportCashFlowMetrics"][number]) {
 
 function metricHelper(metric: Store["reportCashFlowMetrics"][number]) {
   if (metric.id === "purchase-total") {
-    return "ยอดซื้อของวันที่เลือก"
+    return "ยอดซื้อในช่วงที่เลือก"
   }
 
-  return "ความเคลื่อนไหวของวันที่เลือก"
+  return "ความเคลื่อนไหวในช่วงที่เลือก"
 }
 
 function formatThaiDate(date: Date) {
@@ -394,6 +395,14 @@ function formatThaiTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+function formatThaiDateRange(range: { from: Date; to: Date }) {
+  if (notificationDayKey(range.from) === notificationDayKey(range.to)) {
+    return formatThaiLongDate(range.from)
+  }
+
+  return `${formatThaiLongDate(range.from)} – ${formatThaiLongDate(range.to)}`
 }
 
 function formatIngredientPriceAttribution(
@@ -2413,6 +2422,7 @@ function MetricCard({
   icon: Icon,
   tone,
   className,
+  valueClassName,
 }: {
   label: string
   value: string
@@ -2420,6 +2430,7 @@ function MetricCard({
   icon: LucideIcon
   tone: string
   className?: string
+  valueClassName?: string
 }) {
   return (
     <Card size="sm" className={cn("rounded-lg", className)}>
@@ -2437,7 +2448,9 @@ function MetricCard({
         <CardDescription className="pr-10 text-sm leading-snug sm:text-base">
           {label}
         </CardDescription>
-        <CardTitle className="text-xl leading-tight sm:text-2xl">
+        <CardTitle
+          className={cn("text-xl leading-tight sm:text-2xl", valueClassName)}
+        >
           {value}
         </CardTitle>
       </CardHeader>
@@ -2727,6 +2740,213 @@ function ResponsiveDatePicker({
   )
 }
 
+function ResponsiveDateRangePicker({
+  value,
+  onChange,
+  disableFuture = false,
+}: {
+  value: { from: Date; to: Date }
+  onChange: (range: { from: Date; to: Date }) => void
+  disableFuture?: boolean
+}) {
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [isDesktopOpen, setIsDesktopOpen] = useState(false)
+  const [draftRange, setDraftRange] = useState<DateRange>(value)
+  const latestDate = disableFuture
+    ? new Date(`${notificationDayKey(new Date())}T12:00:00`)
+    : undefined
+
+  function resetDraftRange() {
+    setDraftRange(value)
+  }
+
+  function setMobileOpen(open: boolean) {
+    if (open) {
+      resetDraftRange()
+    }
+
+    setIsMobileOpen(open)
+  }
+
+  function setDesktopOpen(open: boolean) {
+    if (open) {
+      resetDraftRange()
+    }
+
+    setIsDesktopOpen(open)
+  }
+
+  function applyRange(close: () => void) {
+    if (!draftRange.from || !draftRange.to) {
+      return
+    }
+
+    onChange({ from: draftRange.from, to: draftRange.to })
+    close()
+  }
+
+  function selectRecentDays(dayCount: number) {
+    const to = latestDate ?? new Date()
+    const from = new Date(to)
+
+    from.setDate(from.getDate() - (dayCount - 1))
+    setDraftRange({ from, to })
+  }
+
+  const selectedDraftLabel =
+    draftRange.from && draftRange.to
+      ? formatThaiDateRange({ from: draftRange.from, to: draftRange.to })
+      : draftRange.from
+        ? `${formatThaiLongDate(draftRange.from)} – เลือกวันสิ้นสุด`
+        : "เลือกวันเริ่มต้นและวันสิ้นสุด"
+  const quickRanges = [
+    { label: "วันนี้", days: 1 },
+    { label: "7 วันล่าสุด", days: 7 },
+    { label: "30 วันล่าสุด", days: 30 },
+  ]
+  const rangeCalendar = (numberOfMonths: 1 | 2) => (
+    <Calendar
+      mode="range"
+      required={false}
+      resetOnSelect
+      selected={draftRange}
+      onSelect={(range) => setDraftRange(range ?? { from: undefined })}
+      disabled={latestDate ? { after: latestDate } : undefined}
+      locale={th}
+      numberOfMonths={numberOfMonths}
+      defaultMonth={draftRange.from}
+      className={cn(
+        numberOfMonths === 1 &&
+          "w-full p-2 [--cell-size:min(2.75rem,13.5vw)]"
+      )}
+      classNames={
+        numberOfMonths === 1
+          ? {
+              root: "w-full",
+              month: "w-full",
+              month_grid: "w-full",
+            }
+          : undefined
+      }
+    />
+  )
+  const quickRangeButtons = (
+    <div className="flex flex-wrap gap-2 border-b border-border p-3">
+      {quickRanges.map((range) => (
+        <Button
+          key={range.days}
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => selectRecentDays(range.days)}
+        >
+          {range.label}
+        </Button>
+      ))}
+    </div>
+  )
+
+  return (
+    <>
+      <div className="sm:hidden">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 w-full justify-start px-3 text-left"
+          onClick={() => setMobileOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`ช่วงวันที่รายงาน ${formatThaiDateRange(value)}`}
+        >
+          <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{formatThaiDateRange(value)}</span>
+        </Button>
+        <Dialog open={isMobileOpen} onOpenChange={setMobileOpen}>
+          <DialogContent
+            showCloseButton={false}
+            className="max-h-[100dvh] w-screen max-w-sm gap-0 overflow-y-auto rounded-none border-x-0 p-0 min-[360px]:max-h-[calc(100dvh-2rem)] min-[360px]:w-[calc(100vw-2rem)] min-[360px]:rounded-lg min-[360px]:border sm:hidden"
+          >
+            <DialogHeader className="gap-1 bg-primary p-5 pr-5 text-primary-foreground">
+              <DialogTitle className="text-sm font-medium text-primary-foreground/85">
+                ช่วงวันที่รายงาน
+              </DialogTitle>
+              <div className="text-lg font-semibold leading-relaxed text-primary-foreground">
+                {selectedDraftLabel}
+              </div>
+              <DialogDescription className="sr-only">
+                เลือกวันเริ่มต้นและวันสิ้นสุด แล้วกดแสดงรายงาน
+              </DialogDescription>
+            </DialogHeader>
+            {quickRangeButtons}
+            <div className="flex justify-center">{rangeCalendar(1)}</div>
+            <DialogFooter className="grid grid-cols-2 gap-2 border-t border-border p-3">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11"
+                onClick={() => setMobileOpen(false)}
+              >
+                ยกเลิก
+              </Button>
+              <Button
+                type="button"
+                className="h-11"
+                disabled={!draftRange.from || !draftRange.to}
+                onClick={() => applyRange(() => setMobileOpen(false))}
+              >
+                แสดงรายงาน
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="hidden sm:block">
+        <Popover open={isDesktopOpen} onOpenChange={setDesktopOpen}>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="outline"
+                className="h-11 w-full justify-start px-3 text-left"
+                aria-label={`ช่วงวันที่รายงาน ${formatThaiDateRange(value)}`}
+              />
+            }
+          >
+            <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">{formatThaiDateRange(value)}</span>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-auto gap-0 p-0">
+            {quickRangeButtons}
+            {rangeCalendar(2)}
+            <div className="flex items-center justify-between gap-3 border-t border-border p-3">
+              <p className="max-w-sm text-xs text-muted-foreground">
+                {selectedDraftLabel}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDesktopOpen(false)}
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!draftRange.from || !draftRange.to}
+                  onClick={() => applyRange(() => setDesktopOpen(false))}
+                >
+                  แสดงรายงาน
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </>
+  )
+}
+
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseMessage, setPurchaseMessage] = useState("")
   const [isPreparingScan, setIsPreparingScan] = useState(false)
@@ -2746,6 +2966,9 @@ function PurchaseView({ store }: { store: Store }) {
   >("mobile")
   const [purchaseGroupToDelete, setPurchaseGroupToDelete] =
     useState<SavedPurchaseBillGroup | null>(null)
+  const [draftPurchaseToDelete, setDraftPurchaseToDelete] = useState<
+    Store["draftPurchasesForDate"][number] | null
+  >(null)
   const [isExportingPurchaseImage, setIsExportingPurchaseImage] =
     useState(false)
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
@@ -2755,7 +2978,10 @@ function PurchaseView({ store }: { store: Store }) {
     savedPurchaseRows,
     store.ingredientById
   )
-  const draftPurchaseRows = store.draftPurchasesForDate.flatMap((purchase) =>
+  const visibleDraftPurchases = store.draftPurchasesForDate.filter(
+    (purchase) => purchase.id !== store.editingPurchaseDraftId
+  )
+  const draftPurchaseRows = visibleDraftPurchases.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
   const purchaseBillGroups = Array.from(
@@ -2766,13 +2992,21 @@ function PurchaseView({ store }: { store: Store }) {
     }, new Map<string, PurchaseItem[]>()),
     ([billName, items]) => ({ billName, items })
   )
+  const editingDraftPurchase = store.editingPurchaseDraftId
+    ? store.draftPurchasesForDate.find(
+        (purchase) => purchase.id === store.editingPurchaseDraftId
+      )
+    : undefined
+  const editingPurchaseBill = store.editingPurchaseDraftId
+    ? purchaseBillGroups[0]
+    : undefined
   const newPurchaseBillCount = purchaseBillGroups.length
   const totalPurchaseBillCount =
-    store.draftPurchasesForDate.length + newPurchaseBillCount
+    visibleDraftPurchases.length + newPurchaseBillCount
   const budgetStatus = store.purchaseBudgetStatus
   const hasPurchasesToSubmit =
     store.purchaseItems.some((item) => item.ingredientId && item.quantity > 0) ||
-    store.draftPurchasesForDate.length > 0
+    visibleDraftPurchases.length > 0
   const hasIncompletePurchaseItems = store.purchaseItems.some(
     (item) => !isPurchaseItemComplete(item)
   )
@@ -2808,6 +3042,7 @@ function PurchaseView({ store }: { store: Store }) {
 
   async function handleSavePurchaseDraft() {
     setPurchaseMessage("")
+    const wasEditing = Boolean(store.editingPurchaseDraftId)
     const localResult = store.saveFormDraft()
 
     if (!localResult.ok) {
@@ -2828,9 +3063,44 @@ function PurchaseView({ store }: { store: Store }) {
 
     setPurchaseMessage(
       result.ok
-        ? "บันทึกฉบับร่างเข้าระบบแล้ว สามารถกลับมาเปิดต่อได้ภายหลัง"
+        ? wasEditing
+          ? "บันทึกการแก้ไขฉบับร่างแล้ว"
+          : "บันทึกฉบับร่างเข้าระบบแล้ว สามารถกลับมาเปิดต่อได้ภายหลัง"
         : `บันทึกร่างไว้ในอุปกรณ์แล้ว แต่ส่งเข้าระบบไม่สำเร็จ: ${result.error ?? "กรุณาลองใหม่"}`
     )
+  }
+
+  function handleEditPurchaseDraft(purchaseId: string) {
+    setPurchaseMessage("")
+    const result = store.beginPurchaseDraftEdit(purchaseId)
+
+    setPurchaseMessage(
+      result.ok
+        ? "เปิดฉบับร่างเพื่อแก้ไขแล้ว กดบันทึกร่างเพื่อเก็บการเปลี่ยนแปลง"
+        : (result.error ?? "ไม่สามารถเปิดฉบับร่างเพื่อแก้ไขได้")
+    )
+  }
+
+  function handleCancelPurchaseDraftEdit() {
+    store.cancelPurchaseDraftEdit()
+    setPurchaseMessage("ยกเลิกการแก้ไขแล้ว ฉบับร่างเดิมยังไม่เปลี่ยนแปลง")
+  }
+
+  async function handleDeletePurchaseDraft() {
+    if (!draftPurchaseToDelete || store.isPurchaseDraftDeleting) {
+      return
+    }
+
+    setPurchaseMessage("")
+    const result = await store.deletePurchaseDraft(draftPurchaseToDelete.id)
+
+    if (!result.ok) {
+      setPurchaseMessage(result.error ?? "ไม่สามารถลบฉบับร่างได้")
+      return
+    }
+
+    setDraftPurchaseToDelete(null)
+    setPurchaseMessage("ลบฉบับร่างแล้ว")
   }
 
   async function handlePurchaseScanFile(file: File) {
@@ -3104,6 +3374,7 @@ function PurchaseView({ store }: { store: Store }) {
                 onClick={() => purchaseScanInputRef.current?.click()}
                 disabled={
                   !store.canEditPurchase ||
+                  Boolean(store.editingPurchaseDraftId) ||
                   isPreparingScan ||
                   store.isPurchaseScanning
                 }
@@ -3129,23 +3400,41 @@ function PurchaseView({ store }: { store: Store }) {
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
-            {store.draftPurchasesForDate.map((purchase) => (
-              <DraftPurchaseBillCard
-                key={purchase.id}
-                purchase={purchase}
-                store={store}
-                onDeleteItem={handleDeletePurchaseDraftItem}
-              />
-            ))}
-            {purchaseBillGroups.map((bill) => (
-              <PurchaseBillCard
-                key={bill.items[0]?.id ?? bill.billName}
-                billName={bill.billName}
-                items={bill.items}
-                store={store}
-              />
-            ))}
-            {store.draftPurchasesForDate.length === 0 &&
+            {store.draftPurchasesForDate.map((purchase) =>
+              purchase.id === store.editingPurchaseDraftId &&
+              editingPurchaseBill ? (
+                <PurchaseBillCard
+                  key={purchase.id}
+                  billName={editingPurchaseBill.billName}
+                  items={editingPurchaseBill.items}
+                  store={store}
+                  savedDraft={{
+                    receiptImagePath: purchase.receiptImagePath,
+                    onCancel: handleCancelPurchaseDraftEdit,
+                    onDelete: () => setDraftPurchaseToDelete(purchase),
+                  }}
+                />
+              ) : (
+                <DraftPurchaseBillCard
+                  key={purchase.id}
+                  purchase={purchase}
+                  store={store}
+                  onEdit={handleEditPurchaseDraft}
+                  onDelete={() => setDraftPurchaseToDelete(purchase)}
+                  onDeleteItem={handleDeletePurchaseDraftItem}
+                />
+              )
+            )}
+            {!editingDraftPurchase &&
+              purchaseBillGroups.map((bill) => (
+                <PurchaseBillCard
+                  key={bill.items[0]?.id ?? bill.billName}
+                  billName={bill.billName}
+                  items={bill.items}
+                  store={store}
+                />
+              ))}
+            {visibleDraftPurchases.length === 0 &&
               purchaseBillGroups.length === 0 && (
                 <div className="rounded-lg border border-dashed border-border p-5 text-center">
                   <p className="text-sm text-muted-foreground">
@@ -3155,22 +3444,31 @@ function PurchaseView({ store }: { store: Store }) {
                     variant="outline"
                     className="mt-3 h-10"
                     onClick={store.addPurchaseBill}
-                    disabled={!store.canEditPurchase}
+                    disabled={
+                      !store.canEditPurchase ||
+                      Boolean(store.editingPurchaseDraftId)
+                    }
                   >
                     <Plus className="size-4" />
                     เพิ่มบิลแรก
                   </Button>
                 </div>
               )}
-            {(store.draftPurchasesForDate.length > 0 ||
+            {(visibleDraftPurchases.length > 0 ||
               purchaseBillGroups.length > 0) && (
               <Button
                 variant="outline"
                 className="h-10 w-full border-dashed bg-background"
                 onClick={store.addPurchaseBill}
-                disabled={!store.canEditPurchase || hasUnnamedPurchaseBill}
-                title={
+                disabled={
+                  !store.canEditPurchase ||
+                  Boolean(store.editingPurchaseDraftId) ||
                   hasUnnamedPurchaseBill
+                }
+                title={
+                  store.editingPurchaseDraftId
+                    ? "บันทึกหรือยกเลิกการแก้ไขฉบับร่างก่อนเพิ่มบิลใหม่"
+                    : hasUnnamedPurchaseBill
                     ? "กรอกชื่อบิลปัจจุบันก่อนเพิ่มบิลถัดไป"
                     : "เพิ่มบิลถัดไป"
                 }
@@ -3513,6 +3811,22 @@ function PurchaseView({ store }: { store: Store }) {
       </Dialog>
 
       <PermanentDeleteDialog
+        open={Boolean(draftPurchaseToDelete)}
+        title="ลบฉบับร่าง"
+        itemName={draftPurchaseToDelete?.vendor ?? ""}
+        description="ฉบับร่างยังไม่เพิ่มยอดเข้าคลัง"
+        consequence="ระบบจะลบรายการและรูปบิลของฉบับร่างนี้ การดำเนินการนี้ไม่สามารถย้อนกลับได้"
+        confirmLabel="ลบฉบับร่าง"
+        isDeleting={store.isPurchaseDraftDeleting}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDraftPurchaseToDelete(null)
+          }
+        }}
+        onConfirm={() => void handleDeletePurchaseDraft()}
+      />
+
+      <PermanentDeleteDialog
         open={Boolean(purchaseGroupToDelete)}
         title="ลบบิลซื้อเข้าถาวร"
         itemName={purchaseGroupToDelete?.billName ?? ""}
@@ -3818,33 +4132,71 @@ function PurchaseSupplierGroupHeader({
 function DraftPurchaseBillCard({
   purchase,
   store,
+  onEdit,
+  onDelete,
   onDeleteItem,
 }: {
   purchase: Store["draftPurchasesForDate"][number]
   store: Store
+  onEdit: (purchaseId: string) => void
+  onDelete: () => void
   onDeleteItem: (purchaseId: string, itemId: string) => void
 }) {
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-background">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50/70 p-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <ReceiptText className="size-4 shrink-0 text-amber-700" />
+      <div className="flex flex-col gap-3 border-b border-amber-200 bg-amber-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <ReceiptText className="size-4 shrink-0 text-amber-700" />
+          <div className="min-w-0 flex-1">
             <h3 className="truncate font-semibold">{purchase.vendor}</h3>
-            <Badge variant="outline" className="h-6 border-amber-200 bg-amber-50 text-amber-800">
-              ฉบับร่าง
-            </Badge>
+            <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
+              {purchase.items.length} รายการ · {formatCurrency(purchase.total)}
+            </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {purchase.items.length} รายการ · {formatCurrency(purchase.total)}
-          </p>
+          <Badge variant="secondary" className="hidden h-6 shrink-0 text-xs sm:inline-flex">
+            {purchase.items.length} รายการ
+          </Badge>
+          <Badge variant="outline" className="h-6 shrink-0 border-amber-200 bg-amber-50 text-xs text-amber-800">
+            ฉบับร่าง
+          </Badge>
         </div>
-        {purchase.receiptImagePath && (
-          <PurchaseReceiptImageLink
-            receiptImagePath={purchase.receiptImagePath}
-            className="border-amber-200"
-          />
-        )}
+        <div
+          className={cn(
+            "grid gap-2 sm:flex sm:justify-end",
+            purchase.receiptImagePath
+              ? "grid-cols-[auto_1fr_auto]"
+              : "grid-cols-[1fr_auto]"
+          )}
+        >
+          {purchase.receiptImagePath && (
+            <PurchaseReceiptImageLink
+              receiptImagePath={purchase.receiptImagePath}
+              className="h-11 border-amber-200 sm:h-10"
+            />
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 bg-background sm:h-10"
+            onClick={() => onEdit(purchase.id)}
+            disabled={!store.canEditPurchase || store.isPurchaseSaving}
+          >
+            <Pencil className="size-3.5" />
+            แก้ไข
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-lg"
+            className="h-11 w-11 shrink-0 border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 sm:h-10 sm:w-10"
+            onClick={onDelete}
+            disabled={!store.canEditPurchase || store.isPurchaseDraftDeleting}
+            title={`ลบฉบับร่าง ${purchase.vendor}`}
+          >
+            <Trash2 className="size-4" />
+            <span className="sr-only">ลบฉบับร่าง {purchase.vendor}</span>
+          </Button>
+        </div>
       </div>
       <div className="divide-y divide-border sm:hidden">
         {purchase.items.map((item, index) => (
@@ -4000,10 +4352,16 @@ function PurchaseBillCard({
   billName,
   items,
   store,
+  savedDraft,
 }: {
   billName: string
   items: PurchaseItem[]
   store: Store
+  savedDraft?: {
+    receiptImagePath?: string | null
+    onCancel: () => void
+    onDelete: () => void
+  }
 }) {
   const total = items.reduce((sum, item) => sum + lineTotal(item), 0)
   const isDesktopLayout = useDesktopLayout()
@@ -4011,11 +4369,26 @@ function PurchaseBillCard({
   return (
     <section
       data-purchase-bill
-      className="min-w-0 overflow-hidden rounded-lg border border-border bg-background"
+      className={cn(
+        "min-w-0 overflow-hidden rounded-lg border bg-background",
+        savedDraft ? "border-amber-200" : "border-border"
+      )}
     >
-      <div className="flex flex-col gap-3 border-b border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        className={cn(
+          "flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between",
+          savedDraft
+            ? "border-amber-200 bg-amber-50/70"
+            : "border-border bg-muted/30"
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <ReceiptText className="size-4 shrink-0 text-primary" />
+          <ReceiptText
+            className={cn(
+              "size-4 shrink-0",
+              savedDraft ? "text-amber-700" : "text-primary"
+            )}
+          />
           <BufferedStoreInput
             value={billName}
             onCommit={(nextName) =>
@@ -4029,11 +4402,19 @@ function PurchaseBillCard({
           <Badge variant="secondary" className="hidden h-6 shrink-0 text-xs sm:inline-flex">
             {items.length} รายการ
           </Badge>
+          {savedDraft && (
+            <Badge
+              variant="outline"
+              className="h-6 shrink-0 border-amber-200 bg-amber-50 text-xs text-amber-800"
+            >
+              ฉบับร่าง
+            </Badge>
+          )}
         </div>
-        <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex">
+        <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:justify-end">
           <Button
             variant="outline"
-            className="h-10 bg-background"
+            className="h-11 bg-background sm:h-10"
             onClick={() => store.addPurchaseItemToBill(billName)}
             disabled={!store.canEditPurchase}
           >
@@ -4042,15 +4423,56 @@ function PurchaseBillCard({
           </Button>
           <Button
             variant="outline"
-            className="h-10 border-red-200 bg-background px-3 text-red-700 hover:bg-red-50 hover:text-red-800"
-            onClick={() => store.removePurchaseBill(billName)}
-            disabled={!store.canEditPurchase}
+            size="icon-lg"
+            className="h-11 w-11 border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 sm:h-10 sm:w-10"
+            onClick={() =>
+              savedDraft
+                ? savedDraft.onDelete()
+                : store.removePurchaseBill(billName)
+            }
+            disabled={
+              !store.canEditPurchase ||
+              Boolean(savedDraft && store.isPurchaseDraftDeleting)
+            }
             title="ลบบิลนี้"
           >
-            <Trash2 className="size-4" />
+            {savedDraft && store.isPurchaseDraftDeleting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            <span className="sr-only">ลบบิลนี้</span>
           </Button>
         </div>
       </div>
+      {savedDraft && (
+        <div className="flex flex-col gap-2 border-b border-amber-200 bg-amber-50/20 px-3 py-2.5 text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2 text-xs sm:text-sm">
+            <Pencil className="size-3.5 shrink-0" />
+            <span>
+              กำลังแก้ไข · กด “บันทึกร่าง” เพื่อเก็บการเปลี่ยนแปลง
+            </span>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {savedDraft.receiptImagePath && (
+              <PurchaseReceiptImageLink
+                receiptImagePath={savedDraft.receiptImagePath}
+                className="border-amber-200"
+              />
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-amber-900 hover:bg-amber-100 hover:text-amber-950"
+              onClick={savedDraft.onCancel}
+              disabled={store.isPurchaseSaving}
+            >
+              ยกเลิก
+            </Button>
+          </div>
+        </div>
+      )}
       {isDesktopLayout ? (
         <div className="overflow-x-auto">
           <PurchaseItemsTableHeader>
@@ -4060,9 +4482,10 @@ function PurchaseBillCard({
                 index={index}
                 item={item}
                 store={store}
+                isDraftSaved={Boolean(savedDraft)}
               />
             ))}
-            <TableRow className="bg-muted/20">
+            <TableRow className={savedDraft ? "bg-amber-50/40" : "bg-muted/20"}>
               <TableCell colSpan={5} className="text-right font-medium">
                 รวมบิล
               </TableCell>
@@ -4074,16 +4497,27 @@ function PurchaseBillCard({
           </PurchaseItemsTableHeader>
         </div>
       ) : (
-        <div className="divide-y divide-border">
+        <div
+          className={cn(
+            "divide-y",
+            savedDraft ? "divide-amber-200" : "divide-border"
+          )}
+        >
           {items.map((item, index) => (
             <PurchaseMobileItem
               key={item.id}
               index={index}
               item={item}
               store={store}
+              isDraftSaved={Boolean(savedDraft)}
             />
           ))}
-          <div className="flex items-center justify-between bg-muted/20 px-3 py-2.5 text-sm">
+          <div
+            className={cn(
+              "flex items-center justify-between px-3 py-2.5 text-sm",
+              savedDraft ? "bg-amber-50/40" : "bg-muted/20"
+            )}
+          >
             <span className="font-medium">รวมบิล</span>
             <span className="font-bold">{formatCurrency(total)}</span>
           </div>
@@ -4097,13 +4531,20 @@ function PurchaseMobileItem({
   index,
   item,
   store,
+  isDraftSaved = false,
 }: {
   index: number
   item: PurchaseItem
   store: Store
+  isDraftSaved?: boolean
 }) {
   return (
-    <div className="space-y-3 p-3">
+    <div
+      className={cn(
+        "space-y-3 p-3",
+        isDraftSaved ? "bg-amber-50/30" : "bg-background"
+      )}
+    >
       <div className="flex items-center justify-between gap-3">
         <Badge variant="secondary" className="h-6">
           รายการ {index + 1}
@@ -4210,17 +4651,18 @@ function DraftPurchaseMobileItem({
             {ingredient?.supplier || "ไม่ระบุซัพพลายเออร์"}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-lg"
-          className="h-10 w-10 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
-          onClick={() => onDelete(purchase.id, item.id)}
-          disabled={!store.canEditPurchase || store.isPurchaseDraftDeleting}
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            className="h-10 w-10 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={() => onDelete(purchase.id, item.id)}
+            disabled={!store.canEditPurchase || store.isPurchaseDraftDeleting}
+            title={`ลบรายการ ${index + 1}`}
         >
           {store.isPurchaseDraftDeleting ? (
             <LoaderCircle className="size-4 animate-spin" />
           ) : (
-            <Trash2 className="size-4" />
+            <X className="size-4" />
           )}
           <span className="sr-only">ลบรายการฉบับร่าง {index + 1}</span>
         </Button>
@@ -4340,17 +4782,18 @@ function DraftPurchaseTableRow({
           </Badge>
           <Button
             variant="ghost"
-            size="icon-lg"
-            className="h-9 w-9 text-red-600 hover:bg-red-50 hover:text-red-700 sm:h-11 sm:w-11"
+            size="icon-sm"
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
             onClick={() => onDelete(purchase.id, item.id)}
             disabled={!store.canEditPurchase || store.isPurchaseDraftDeleting}
+            title={`ลบรายการ ${index + 1}`}
           >
             {store.isPurchaseDraftDeleting ? (
               <LoaderCircle className="size-4 animate-spin" />
             ) : (
-              <Trash2 className="size-4" />
+              <X className="size-4" />
             )}
-            <span className="sr-only">ลบฉบับร่าง</span>
+            <span className="sr-only">ลบรายการฉบับร่าง {index + 1}</span>
           </Button>
         </div>
       </TableCell>
@@ -4362,13 +4805,21 @@ function PurchaseTableRow({
   index,
   item,
   store,
+  isDraftSaved = false,
 }: {
   index: number
   item: PurchaseItem
   store: Store
+  isDraftSaved?: boolean
 }) {
   return (
-    <TableRow>
+    <TableRow
+      className={
+        isDraftSaved
+          ? "bg-amber-50/60 hover:bg-amber-50/60"
+          : undefined
+      }
+    >
       <TableCell className="text-center align-top">{index + 1}</TableCell>
       <TableCell className="overflow-visible">
         <IngredientSelect
@@ -6472,6 +6923,16 @@ function StockView({ store }: { store: Store }) {
   const incomingCount = store.inventoryRows.filter((item) => item.incoming > 0)
     .length
   const inStockCount = store.inventoryRows.filter((item) => item.onHand > 0).length
+  const totalStockValue = useMemo(
+    () =>
+      store.inventoryRows.reduce(
+        (total, item) =>
+          total +
+          Math.max(item.onHand, 0) * Math.max(item.costPerUnit, 0),
+        0
+      ),
+    [store.inventoryRows]
+  )
   const hasStockFilters =
     Boolean(stockSearch.trim()) || stockCategory !== "all" || stockFilter !== "all"
   const stockFilterOptions = [
@@ -6664,11 +7125,12 @@ function StockView({ store }: { store: Store }) {
           tone="border-sky-200 bg-sky-50 text-sky-800"
         />
         <MetricCard
-          label="ต้องสั่งซื้อ"
-          value={`${store.lowStockItems.length} รายการ`}
-          helper="คงเหลือหลังหักจองต่ำกว่าจุดสั่งซื้อ"
-          icon={AlertTriangle}
-          tone="border-red-200 bg-red-50 text-red-800"
+          label="มูลค่าคงเหลือทั้งหมด"
+          value={formatCurrency(totalStockValue)}
+          helper="คงเหลือจริง × ต้นทุนเฉลี่ยต่อหน่วย"
+          icon={CircleDollarSign}
+          tone="border-violet-200 bg-violet-50 text-violet-800"
+          valueClassName="break-words text-lg tabular-nums sm:text-2xl"
         />
         <MetricCard
           label="กำลังรับเข้า"
@@ -9581,7 +10043,7 @@ function StatusSelect({
 }
 
 function ReportsView({ store }: { store: Store }) {
-  const selectedDateLabel = formatThaiLongDate(store.reportDate)
+  const selectedDateRangeLabel = formatThaiDateRange(store.reportDateRange)
   const [activeReportTab, setActiveReportTab] = useState<
     "purchase" | "usage" | "cashflow"
   >("purchase")
@@ -9603,15 +10065,15 @@ function ReportsView({ store }: { store: Store }) {
 
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
         <div>
-          <h2 className="text-base font-semibold">วันที่รายงาน</h2>
+          <h2 className="text-base font-semibold">ช่วงวันที่รายงาน</h2>
           <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-            ตัวเลขสรุปและกราฟทั้งหมดแสดงข้อมูลของ {selectedDateLabel}
+            ตัวเลขสรุปและกราฟทั้งหมดแสดงข้อมูลในช่วง {selectedDateRangeLabel}
           </p>
         </div>
-        <div className="w-full sm:w-64">
-          <ResponsiveDatePicker
-            value={store.reportDate}
-            onChange={store.setReportDate}
+        <div className="w-full sm:w-80">
+          <ResponsiveDateRangePicker
+            value={store.reportDateRange}
+            onChange={store.setReportDateRange}
             disableFuture
           />
         </div>
@@ -9675,7 +10137,7 @@ function ReportsView({ store }: { store: Store }) {
               <BranchReportBarSeries
                 data={store.reportBranchPurchaseSeries}
                 label="ยอดซื้อแยกตามสาขา"
-                emptyMessage={`ไม่มียอดซื้อในวันที่ ${selectedDateLabel}`}
+                emptyMessage={`ไม่มียอดซื้อในช่วง ${selectedDateRangeLabel}`}
               />
             )}
           </TabsContent>
@@ -9684,7 +10146,7 @@ function ReportsView({ store }: { store: Store }) {
               <BranchReportBarSeries
                 data={store.reportBranchStockOutSeries}
                 label="มูลค่าของออกแยกตามสาขา"
-                emptyMessage={`ไม่มีข้อมูลของใช้ไปในวันที่ ${selectedDateLabel}`}
+                emptyMessage={`ไม่มีข้อมูลของใช้ไปในช่วง ${selectedDateRangeLabel}`}
               />
             )}
           </TabsContent>
