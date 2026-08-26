@@ -2125,7 +2125,6 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   const canManageMembers = memberCanEditMenu(currentMember, "members")
   const canManageMenuPermissions = currentMember?.role === "owner"
-  const canDeleteDailyRecords = currentMember?.role === "owner"
   const canManageIngredientCatalog = currentMember?.role === "owner"
   const canManageBranchBudget = memberCanEditMenu(currentMember, "budgets")
   const canEditPurchase = memberCanEditMenu(currentMember, "purchase")
@@ -2133,6 +2132,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     canManageIngredientCatalog || memberCanEditMenu(currentMember, "stock")
   const canEditRecipes = memberCanEditMenu(currentMember, "recipes")
   const canEditUsage = memberCanEditMenu(currentMember, "usage")
+  const canDeletePurchaseRecords = canEditPurchase
+  const canDeleteUsageRecords = canEditUsage
 
   const reportPurchaseSeries = useMemo<PurchaseSeriesItem[]>(() => {
     if (savedPurchaseHistory.length > 0) {
@@ -3213,10 +3214,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
-    if (!canDeleteDailyRecords) {
+    if (!canDeletePurchaseRecords) {
       return {
         ok: false,
-        error: "เฉพาะ Owner เท่านั้นที่ลบบิลซื้อเข้าที่บันทึกแล้วได้",
+        error: "บัญชีนี้ไม่มีสิทธิ์แก้ไขหรือลบบันทึกของมาเพิ่ม",
       }
     }
 
@@ -3260,10 +3261,10 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       }
     }
 
-    if (!canDeleteDailyRecords) {
+    if (!canDeleteUsageRecords) {
       return {
         ok: false,
-        error: "เฉพาะ Owner เท่านั้นที่ลบรอบของใช้ไปได้",
+        error: "บัญชีนี้ไม่มีสิทธิ์แก้ไขหรือลบบันทึกของใช้ไป",
       }
     }
 
@@ -4214,7 +4215,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     savedPurchaseTotalForDate,
     purchaseBudgetStatus,
     canEditPurchase,
-    canDeleteDailyRecords,
+    canDeletePurchaseRecords,
+    canDeleteUsageRecords,
     updatePurchaseItem,
     addPurchaseItem,
     addPurchaseBill,

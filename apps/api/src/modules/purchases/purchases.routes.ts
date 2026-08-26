@@ -415,8 +415,8 @@ purchasesRouter.delete(
           throw forbidden("Member does not have permission to edit purchases.")
         }
       } else {
-        if (access.member.role !== "owner") {
-          throw forbidden("เฉพาะ Owner เท่านั้นที่ลบบิลซื้อเข้าที่บันทึกแล้วได้")
+        if (!memberCanEditMenu(access.member, "purchase")) {
+          throw forbidden("Member does not have permission to edit purchases.")
         }
 
         if (!["saved", "posted"].includes(purchase.status)) {

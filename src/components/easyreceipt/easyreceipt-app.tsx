@@ -1099,6 +1099,47 @@ type UsageHistoryGroup = {
   supplierGroups: UsageHistorySupplierGroup[]
 }
 
+type HistoryExportSelection = {
+  dateKey: string
+  excludedGroupIds: Set<string>
+}
+
+function HistoryExportCheckbox({
+  checked,
+  indeterminate = false,
+  label,
+  showLabel = false,
+  onChange,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  label: string
+  showLabel?: boolean
+  onChange: (checked: boolean) => void
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate
+    }
+  }, [indeterminate])
+
+  return (
+    <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-1.5 text-sm font-medium text-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+      <input
+        ref={inputRef}
+        type="checkbox"
+        checked={checked}
+        className="size-4 shrink-0 cursor-pointer accent-sky-600"
+        aria-label={label}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+      {showLabel && <span>{label}</span>}
+    </label>
+  )
+}
+
 function PermanentDeleteDialog({
   open,
   title,
@@ -2971,6 +3012,11 @@ function PurchaseView({ store }: { store: Store }) {
   >(null)
   const [isExportingPurchaseImage, setIsExportingPurchaseImage] =
     useState(false)
+  const [purchaseExportSelection, setPurchaseExportSelection] =
+    useState<HistoryExportSelection>(() => ({
+      dateKey: "",
+      excludedGroupIds: new Set(),
+    }))
   const savedPurchaseRows = store.savedPurchasesForDate.flatMap((purchase) =>
     purchase.items.map((item) => ({ purchase, item }))
   )
@@ -2978,6 +3024,20 @@ function PurchaseView({ store }: { store: Store }) {
     savedPurchaseRows,
     store.ingredientById
   )
+  const purchaseExportDateKey = notificationDayKey(store.purchaseDate)
+  const excludedPurchaseExportGroupIds =
+    purchaseExportSelection.dateKey === purchaseExportDateKey
+      ? purchaseExportSelection.excludedGroupIds
+      : new Set<string>()
+  const selectedPurchaseExportGroups = savedPurchaseGroups.filter(
+    (group) => !excludedPurchaseExportGroupIds.has(group.purchaseId)
+  )
+  const allPurchaseExportGroupsSelected =
+    savedPurchaseGroups.length > 0 &&
+    selectedPurchaseExportGroups.length === savedPurchaseGroups.length
+  const somePurchaseExportGroupsSelected =
+    selectedPurchaseExportGroups.length > 0 &&
+    !allPurchaseExportGroupsSelected
   const visibleDraftPurchases = store.draftPurchasesForDate.filter(
     (purchase) => purchase.id !== store.editingPurchaseDraftId
   )
@@ -3177,8 +3237,40 @@ function PurchaseView({ store }: { store: Store }) {
     )
   }
 
+  function setPurchaseExportGroupSelected(
+    purchaseId: string,
+    selected: boolean
+  ) {
+    setPurchaseExportSelection((current) => {
+      const excludedGroupIds =
+        current.dateKey === purchaseExportDateKey
+          ? new Set(current.excludedGroupIds)
+          : new Set<string>()
+
+      if (selected) {
+        excludedGroupIds.delete(purchaseId)
+      } else {
+        excludedGroupIds.add(purchaseId)
+      }
+
+      return { dateKey: purchaseExportDateKey, excludedGroupIds }
+    })
+  }
+
+  function setAllPurchaseExportGroupsSelected(selected: boolean) {
+    setPurchaseExportSelection({
+      dateKey: purchaseExportDateKey,
+      excludedGroupIds: selected
+        ? new Set()
+        : new Set(savedPurchaseGroups.map((group) => group.purchaseId)),
+    })
+  }
+
   async function handleExportPurchaseImage() {
-    if (savedPurchaseGroups.length === 0 || isExportingPurchaseImage) {
+    if (
+      selectedPurchaseExportGroups.length === 0 ||
+      isExportingPurchaseImage
+    ) {
       return
     }
 
@@ -3190,7 +3282,7 @@ function PurchaseView({ store }: { store: Store }) {
         type: "purchase",
         branchName: store.activeBranch?.name ?? "-",
         date: store.purchaseDate,
-        groups: savedPurchaseGroups.map((group) => ({
+        groups: selectedPurchaseExportGroups.map((group) => ({
           title: group.billName,
           total: group.total,
           rows: group.rows.map(({ item }) => ({
@@ -3206,7 +3298,7 @@ function PurchaseView({ store }: { store: Store }) {
       })
 
       setPurchaseMessage(
-        "เริ่มดาวน์โหลดรูปสรุปของมาเพิ่มแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์"
+        `เริ่มดาวน์โหลดรูปสรุปของมาเพิ่ม ${selectedPurchaseExportGroups.length} บิลแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์`
       )
     } catch (error) {
       setPurchaseMessage(
@@ -3616,10 +3708,14 @@ function PurchaseView({ store }: { store: Store }) {
                 className="h-8 bg-background"
                 onClick={() => void handleExportPurchaseImage()}
                 disabled={
-                  savedPurchaseGroups.length === 0 ||
+                  selectedPurchaseExportGroups.length === 0 ||
                   isExportingPurchaseImage
                 }
-                title="ดาวน์โหลดไฟล์ PNG ลงอุปกรณ์"
+                title={
+                  selectedPurchaseExportGroups.length > 0
+                    ? "ดาวน์โหลดเฉพาะบิลที่เลือกเป็นไฟล์ PNG"
+                    : "เลือกอย่างน้อย 1 บิลจากประวัติด้านล่าง"
+                }
               >
                 {isExportingPurchaseImage ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
@@ -3647,6 +3743,21 @@ function PurchaseView({ store }: { store: Store }) {
             </div>
           </div>
 
+          {savedPurchaseGroups.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 sm:px-4">
+              <HistoryExportCheckbox
+                checked={allPurchaseExportGroupsSelected}
+                indeterminate={somePurchaseExportGroupsSelected}
+                label="เลือกบิลทั้งหมด"
+                showLabel
+                onChange={setAllPurchaseExportGroupsSelected}
+              />
+              <span className="text-xs text-muted-foreground sm:text-sm">
+                เลือกแล้ว {selectedPurchaseExportGroups.length} จาก {savedPurchaseGroups.length} บิลสำหรับบันทึกเป็นรูป
+              </span>
+            </div>
+          )}
+
           <TabsContent value="table">
             <div className="overflow-x-auto">
               <FreezableTable className="min-w-[44rem] text-sm">
@@ -3668,7 +3779,14 @@ function PurchaseView({ store }: { store: Store }) {
                         count={group.rows.length}
                         total={group.total}
                         receiptImagePath={group.receiptImagePath}
-                        canDelete={store.canDeleteDailyRecords}
+                        selected={!excludedPurchaseExportGroupIds.has(group.purchaseId)}
+                        onSelectedChange={(selected) =>
+                          setPurchaseExportGroupSelected(
+                            group.purchaseId,
+                            selected
+                          )
+                        }
+                        canDelete={store.canDeletePurchaseRecords}
                         isDeleting={store.isDailyRecordDeleting}
                         onDelete={() => setPurchaseGroupToDelete(group)}
                       />
@@ -3718,6 +3836,10 @@ function PurchaseView({ store }: { store: Store }) {
                   store={store}
                   expanded={expandedPurchaseBillIds.has(group.purchaseId)}
                   onToggle={() => togglePurchaseBill(group.purchaseId)}
+                  selected={!excludedPurchaseExportGroupIds.has(group.purchaseId)}
+                  onSelectedChange={(selected) =>
+                    setPurchaseExportGroupSelected(group.purchaseId, selected)
+                  }
                   onDelete={() => setPurchaseGroupToDelete(group)}
                 />
               ))}
@@ -3907,20 +4029,36 @@ function PurchaseHistoryMobileGroup({
   store,
   expanded,
   onToggle,
+  selected,
+  onSelectedChange,
   onDelete,
 }: {
   group: SavedPurchaseBillGroup
   store: Store
   expanded: boolean
   onToggle: () => void
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
   onDelete: () => void
 }) {
   return (
     <section>
-      <div className="flex items-center bg-sky-50/70">
+      <div
+        className={cn(
+          "flex items-center transition-colors",
+          selected ? "bg-sky-50/70" : "bg-muted/30"
+        )}
+      >
+        <div className="ml-2 shrink-0">
+          <HistoryExportCheckbox
+            checked={selected}
+            label={`เลือกบิล ${group.billName} สำหรับบันทึกเป็นรูป`}
+            onChange={onSelectedChange}
+          />
+        </div>
         <button
           type="button"
-          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-2 py-3 text-left transition-colors hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4"
           onClick={onToggle}
           aria-expanded={expanded}
         >
@@ -3947,7 +4085,7 @@ function PurchaseHistoryMobileGroup({
             />
           </span>
         </button>
-        {(group.receiptImagePath || store.canDeleteDailyRecords) && (
+        {(group.receiptImagePath || store.canDeletePurchaseRecords) && (
           <div className="mr-3 flex shrink-0 items-center gap-1">
             {group.receiptImagePath && (
               <PurchaseReceiptImageLink
@@ -3955,7 +4093,7 @@ function PurchaseHistoryMobileGroup({
                 className="shrink-0"
               />
             )}
-            {store.canDeleteDailyRecords && (
+            {store.canDeletePurchaseRecords && (
               <Button
                 type="button"
                 variant="ghost"
@@ -4046,6 +4184,8 @@ function PurchaseBillGroupHeader({
   count,
   total,
   receiptImagePath,
+  selected,
+  onSelectedChange,
   canDelete,
   isDeleting,
   onDelete,
@@ -4054,15 +4194,28 @@ function PurchaseBillGroupHeader({
   count: number
   total: number
   receiptImagePath: string | null
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
   canDelete: boolean
   isDeleting: boolean
   onDelete: () => void
 }) {
   return (
-    <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
+    <TableRow
+      className={cn(
+        selected
+          ? "bg-sky-50/80 hover:bg-sky-50/80"
+          : "bg-muted/30 hover:bg-muted/40"
+      )}
+    >
       <TableCell colSpan={6} className="px-3 py-2 sm:px-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
+            <HistoryExportCheckbox
+              checked={selected}
+              label={`เลือกบิล ${billName} สำหรับบันทึกเป็นรูป`}
+              onChange={onSelectedChange}
+            />
             <ReceiptText className="size-4 shrink-0 text-sky-700" />
             <span className="truncate font-semibold text-sky-950">
               {billName}
@@ -5185,6 +5338,11 @@ function UsageView({ store }: { store: Store }) {
   const [usageGroupToDelete, setUsageGroupToDelete] =
     useState<UsageHistoryGroup | null>(null)
   const [isExportingUsageImage, setIsExportingUsageImage] = useState(false)
+  const [usageExportSelection, setUsageExportSelection] =
+    useState<HistoryExportSelection>(() => ({
+      dateKey: "",
+      excludedGroupIds: new Set(),
+    }))
   const usageMessageIsError =
     Boolean(store.usageError) ||
     usageMessage.includes("ไม่") ||
@@ -5229,6 +5387,19 @@ function UsageView({ store }: { store: Store }) {
     store.usageMovements,
     store.ingredientById
   )
+  const usageExportDateKey = notificationDayKey(store.usageDate)
+  const excludedUsageExportGroupIds =
+    usageExportSelection.dateKey === usageExportDateKey
+      ? usageExportSelection.excludedGroupIds
+      : new Set<string>()
+  const selectedUsageExportGroups = usageHistoryGroups.filter(
+    (group) => !excludedUsageExportGroupIds.has(group.id)
+  )
+  const allUsageExportGroupsSelected =
+    usageHistoryGroups.length > 0 &&
+    selectedUsageExportGroups.length === usageHistoryGroups.length
+  const someUsageExportGroupsSelected =
+    selectedUsageExportGroups.length > 0 && !allUsageExportGroupsSelected
   const hasUnnamedUsageBatch = usageBatches.some(
     (batch) => !batch.name.trim()
   )
@@ -5337,8 +5508,34 @@ function UsageView({ store }: { store: Store }) {
     )
   }
 
+  function setUsageExportGroupSelected(groupId: string, selected: boolean) {
+    setUsageExportSelection((current) => {
+      const excludedGroupIds =
+        current.dateKey === usageExportDateKey
+          ? new Set(current.excludedGroupIds)
+          : new Set<string>()
+
+      if (selected) {
+        excludedGroupIds.delete(groupId)
+      } else {
+        excludedGroupIds.add(groupId)
+      }
+
+      return { dateKey: usageExportDateKey, excludedGroupIds }
+    })
+  }
+
+  function setAllUsageExportGroupsSelected(selected: boolean) {
+    setUsageExportSelection({
+      dateKey: usageExportDateKey,
+      excludedGroupIds: selected
+        ? new Set()
+        : new Set(usageHistoryGroups.map((group) => group.id)),
+    })
+  }
+
   async function handleExportUsageImage() {
-    if (usageHistoryGroups.length === 0 || isExportingUsageImage) {
+    if (selectedUsageExportGroups.length === 0 || isExportingUsageImage) {
       return
     }
 
@@ -5350,7 +5547,7 @@ function UsageView({ store }: { store: Store }) {
         type: "usage",
         branchName: store.activeBranch?.name ?? "-",
         date: store.usageDate,
-        groups: usageHistoryGroups.map((group) => ({
+        groups: selectedUsageExportGroups.map((group) => ({
           title: group.name,
           subtitle: group.movements[0]?.reason
             ? `เหตุผล: ${group.movements[0].reason}`
@@ -5373,7 +5570,7 @@ function UsageView({ store }: { store: Store }) {
       })
 
       setUsageMessage(
-        "เริ่มดาวน์โหลดรูปสรุปของใช้ไปแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์"
+        `เริ่มดาวน์โหลดรูปสรุปของใช้ไป ${selectedUsageExportGroups.length} รอบแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์`
       )
     } catch (error) {
       setUsageMessage(
@@ -5665,9 +5862,14 @@ function UsageView({ store }: { store: Store }) {
                 className="h-8 bg-background"
                 onClick={() => void handleExportUsageImage()}
                 disabled={
-                  usageHistoryGroups.length === 0 || isExportingUsageImage
+                  selectedUsageExportGroups.length === 0 ||
+                  isExportingUsageImage
                 }
-                title="ดาวน์โหลดไฟล์ PNG ลงอุปกรณ์"
+                title={
+                  selectedUsageExportGroups.length > 0
+                    ? "ดาวน์โหลดเฉพาะรอบที่เลือกเป็นไฟล์ PNG"
+                    : "เลือกอย่างน้อย 1 รอบจากประวัติด้านล่าง"
+                }
               >
                 {isExportingUsageImage ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
@@ -5695,6 +5897,21 @@ function UsageView({ store }: { store: Store }) {
             </div>
           </div>
 
+          {usageHistoryGroups.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 sm:px-4">
+              <HistoryExportCheckbox
+                checked={allUsageExportGroupsSelected}
+                indeterminate={someUsageExportGroupsSelected}
+                label="เลือกรอบทั้งหมด"
+                showLabel
+                onChange={setAllUsageExportGroupsSelected}
+              />
+              <span className="text-xs text-muted-foreground sm:text-sm">
+                เลือกแล้ว {selectedUsageExportGroups.length} จาก {usageHistoryGroups.length} รอบสำหรับบันทึกเป็นรูป
+              </span>
+            </div>
+          )}
+
           <TabsContent value="mobile">
             <div className="divide-y divide-border">
               {usageHistoryGroups.map((group) => (
@@ -5703,7 +5920,11 @@ function UsageView({ store }: { store: Store }) {
                   group={group}
                   expanded={expandedUsageHistoryGroupIds.has(group.id)}
                   onToggle={() => toggleUsageHistoryGroup(group.id)}
-                  canDelete={store.canDeleteDailyRecords}
+                  selected={!excludedUsageExportGroupIds.has(group.id)}
+                  onSelectedChange={(selected) =>
+                    setUsageExportGroupSelected(group.id, selected)
+                  }
+                  canDelete={store.canDeleteUsageRecords}
                   isDeleting={store.isDailyRecordDeleting}
                   onDelete={() => setUsageGroupToDelete(group)}
                 />
@@ -5736,7 +5957,11 @@ function UsageView({ store }: { store: Store }) {
                         name={group.name}
                         count={group.movements.length}
                         receiptImagePath={group.receiptImagePath}
-                        canDelete={store.canDeleteDailyRecords}
+                        selected={!excludedUsageExportGroupIds.has(group.id)}
+                        onSelectedChange={(selected) =>
+                          setUsageExportGroupSelected(group.id, selected)
+                        }
+                        canDelete={store.canDeleteUsageRecords}
                         isDeleting={store.isDailyRecordDeleting}
                         onDelete={() => setUsageGroupToDelete(group)}
                       />
@@ -5853,6 +6078,8 @@ function UsageHistoryMobileGroup({
   group,
   expanded,
   onToggle,
+  selected,
+  onSelectedChange,
   canDelete,
   isDeleting,
   onDelete,
@@ -5860,16 +6087,30 @@ function UsageHistoryMobileGroup({
   group: UsageHistoryGroup
   expanded: boolean
   onToggle: () => void
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
   canDelete: boolean
   isDeleting: boolean
   onDelete: () => void
 }) {
   return (
     <section>
-      <div className="flex min-h-14 items-center bg-sky-50/70 transition-colors hover:bg-sky-50">
+      <div
+        className={cn(
+          "flex min-h-14 items-center transition-colors hover:bg-sky-50",
+          selected ? "bg-sky-50/70" : "bg-muted/30"
+        )}
+      >
+        <div className="ml-2 shrink-0">
+          <HistoryExportCheckbox
+            checked={selected}
+            label={`เลือกรอบ ${group.name} สำหรับบันทึกเป็นรูป`}
+            onChange={onSelectedChange}
+          />
+        </div>
         <button
           type="button"
-          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex min-h-14 min-w-0 flex-1 items-center justify-between gap-3 px-2 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4"
           onClick={onToggle}
           aria-expanded={expanded}
         >
@@ -5977,6 +6218,8 @@ function UsageHistoryGroupHeader({
   name,
   count,
   receiptImagePath,
+  selected,
+  onSelectedChange,
   canDelete,
   isDeleting,
   onDelete,
@@ -5984,15 +6227,28 @@ function UsageHistoryGroupHeader({
   name: string
   count: number
   receiptImagePath: string | null
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
   canDelete: boolean
   isDeleting: boolean
   onDelete: () => void
 }) {
   return (
-    <TableRow className="bg-sky-50/80 hover:bg-sky-50/80">
+    <TableRow
+      className={cn(
+        selected
+          ? "bg-sky-50/80 hover:bg-sky-50/80"
+          : "bg-muted/30 hover:bg-muted/40"
+      )}
+    >
       <TableCell colSpan={4} className="px-3 py-2 sm:px-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
+            <HistoryExportCheckbox
+              checked={selected}
+              label={`เลือกรอบ ${name} สำหรับบันทึกเป็นรูป`}
+              onChange={onSelectedChange}
+            />
             <ReceiptText className="size-4 shrink-0 text-sky-700" />
             <span className="truncate font-semibold text-sky-950">{name}</span>
             <Badge variant="secondary" className="h-6 shrink-0">

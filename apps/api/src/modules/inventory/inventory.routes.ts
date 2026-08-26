@@ -839,8 +839,8 @@ inventoryRouter.delete(
     const receiptImagePath = await prisma.$transaction(async (tx) => {
       const access = await assertBranchAccess(tx, member.id, branchId)
 
-      if (access.member.role !== "owner") {
-        throw forbidden("เฉพาะ Owner เท่านั้นที่ลบข้อมูลของใช้ไปได้")
+      if (!memberCanEditMenu(access.member, "usage")) {
+        throw forbidden("Member does not have permission to edit usage records.")
       }
 
       const movements = await tx.stockMovement.findMany({
