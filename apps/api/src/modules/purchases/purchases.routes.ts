@@ -182,6 +182,7 @@ purchasesRouter.post(
             id: true,
             name: true,
             unit: true,
+            defaultPrice: true,
           },
         },
       },
@@ -189,7 +190,12 @@ purchasesRouter.post(
     const scan = await scanPurchaseReceipt({
       image: input.image,
       memberId: access.member.id,
-      ingredients: inventoryRows.map((row) => row.ingredient),
+      ingredients: inventoryRows.map((row) => ({
+        id: row.ingredient.id,
+        name: row.ingredient.name,
+        unit: row.ingredient.unit,
+        defaultPrice: Number(row.ingredient.defaultPrice),
+      })),
     })
 
     res.json({ scan })

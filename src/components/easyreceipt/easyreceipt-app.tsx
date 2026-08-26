@@ -147,6 +147,7 @@ import {
   memberCanViewMenu,
   normalizeMemberPermissions,
 } from "@/lib/easyreceipt-data"
+import { rankIngredientSearchCandidates } from "@/lib/ingredient-matching"
 import { preparePurchaseScanImage } from "@/lib/purchase-scan-image"
 import type {
   MenuPermissionKey,
@@ -5060,6 +5061,8 @@ function IngredientSelect({
   const deferredQuery = useDeferredValue(query)
   const [isOpen, setIsOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const listboxId = `purchase-ingredient-options-${item.id}`
   const { inputAnchorRef, dropdownPosition, updateDropdownPosition } =
     useAnchoredDropdownPosition({
       isOpen,
@@ -5067,7 +5070,6 @@ function IngredientSelect({
       maxHeight: 320,
       minHeight: 160,
     })
-  const searchTerm = normalizeSearch(deferredQuery)
   const exactSearchTerm = normalizeSearch(query)
   const unitTerm = normalizeSearch(item.unit.trim() || "กก.")
   const exactIngredient = store.ingredients.find(
@@ -5078,42 +5080,27 @@ function IngredientSelect({
   const searchableInventoryRows = useMemo(
     () =>
       store.inventoryRows.map((row) => ({
-        row,
-        name: normalizeSearch(row.ingredient.name),
+        item: row,
+        name: row.ingredient.name,
         fields: [
           row.ingredient.name,
           row.ingredient.category,
           row.ingredient.supplier,
-        ].map(normalizeSearch),
+        ],
       })),
     [store.inventoryRows]
   )
   const matchingSuggestionRows = useMemo(
-    () => searchableInventoryRows
-    .filter((entry) => {
-      if (!searchTerm) {
-        return true
-      }
-
-      return entry.fields.some((value) => value.includes(searchTerm))
-    })
-    .sort((left, right) => {
-      const leftStarts = left.name.startsWith(searchTerm) ? 0 : 1
-      const rightStarts = right.name.startsWith(searchTerm) ? 0 : 1
-
-      if (leftStarts !== rightStarts) {
-        return leftStarts - rightStarts
-      }
-
-      return left.row.ingredient.name.localeCompare(right.row.ingredient.name, "th")
-    })
-    .map((entry) => entry.row),
-    [searchTerm, searchableInventoryRows]
+    () => rankIngredientSearchCandidates(deferredQuery, searchableInventoryRows),
+    [deferredQuery, searchableInventoryRows]
   )
-  const suggestionRows = searchTerm
+  const suggestionRows = deferredQuery.trim()
     ? matchingSuggestionRows.slice(0, 50)
     : matchingSuggestionRows.slice(0, 7)
   const canAddIngredient = Boolean(query.trim()) && !exactIngredient
+  const resolvedActiveSuggestionIndex = suggestionRows.length === 0
+    ? -1
+    : Math.min(Math.max(activeSuggestionIndex, 0), suggestionRows.length - 1)
 
   function handleSelectIngredient(ingredientId: string) {
     if (!store.canEditPurchase) {
@@ -5172,6 +5159,15 @@ function IngredientSelect({
           spellCheck={false}
           data-lpignore="true"
           data-1p-ignore="true"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-activedescendant={
+            isOpen && resolvedActiveSuggestionIndex >= 0
+              ? `${listboxId}-${resolvedActiveSuggestionIndex}`
+              : undefined
+          }
           disabled={!store.canEditPurchase}
           onFocus={() => {
             if (!store.canEditPurchase) {
@@ -5179,6 +5175,7 @@ function IngredientSelect({
             }
 
             updateDropdownPosition()
+            setActiveSuggestionIndex(suggestionRows.length > 0 ? 0 : -1)
             setIsOpen(true)
           }}
           onBlur={() => {
@@ -5195,7 +5192,49 @@ function IngredientSelect({
               ingredientId: "",
               draftIngredientName: nextQuery,
             })
+            setActiveSuggestionIndex(0)
             setIsOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setIsOpen(false)
+              return
+            }
+
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault()
+              setIsOpen(true)
+              setActiveSuggestionIndex((current) => {
+                if (suggestionRows.length === 0) {
+                  return -1
+                }
+
+                const offset = event.key === "ArrowDown" ? 1 : -1
+                const start = current < 0 ? (offset > 0 ? -1 : 0) : current
+                const next = (start + offset + suggestionRows.length) % suggestionRows.length
+
+                window.setTimeout(() => {
+                  document.getElementById(`${listboxId}-${next}`)?.scrollIntoView({
+                    block: "nearest",
+                  })
+                }, 0)
+
+                return next
+              })
+              return
+            }
+
+            if (
+              event.key === "Enter" &&
+              isOpen &&
+              resolvedActiveSuggestionIndex >= 0 &&
+              suggestionRows[resolvedActiveSuggestionIndex]
+            ) {
+              event.preventDefault()
+              handleSelectIngredient(
+                suggestionRows[resolvedActiveSuggestionIndex].item.ingredientId
+              )
+            }
           }}
         />
       </div>
@@ -5217,30 +5256,51 @@ function IngredientSelect({
             maxHeight: dropdownPosition.maxHeight,
           }}
         >
-          {suggestionRows.map((row) => (
-            <button
-              key={row.ingredientId}
-              type="button"
-              className={cn(
-                "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted",
-                row.ingredientId === item.ingredientId && "bg-muted"
-              )}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => handleSelectIngredient(row.ingredientId)}
-            >
-              <span className="min-w-0">
-                <span className="block truncate font-medium">
-                  {row.ingredient.name}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {row.ingredient.category} · {row.ingredient.supplier}
-                </span>
-              </span>
-              <Badge variant="secondary" className="h-6 shrink-0">
-                {row.ingredient.unit}
-              </Badge>
-            </button>
-          ))}
+          <div id={listboxId} role="listbox" aria-label="คำแนะนำวัตถุดิบ">
+            {suggestionRows.map((suggestion, suggestionIndex) => {
+              const row = suggestion.item
+
+              return (
+                <button
+                  key={row.ingredientId}
+                  id={`${listboxId}-${suggestionIndex}`}
+                  type="button"
+                  role="option"
+                  aria-selected={suggestionIndex === resolvedActiveSuggestionIndex}
+                  className={cn(
+                    "flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left hover:bg-muted",
+                    (row.ingredientId === item.ingredientId ||
+                      suggestionIndex === resolvedActiveSuggestionIndex) && "bg-muted"
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveSuggestionIndex(suggestionIndex)}
+                  onClick={() => handleSelectIngredient(row.ingredientId)}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {row.ingredient.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {row.ingredient.category} · {row.ingredient.supplier}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {suggestion.isApproximate && (
+                      <Badge
+                        variant="outline"
+                        className="h-6 border-sky-200 bg-sky-50 text-sky-800"
+                      >
+                        ชื่อใกล้เคียง
+                      </Badge>
+                    )}
+                    <Badge variant="secondary" className="h-6">
+                      {row.ingredient.unit}
+                    </Badge>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
 
           {canAddIngredient && (
             <button
@@ -6783,9 +6843,21 @@ function UsageMobileItem({
               draftIngredientName: undefined,
             })
           }
+          onQueryChange={(nextQuery) =>
+            store.updateUsageItem(item.id, {
+              ingredientId: "",
+              draftIngredientName: nextQuery,
+            })
+          }
           disabled={!store.canEditUsage}
           className="w-full min-w-0"
         />
+        {!item.ingredientId && item.draftIngredientName?.trim() && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            ยังไม่จับคู่กับวัตถุดิบในคลัง
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -6873,7 +6945,7 @@ function UsageDraftTableRow({
       <TableCell className="text-center align-top">
         {index + 1}
       </TableCell>
-      <TableCell>
+      <TableCell className="align-top">
         <UsageIngredientSelect
           value={item.ingredientId}
           initialQuery={item.draftIngredientName}
@@ -6884,9 +6956,21 @@ function UsageDraftTableRow({
               draftIngredientName: undefined,
             })
           }
+          onQueryChange={(nextQuery) =>
+            store.updateUsageItem(item.id, {
+              ingredientId: "",
+              draftIngredientName: nextQuery,
+            })
+          }
           disabled={!store.canEditUsage}
           className="w-full min-w-0"
         />
+        {!item.ingredientId && item.draftIngredientName?.trim() && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            ยังไม่จับคู่กับวัตถุดิบในคลัง
+          </div>
+        )}
       </TableCell>
       <TableCell className="text-right">
         {inventoryRow
@@ -6943,6 +7027,7 @@ function UsageIngredientSelect({
   initialQuery,
   store,
   onChange,
+  onQueryChange,
   disabled = false,
   className,
 }: {
@@ -6950,6 +7035,7 @@ function UsageIngredientSelect({
   initialQuery?: string
   store: Store
   onChange: (ingredientId: string) => void
+  onQueryChange?: (query: string) => void
   disabled?: boolean
   className?: string
 }) {
@@ -7040,7 +7126,9 @@ function UsageIngredientSelect({
             window.setTimeout(() => setIsOpen(false), 120)
           }}
           onChange={(event) => {
-            setQuery(event.target.value)
+            const nextQuery = event.target.value
+            setQuery(nextQuery)
+            onQueryChange?.(nextQuery)
             setIsOpen(true)
           }}
           placeholder="พิมพ์ค้นชื่อวัตถุดิบ"
