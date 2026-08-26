@@ -1101,6 +1101,33 @@ export const openApiDocument = {
                         },
                       },
                     },
+                    usageReasonTotals: {
+                      type: "array",
+                      description:
+                        "Usage-out value and usage-group count aggregated by the saved reason.",
+                      items: {
+                        type: "object",
+                        properties: {
+                          reason: { type: "string", example: "ของเสีย" },
+                          total: { type: "number", example: 425.5 },
+                          groupCount: { type: "integer", example: 3 },
+                        },
+                      },
+                    },
+                    dailyUsageReasonTotals: {
+                      type: "array",
+                      description:
+                        "Daily usage-out value and usage-group count by saved reason.",
+                      items: {
+                        type: "object",
+                        properties: {
+                          date: { type: "string", example: "2026-07-05" },
+                          reason: { type: "string", example: "ของเสีย" },
+                          total: { type: "number", example: 150 },
+                          groupCount: { type: "integer", example: 1 },
+                        },
+                      },
+                    },
                     cookingCount: { type: "integer" },
                     stockMovementCount: { type: "integer" },
                   },

@@ -10399,11 +10399,20 @@ function ReportsView({ store }: { store: Store }) {
           </TabsContent>
           <TabsContent value="usage">
             {activeReportTab === "usage" && (
-              <BranchReportBarSeries
-                data={store.reportBranchStockOutSeries}
-                label="มูลค่าของออกแยกตามสาขา"
-                emptyMessage={`ไม่มีข้อมูลของใช้ไปในช่วง ${selectedDateRangeLabel}`}
-              />
+              <div>
+                <UsageReasonReport
+                  totals={store.reportUsageReasonTotals}
+                  dailyTotals={store.reportDailyUsageReasonTotals}
+                  selectedDateRangeLabel={selectedDateRangeLabel}
+                />
+                <div className="mt-5 border-t border-border pt-2 sm:mt-6 sm:pt-3">
+                  <BranchReportBarSeries
+                    data={store.reportBranchStockOutSeries}
+                    label="มูลค่าของออกทั้งหมดแยกตามสาขา (รวมการปรุงอาหาร)"
+                    emptyMessage={`ไม่มีข้อมูลของออกในช่วง ${selectedDateRangeLabel}`}
+                  />
+                </div>
+              </div>
             )}
           </TabsContent>
           {isCashFlowReportTabEnabled && (
@@ -10416,6 +10425,238 @@ function ReportsView({ store }: { store: Store }) {
         </Tabs>
       </section>
     </div>
+  )
+}
+
+const usageReasonChartConfig = {
+  total: {
+    label: "มูลค่า",
+    color: "var(--chart-3)",
+  },
+} satisfies ChartConfig
+
+function usageReasonDayLabel(date: string) {
+  return new Intl.DateTimeFormat("th-TH", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(`${date}T08:00:00+07:00`))
+}
+
+function UsageReasonReport({
+  totals,
+  dailyTotals,
+  selectedDateRangeLabel,
+}: {
+  totals: Store["reportUsageReasonTotals"]
+  dailyTotals: Store["reportDailyUsageReasonTotals"]
+  selectedDateRangeLabel: string
+}) {
+  const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const effectiveSelectedReason =
+    selectedReason && totals.some((item) => item.reason === selectedReason)
+      ? selectedReason
+      : null
+
+  const totalValue = totals.reduce((sum, item) => sum + item.total, 0)
+  const totalGroupCount = totals.reduce(
+    (sum, item) => sum + item.groupCount,
+    0
+  )
+  const selectedSummary = effectiveSelectedReason
+    ? totals.find((item) => item.reason === effectiveSelectedReason)
+    : null
+  const selectedValue = selectedSummary?.total ?? totalValue
+  const selectedGroupCount = selectedSummary?.groupCount ?? totalGroupCount
+  const dailyByDate = new Map<
+    string,
+    { date: string; label: string; total: number; groupCount: number }
+  >()
+
+  for (const item of dailyTotals) {
+    if (effectiveSelectedReason && item.reason !== effectiveSelectedReason) {
+      continue
+    }
+
+    const current = dailyByDate.get(item.date) ?? {
+      date: item.date,
+      label: usageReasonDayLabel(item.date),
+      total: 0,
+      groupCount: 0,
+    }
+    current.total += item.total
+    current.groupCount += item.groupCount
+    dailyByDate.set(item.date, current)
+  }
+
+  const chartData = Array.from(dailyByDate.values()).sort((first, second) =>
+    first.date.localeCompare(second.date)
+  )
+  const minChartWidth = Math.max(420, chartData.length * 58)
+  const selectedLabel = effectiveSelectedReason ?? "ทุกเหตุผล"
+  const hasChartData = chartData.some((item) => item.total > 0)
+
+  return (
+    <div className="mt-3 sm:mt-5">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold sm:text-base">
+          ยอดรวมตามเหตุผลการใช้งาน
+        </h3>
+        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+          เลือกเหตุผลเพื่อดูมูลค่าและจำนวนรอบรายวันในช่วง {selectedDateRangeLabel}
+        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.5fr)] lg:items-stretch">
+        <div className="overflow-hidden rounded-lg border border-border bg-background">
+          <div className="border-b border-border bg-muted/40 px-3 py-2.5 sm:px-4">
+            <p className="text-sm font-semibold">เหตุผลการใช้งาน</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              เรียงตามมูลค่าจากมากไปน้อย
+            </p>
+          </div>
+
+          <div
+            className="max-h-80 divide-y divide-border overflow-y-auto"
+            aria-label="เลือกเหตุผลสำหรับกราฟแนวโน้ม"
+          >
+            <UsageReasonSummaryButton
+              label="ทุกเหตุผล"
+              total={totalValue}
+              groupCount={totalGroupCount}
+              selected={effectiveSelectedReason === null}
+              onSelect={() => setSelectedReason(null)}
+            />
+            {totals.map((item) => (
+              <UsageReasonSummaryButton
+                key={item.reason}
+                label={item.reason}
+                total={item.total}
+                groupCount={item.groupCount}
+                selected={effectiveSelectedReason === item.reason}
+                onSelect={() => setSelectedReason(item.reason)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-lg border border-border bg-muted/20 p-3 sm:p-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <div>
+              <p className="text-sm font-semibold">แนวโน้มรายวัน · {selectedLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {selectedGroupCount.toLocaleString("th-TH")} รอบในช่วงที่เลือก
+              </p>
+            </div>
+            <p className="shrink-0 text-base font-semibold tabular-nums text-primary">
+              {formatCurrency(selectedValue)}
+            </p>
+          </div>
+
+          {hasChartData ? (
+            <div className="mt-3 overflow-x-auto">
+              <ChartContainer
+                config={usageReasonChartConfig}
+                className="h-56 min-h-56 w-full sm:h-64"
+                style={{ minWidth: `${minChartWidth}px` }}
+              >
+                <BarChart
+                  accessibilityLayer
+                  data={chartData}
+                  margin={{ top: 8, right: 10, bottom: 2, left: 2 }}
+                  barCategoryGap="28%"
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={9}
+                    interval={0}
+                    fontSize={12}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={7}
+                    width={52}
+                    fontSize={12}
+                    tickFormatter={(value) =>
+                      `฿${formatCompactCurrency(Number(value))}`
+                    }
+                  />
+                  <ChartTooltip
+                    cursor={false}
+                    content={
+                      <ChartTooltipContent
+                        valueFormatter={(value) => formatCurrency(value)}
+                      />
+                    }
+                  />
+                  <Bar
+                    dataKey="total"
+                    fill="var(--color-total)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={38}
+                  />
+                </BarChart>
+              </ChartContainer>
+            </div>
+          ) : (
+            <div className="mt-3 flex min-h-56 items-center justify-center rounded-lg border border-dashed border-border bg-background px-4 text-center text-sm text-muted-foreground sm:min-h-64">
+              ไม่พบมูลค่าการใช้งานสำหรับ “{selectedLabel}” ในช่วง{" "}
+              {selectedDateRangeLabel}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function UsageReasonSummaryButton({
+  label,
+  total,
+  groupCount,
+  selected,
+  onSelect,
+}: {
+  label: string
+  total: number
+  groupCount: number
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      className={cn(
+        "flex min-h-14 w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4",
+        selected
+          ? "bg-sky-50 text-sky-950"
+          : "bg-background hover:bg-muted/50 active:bg-muted"
+      )}
+      onClick={onSelect}
+    >
+      <span className="flex min-w-0 items-center gap-2.5">
+        <span
+          className={cn(
+            "size-2.5 shrink-0 rounded-full",
+            selected ? "bg-primary" : "bg-border"
+          )}
+          aria-hidden="true"
+        />
+        <span className="min-w-0">
+          <span className="block break-words text-sm font-medium">{label}</span>
+          <span className="block text-xs text-muted-foreground">
+            {groupCount.toLocaleString("th-TH")} รอบ
+          </span>
+        </span>
+      </span>
+      <span className="shrink-0 text-sm font-semibold tabular-nums">
+        {formatCurrency(total)}
+      </span>
+    </button>
   )
 }
 

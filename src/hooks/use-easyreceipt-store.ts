@@ -255,6 +255,8 @@ const emptyReport: ReportSummary = {
   stockMovementCount: 0,
   dailyPurchases: [],
   dailyStockOuts: [],
+  usageReasonTotals: [],
+  dailyUsageReasonTotals: [],
 }
 
 function readSessionValue(key: string) {
@@ -4288,6 +4290,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     reportPurchaseSeries,
     reportBranchPurchaseSeries,
     reportBranchStockOutSeries,
+    reportUsageReasonTotals: reportSummary.usageReasonTotals,
+    reportDailyUsageReasonTotals: reportSummary.dailyUsageReasonTotals,
     reportDateRange: {
       from: new Date(`${reportDateRangeKeys.from}T12:00:00`),
       to: new Date(`${reportDateRangeKeys.to}T12:00:00`),

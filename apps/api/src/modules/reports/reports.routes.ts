@@ -19,6 +19,34 @@ const stockOutMovementTypes = [
   "cook_out",
 ]
 
+const unspecifiedUsageReason = "ไม่ระบุเหตุผล"
+
+type UsageAuditMetadata = {
+  reason: string
+  batchId: string
+}
+
+function usageAuditMetadata(metadataJson: string | null): UsageAuditMetadata {
+  if (!metadataJson) {
+    return { reason: "", batchId: "" }
+  }
+
+  try {
+    const metadata = JSON.parse(metadataJson) as {
+      reason?: unknown
+      batchId?: unknown
+    }
+
+    return {
+      reason: typeof metadata.reason === "string" ? metadata.reason.trim() : "",
+      batchId:
+        typeof metadata.batchId === "string" ? metadata.batchId.trim() : "",
+    }
+  } catch {
+    return { reason: "", batchId: "" }
+  }
+}
+
 const reportDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -150,7 +178,9 @@ reportsRouter.get(
               : {}),
           },
           select: {
+            id: true,
             branchId: true,
+            movementType: true,
             occurredAt: true,
             quantity: true,
             unitCost: true,
@@ -176,6 +206,41 @@ reportsRouter.get(
           },
         }),
       ])
+    const usageMovements = stockOutMovements.filter(
+      (movement) => movement.movementType === "usage_out"
+    )
+    const usageMovementIds = usageMovements.map((movement) => movement.id)
+    const organizationIds = Array.from(
+      new Set(branches.map((branch) => branch.organizationId))
+    )
+    const [usageAuditLogs, activeUsageReasons] = await Promise.all([
+      usageMovementIds.length > 0
+        ? prisma.auditLog.findMany({
+            where: {
+              branchId: { in: branchIds },
+              action: "usage_out",
+              entityType: "stock_movement",
+              entityId: { in: usageMovementIds },
+            },
+            select: {
+              entityId: true,
+              metadataJson: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : Promise.resolve([]),
+      organizationIds.length > 0
+        ? prisma.usageReason.findMany({
+            where: {
+              organizationId: { in: organizationIds },
+              isActive: true,
+            },
+            select: { label: true },
+            orderBy: { label: "asc" },
+          })
+        : Promise.resolve([]),
+    ])
     const branchNameById = new Map(
       branches.map((branch) => [branch.id, branch.name] as const)
     )
@@ -187,6 +252,83 @@ reportsRouter.get(
       string,
       { date: string; branchId: string; branchName: string; total: number }
     >()
+    const usageMetadataByMovementId = new Map<string, UsageAuditMetadata>()
+
+    for (const log of usageAuditLogs) {
+      if (!usageMetadataByMovementId.has(log.entityId)) {
+        usageMetadataByMovementId.set(
+          log.entityId,
+          usageAuditMetadata(log.metadataJson)
+        )
+      }
+    }
+
+    const usageGroups = new Map<
+      string,
+      { date: string; reason: string; total: number }
+    >()
+
+    for (const movement of usageMovements) {
+      const metadata = usageMetadataByMovementId.get(movement.id)
+      const reason = metadata?.reason || unspecifiedUsageReason
+      const date = bangkokDateKey(movement.occurredAt)
+      const groupKey = metadata?.batchId
+        ? `${movement.branchId}:batch:${metadata.batchId}`
+        : [
+            movement.branchId,
+            "legacy",
+            reason,
+            movement.occurredAt.toISOString(),
+          ].join(":")
+      const current = usageGroups.get(groupKey) ?? { date, reason, total: 0 }
+
+      current.total += Number(movement.quantity) * Number(movement.unitCost)
+      usageGroups.set(groupKey, current)
+    }
+
+    const usageReasonTotalsByReason = new Map<
+      string,
+      { reason: string; total: number; groupCount: number }
+    >()
+
+    for (const usageReason of activeUsageReasons) {
+      const reason = usageReason.label.trim()
+
+      if (reason && !usageReasonTotalsByReason.has(reason)) {
+        usageReasonTotalsByReason.set(reason, {
+          reason,
+          total: 0,
+          groupCount: 0,
+        })
+      }
+    }
+
+    const dailyUsageReasonTotalsByKey = new Map<
+      string,
+      { date: string; reason: string; total: number; groupCount: number }
+    >()
+
+    for (const group of usageGroups.values()) {
+      const reasonTotal = usageReasonTotalsByReason.get(group.reason) ?? {
+        reason: group.reason,
+        total: 0,
+        groupCount: 0,
+      }
+      reasonTotal.total += group.total
+      reasonTotal.groupCount += 1
+      usageReasonTotalsByReason.set(group.reason, reasonTotal)
+
+      const dailyKey = `${group.date}:${group.reason}`
+      const dailyTotal = dailyUsageReasonTotalsByKey.get(dailyKey) ?? {
+        date: group.date,
+        reason: group.reason,
+        total: 0,
+        groupCount: 0,
+      }
+      dailyTotal.total += group.total
+      dailyTotal.groupCount += 1
+      dailyUsageReasonTotalsByKey.set(dailyKey, dailyTotal)
+    }
 
     for (const purchase of dailyPurchases) {
       const date = bangkokDateKey(purchase.purchaseDate)
@@ -251,6 +393,22 @@ reportsRouter.get(
           ? first.branchName.localeCompare(second.branchName, "th")
           : first.date.localeCompare(second.date)
       )
+    const usageReasonTotals = Array.from(usageReasonTotalsByReason.values())
+      .map((item) => ({ ...item, total: roundMoney(item.total) }))
+      .sort(
+        (first, second) =>
+          second.total - first.total ||
+          first.reason.localeCompare(second.reason, "th")
+      )
+    const dailyUsageReasonTotals = Array.from(
+      dailyUsageReasonTotalsByKey.values()
+    )
+      .map((item) => ({ ...item, total: roundMoney(item.total) }))
+      .sort((first, second) =>
+        first.date === second.date
+          ? first.reason.localeCompare(second.reason, "th")
+          : first.date.localeCompare(second.date)
+      )
 
     res.json({
       branchCount: branches.length,
@@ -263,6 +421,8 @@ reportsRouter.get(
       ),
       stockOutTotal: roundMoney(stockOutTotal),
       dailyStockOuts,
+      usageReasonTotals,
+      dailyUsageReasonTotals,
       cookingCount,
       stockMovementCount,
     })

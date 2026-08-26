@@ -107,6 +107,8 @@ export type ReportSummary = {
   stockMovementCount: number
   dailyPurchases: ReportDailyPurchase[]
   dailyStockOuts: ReportDailyStockOut[]
+  usageReasonTotals: ReportUsageReasonTotal[]
+  dailyUsageReasonTotals: ReportDailyUsageReasonTotal[]
 }
 
 export type ReportDailyPurchase = {
@@ -121,6 +123,16 @@ export type ReportDailyStockOut = {
   branchId: string
   branchName: string
   total: number
+}
+
+export type ReportUsageReasonTotal = {
+  reason: string
+  total: number
+  groupCount: number
+}
+
+export type ReportDailyUsageReasonTotal = ReportUsageReasonTotal & {
+  date: string
 }
 
 export type PurchaseApiInput = {
@@ -1468,6 +1480,17 @@ export async function apiGetReportSummary(
       branchId: item.branchId,
       branchName: item.branchName,
       total: toNumber(item.total),
+    })),
+    usageReasonTotals: (data.usageReasonTotals ?? []).map((item) => ({
+      reason: item.reason,
+      total: toNumber(item.total),
+      groupCount: toNumber(item.groupCount),
+    })),
+    dailyUsageReasonTotals: (data.dailyUsageReasonTotals ?? []).map((item) => ({
+      date: item.date,
+      reason: item.reason,
+      total: toNumber(item.total),
+      groupCount: toNumber(item.groupCount),
     })),
   }
 }
