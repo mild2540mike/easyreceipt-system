@@ -74,6 +74,10 @@ import {
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 import { uniquePurchaseBillName } from "@/lib/purchase-scan"
+import {
+  aggregateBranchReportTotals,
+  type BranchReportTotalItem,
+} from "@/lib/reporting"
 
 export type StockStatus = "ok" | "watch" | "low"
 
@@ -102,16 +106,7 @@ export type PurchaseSeriesItem = {
   total: number
 }
 
-export type BranchReportSeriesItem = {
-  date: string
-  label: string
-  total: number
-  branches: {
-    branchId: string
-    branchName: string
-    total: number
-  }[]
-}
+export type BranchReportSeriesItem = BranchReportTotalItem
 
 export type MemberFormInput = {
   name: string
@@ -2157,59 +2152,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       : []
   }, [savedPurchaseHistory, reportSummary.purchaseTotal])
 
-  const reportBranchPurchaseSeries = useMemo<BranchReportSeriesItem[]>(() => {
-    if (reportSummary.dailyPurchases.length === 0) {
-      return []
-    }
+  const reportBranchPurchaseSeries = useMemo<BranchReportSeriesItem[]>(
+    () =>
+      aggregateBranchReportTotals(
+        accessibleBranches,
+        reportSummary.dailyPurchases
+      ),
+    [accessibleBranches, reportSummary.dailyPurchases]
+  )
 
-    const byDate = new Map<string, BranchReportSeriesItem>()
-
-    for (const item of reportSummary.dailyPurchases) {
-      const current = byDate.get(item.date) ?? {
-        date: item.date,
-        label: dayLabel(item.date),
-        total: 0,
-        branches: [],
-      }
-
-      current.total += item.total
-      current.branches.push({
-        branchId: item.branchId,
-        branchName: item.branchName,
-        total: item.total,
-      })
-      byDate.set(item.date, current)
-    }
-
-    return Array.from(byDate.values()).sort((first, second) =>
-      first.date.localeCompare(second.date)
-    )
-  }, [reportSummary.dailyPurchases])
-
-  const reportBranchStockOutSeries = useMemo<BranchReportSeriesItem[]>(() => {
-    const byDate = new Map<string, BranchReportSeriesItem>()
-
-    for (const item of reportSummary.dailyStockOuts) {
-      const current = byDate.get(item.date) ?? {
-        date: item.date,
-        label: dayLabel(item.date),
-        total: 0,
-        branches: [],
-      }
-
-      current.total += item.total
-      current.branches.push({
-        branchId: item.branchId,
-        branchName: item.branchName,
-        total: item.total,
-      })
-      byDate.set(item.date, current)
-    }
-
-    return Array.from(byDate.values()).sort((first, second) =>
-      first.date.localeCompare(second.date)
-    )
-  }, [reportSummary.dailyStockOuts])
+  const reportBranchStockOutSeries = useMemo<BranchReportSeriesItem[]>(
+    () =>
+      aggregateBranchReportTotals(
+        accessibleBranches,
+        reportSummary.dailyStockOuts
+      ),
+    [accessibleBranches, reportSummary.dailyStockOuts]
+  )
 
   const reportCashFlowMetrics = useMemo(
     () => buildReportMetrics(reportSummary),

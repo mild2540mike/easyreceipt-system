@@ -21,7 +21,7 @@ import { createPortal } from "react-dom"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import ExcelJS from "exceljs"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -10591,7 +10591,7 @@ function ReportsView({ store }: { store: Store }) {
             {activeReportTab === "purchase" && (
               <BranchReportBarSeries
                 data={store.reportBranchPurchaseSeries}
-                label="ยอดซื้อแยกตามสาขา"
+                label="ยอดซื้อรวมต่อโรงเรียน"
                 emptyMessage={`ไม่มียอดซื้อในช่วง ${selectedDateRangeLabel}`}
               />
             )}
@@ -10611,7 +10611,7 @@ function ReportsView({ store }: { store: Store }) {
                 <div className="mt-5 border-t border-border pt-2 sm:mt-6 sm:pt-3">
                   <BranchReportBarSeries
                     data={store.reportBranchStockOutSeries}
-                    label="มูลค่าของออกทั้งหมดแยกตามสาขา (รวมการปรุงอาหาร)"
+                    label="มูลค่าของออกรวมต่อโรงเรียน (รวมการปรุงอาหาร)"
                     emptyMessage={`ไม่มีข้อมูลของออกในช่วง ${selectedDateRangeLabel}`}
                   />
                 </div>
@@ -10967,62 +10967,21 @@ function BranchReportBarSeries({
   label: string
   emptyMessage: string
 }) {
-  const branches = Array.from(
-    new Map(
-      data
-        .flatMap((item) => item.branches)
-        .map((branch) => [branch.branchId, branch] as const)
-    ).values()
-  )
-  const branchColorById = new Map(
-    branches.map((branch, index) => [
-      branch.branchId,
-      branchChartColors[index % branchChartColors.length],
-    ])
-  )
-  const branchKeyById = new Map(
-    branches.map((branch, index) => [branch.branchId, `branch_${index}`])
-  )
-  const chartConfig = Object.fromEntries(
-    branches.map((branch, index) => {
-      const key = branchKeyById.get(branch.branchId) ?? `branch_${index}`
-
-      return [
-        key,
-        {
-          label: branch.branchName,
-          color: branchChartColors[index % branchChartColors.length],
-        },
-      ]
-    })
-  ) satisfies ChartConfig
-  const chartData = data.map((item) => {
-    const row: Record<string, string | number> = {
-      label: item.label,
-      total: item.total,
-    }
-
-    for (const branch of branches) {
-      const key = branchKeyById.get(branch.branchId)
-
-      if (!key) {
-        continue
-      }
-
-      row[key] =
-        item.branches.find((entry) => entry.branchId === branch.branchId)
-          ?.total ?? 0
-    }
-
-    return row
-  })
-  const minChartWidth = Math.max(
-    520,
-    data.length * Math.max(branches.length, 1) * 52
-  )
+  const chartConfig = {
+    total: {
+      label: "มูลค่า",
+      color: "var(--chart-3)",
+    },
+  } satisfies ChartConfig
+  const chartData = data.map((item, index) => ({
+    ...item,
+    label: item.branchName.replace(/^โรงเรียน\s*/, "") || item.branchName,
+    fill: branchChartColors[index % branchChartColors.length],
+  }))
+  const minChartWidth = Math.max(520, data.length * 132)
   const hasReportData = data.some((item) => Math.abs(item.total) > 0)
 
-  if (data.length === 0 || branches.length === 0 || !hasReportData) {
+  if (data.length === 0 || !hasReportData) {
     return (
       <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground sm:mt-5 sm:p-6">
         {emptyMessage}
@@ -11032,22 +10991,11 @@ function BranchReportBarSeries({
 
   return (
     <div className="mt-3 sm:mt-5">
-      <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="mb-3 sm:mb-4">
         <p className="text-sm font-semibold">{label}</p>
-        <div className="flex flex-wrap gap-1.5 sm:gap-2">
-          {branches.map((branch) => (
-            <span
-              key={branch.branchId}
-              className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-xs"
-            >
-              <span
-                className="size-2 rounded-full"
-                style={{ backgroundColor: branchColorById.get(branch.branchId) }}
-              />
-              {branch.branchName}
-            </span>
-          ))}
-        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          รวมยอดทั้งช่วงที่เลือก โรงเรียนละ 1 แท่ง
+        </p>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-2 sm:p-3">
@@ -11060,8 +11008,7 @@ function BranchReportBarSeries({
             accessibilityLayer
             data={chartData}
             margin={{ top: 10, right: 12, bottom: 4, left: 4 }}
-            barCategoryGap="22%"
-            barGap={4}
+            barCategoryGap="30%"
           >
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
@@ -11084,27 +11031,23 @@ function BranchReportBarSeries({
               cursor={false}
               content={
                 <ChartTooltipContent
+                  labelFormatter={(_, payload) =>
+                    String(payload[0]?.payload?.branchName ?? "")
+                  }
                   valueFormatter={(value) => formatCurrency(value)}
                 />
               }
             />
-            {branches.map((branch) => {
-              const key = branchKeyById.get(branch.branchId)
-
-              if (!key) {
-                return null
-              }
-
-              return (
-                <Bar
-                  key={branch.branchId}
-                  dataKey={key}
-                  fill={`var(--color-${key})`}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={34}
-                />
-              )
-            })}
+            <Bar
+              dataKey="total"
+              fill="var(--color-total)"
+              radius={[4, 4, 0, 0]}
+              maxBarSize={48}
+            >
+              {chartData.map((item) => (
+                <Cell key={item.branchId} fill={item.fill} />
+              ))}
+            </Bar>
           </BarChart>
         </ChartContainer>
       </div>
