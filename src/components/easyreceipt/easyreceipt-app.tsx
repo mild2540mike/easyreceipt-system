@@ -10603,7 +10603,10 @@ function ReportsView({ store }: { store: Store }) {
                   totals={store.reportUsageReasonTotals}
                   dailyTotals={store.reportDailyUsageReasonTotals}
                   selectedDateRangeLabel={selectedDateRangeLabel}
-                  branchNames={store.reportBranchSummary.branchNames}
+                  branches={store.accessibleBranches.map((branch) => ({
+                    id: branch.id,
+                    name: branch.name,
+                  }))}
                 />
                 <div className="mt-5 border-t border-border pt-2 sm:mt-6 sm:pt-3">
                   <BranchReportBarSeries
@@ -10646,26 +10649,68 @@ function UsageReasonReport({
   totals,
   dailyTotals,
   selectedDateRangeLabel,
-  branchNames,
+  branches,
 }: {
   totals: Store["reportUsageReasonTotals"]
   dailyTotals: Store["reportDailyUsageReasonTotals"]
   selectedDateRangeLabel: string
-  branchNames: string[]
+  branches: Array<{ id: string; name: string }>
 }) {
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [selectedBranchId, setSelectedBranchId] = useState("all")
+  const effectiveSelectedBranchId =
+    selectedBranchId !== "all" &&
+    branches.some((branch) => branch.id === selectedBranchId)
+      ? selectedBranchId
+      : "all"
+  const selectedBranch = branches.find(
+    (branch) => branch.id === effectiveSelectedBranchId
+  )
+  const schoolScopeLabel = selectedBranch?.name ?? "ทุกโรงเรียน"
+  const reasonTotalsByReason = new Map(
+    totals.map((item) => [
+      item.reason,
+      effectiveSelectedBranchId === "all"
+        ? { ...item }
+        : { reason: item.reason, total: 0, groupCount: 0 },
+    ])
+  )
+
+  if (effectiveSelectedBranchId !== "all") {
+    for (const item of dailyTotals) {
+      if (item.branchId !== effectiveSelectedBranchId) {
+        continue
+      }
+
+      const current = reasonTotalsByReason.get(item.reason) ?? {
+        reason: item.reason,
+        total: 0,
+        groupCount: 0,
+      }
+      current.total += item.total
+      current.groupCount += item.groupCount
+      reasonTotalsByReason.set(item.reason, current)
+    }
+  }
+
+  const scopedTotals = Array.from(reasonTotalsByReason.values()).sort(
+    (first, second) =>
+      second.total - first.total ||
+      first.reason.localeCompare(second.reason, "th")
+  )
   const effectiveSelectedReason =
-    selectedReason && totals.some((item) => item.reason === selectedReason)
+    selectedReason &&
+    scopedTotals.some((item) => item.reason === selectedReason)
       ? selectedReason
       : null
 
-  const totalValue = totals.reduce((sum, item) => sum + item.total, 0)
-  const totalGroupCount = totals.reduce(
+  const totalValue = scopedTotals.reduce((sum, item) => sum + item.total, 0)
+  const totalGroupCount = scopedTotals.reduce(
     (sum, item) => sum + item.groupCount,
     0
   )
   const selectedSummary = effectiveSelectedReason
-    ? totals.find((item) => item.reason === effectiveSelectedReason)
+    ? scopedTotals.find((item) => item.reason === effectiveSelectedReason)
     : null
   const selectedValue = selectedSummary?.total ?? totalValue
   const selectedGroupCount = selectedSummary?.groupCount ?? totalGroupCount
@@ -10675,7 +10720,11 @@ function UsageReasonReport({
   >()
 
   for (const item of dailyTotals) {
-    if (effectiveSelectedReason && item.reason !== effectiveSelectedReason) {
+    if (
+      (effectiveSelectedBranchId !== "all" &&
+        item.branchId !== effectiveSelectedBranchId) ||
+      (effectiveSelectedReason && item.reason !== effectiveSelectedReason)
+    ) {
       continue
     }
 
@@ -10699,13 +10748,48 @@ function UsageReasonReport({
 
   return (
     <div className="mt-3 sm:mt-5">
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold sm:text-base">
-          ยอดรวมตามเหตุผลการใช้งาน
-        </h3>
-        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-          เลือกเหตุผลเพื่อดูมูลค่าและจำนวนรอบรายวันในช่วง {selectedDateRangeLabel}
-        </p>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold sm:text-base">
+            ยอดรวมตามเหตุผลการใช้งาน
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+            เลือกโรงเรียนและเหตุผลเพื่อดูมูลค่ากับจำนวนรอบในช่วง{" "}
+            {selectedDateRangeLabel}
+          </p>
+        </div>
+        <div className="w-full sm:w-72">
+          <Label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            โรงเรียน
+          </Label>
+          <Select
+            value={effectiveSelectedBranchId}
+            onValueChange={(value) => setSelectedBranchId(value ?? "all")}
+          >
+            <SelectTrigger
+              className="h-10 w-full bg-background"
+              aria-label="เลือกโรงเรียนสำหรับรายงานตามเหตุผล"
+            >
+              <Building2 className="size-4 shrink-0 text-sky-700" />
+              <SelectValue>
+                {(value) =>
+                  value === "all"
+                    ? `ทุกโรงเรียน (${branches.length})`
+                    : branches.find((branch) => branch.id === value)?.name ??
+                      "เลือกโรงเรียน"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="all">ทุกโรงเรียน ({branches.length})</SelectItem>
+              {branches.map((branch) => (
+                <SelectItem key={branch.id} value={branch.id}>
+                  {branch.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.5fr)] lg:items-stretch">
@@ -10713,7 +10797,7 @@ function UsageReasonReport({
           <div className="border-b border-border bg-muted/40 px-3 py-2.5 sm:px-4">
             <p className="text-sm font-semibold">เหตุผลการใช้งาน</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              เรียงตามมูลค่าจากมากไปน้อย
+              {schoolScopeLabel} · เรียงตามมูลค่าจากมากไปน้อย
             </p>
           </div>
 
@@ -10728,7 +10812,7 @@ function UsageReasonReport({
               selected={effectiveSelectedReason === null}
               onSelect={() => setSelectedReason(null)}
             />
-            {totals.map((item) => (
+            {scopedTotals.map((item) => (
               <UsageReasonSummaryButton
                 key={item.reason}
                 label={item.reason}
@@ -10746,14 +10830,8 @@ function UsageReasonReport({
             <div>
               <p className="text-sm font-semibold">แนวโน้มรายวัน · {selectedLabel}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {selectedGroupCount.toLocaleString("th-TH")} รอบในช่วงที่เลือก
-              </p>
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                {branchNames.length === 0
-                  ? "ยังไม่มีโรงเรียนในขอบเขตรายงาน"
-                  : branchNames.length === 1
-                    ? `โรงเรียน: ${branchNames[0]}`
-                    : `รวม ${branchNames.length} โรงเรียน: ${branchNames.join(" · ")}`}
+                {schoolScopeLabel} · {selectedGroupCount.toLocaleString("th-TH")} รอบ
+                ในช่วงที่เลือก
               </p>
             </div>
             <p className="shrink-0 text-base font-semibold tabular-nums text-primary">
@@ -10813,7 +10891,7 @@ function UsageReasonReport({
           ) : (
             <div className="mt-3 flex min-h-56 items-center justify-center rounded-lg border border-dashed border-border bg-background px-4 text-center text-sm text-muted-foreground sm:min-h-64">
               ไม่พบมูลค่าการใช้งานสำหรับ “{selectedLabel}” ในช่วง{" "}
-              {selectedDateRangeLabel}
+              {selectedDateRangeLabel} ของ {schoolScopeLabel}
             </div>
           )}
         </div>
@@ -10870,14 +10948,14 @@ function UsageReasonSummaryButton({
 }
 
 const branchChartColors = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "var(--chart-6)",
-  "var(--chart-7)",
-  "var(--chart-8)",
+  "var(--chart-1, #e08600)",
+  "var(--chart-2, #17a478)",
+  "var(--chart-3, #0085b6)",
+  "var(--chart-4, #d15b60)",
+  "var(--chart-5, #915dc5)",
+  "var(--chart-6, #009e9e)",
+  "var(--chart-7, #c35c9b)",
+  "var(--chart-8, #85a73b)",
 ]
 
 function BranchReportBarSeries({

@@ -1117,11 +1117,16 @@ export const openApiDocument = {
                     dailyUsageReasonTotals: {
                       type: "array",
                       description:
-                        "Daily usage-out value and usage-group count by saved reason.",
+                        "Daily usage-out value and usage-group count by branch and saved reason.",
                       items: {
                         type: "object",
                         properties: {
                           date: { type: "string", example: "2026-07-05" },
+                          branchId: { type: "string" },
+                          branchName: {
+                            type: "string",
+                            example: "โรงเรียนบางกะปิ",
+                          },
                           reason: { type: "string", example: "ของเสีย" },
                           total: { type: "number", example: 150 },
                           groupCount: { type: "integer", example: 1 },

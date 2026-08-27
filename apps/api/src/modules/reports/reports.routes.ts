@@ -265,7 +265,13 @@ reportsRouter.get(
 
     const usageGroups = new Map<
       string,
-      { date: string; reason: string; total: number }
+      {
+        date: string
+        branchId: string
+        branchName: string
+        reason: string
+        total: number
+      }
     >()
 
     for (const movement of usageMovements) {
@@ -280,7 +286,13 @@ reportsRouter.get(
             reason,
             movement.occurredAt.toISOString(),
           ].join(":")
-      const current = usageGroups.get(groupKey) ?? { date, reason, total: 0 }
+      const current = usageGroups.get(groupKey) ?? {
+        date,
+        branchId: movement.branchId,
+        branchName: branchNameById.get(movement.branchId) ?? "-",
+        reason,
+        total: 0,
+      }
 
       current.total += Number(movement.quantity) * Number(movement.unitCost)
       usageGroups.set(groupKey, current)
@@ -305,7 +317,14 @@ reportsRouter.get(
 
     const dailyUsageReasonTotalsByKey = new Map<
       string,
-      { date: string; reason: string; total: number; groupCount: number }
+      {
+        date: string
+        branchId: string
+        branchName: string
+        reason: string
+        total: number
+        groupCount: number
+      }
     >()
 
     for (const group of usageGroups.values()) {
@@ -318,9 +337,11 @@ reportsRouter.get(
       reasonTotal.groupCount += 1
       usageReasonTotalsByReason.set(group.reason, reasonTotal)
 
-      const dailyKey = `${group.date}:${group.reason}`
+      const dailyKey = `${group.branchId}:${group.date}:${group.reason}`
       const dailyTotal = dailyUsageReasonTotalsByKey.get(dailyKey) ?? {
         date: group.date,
+        branchId: group.branchId,
+        branchName: group.branchName,
         reason: group.reason,
         total: 0,
         groupCount: 0,
@@ -404,10 +425,11 @@ reportsRouter.get(
       dailyUsageReasonTotalsByKey.values()
     )
       .map((item) => ({ ...item, total: roundMoney(item.total) }))
-      .sort((first, second) =>
-        first.date === second.date
-          ? first.reason.localeCompare(second.reason, "th")
-          : first.date.localeCompare(second.date)
+      .sort(
+        (first, second) =>
+          first.date.localeCompare(second.date) ||
+          first.branchName.localeCompare(second.branchName, "th") ||
+          first.reason.localeCompare(second.reason, "th")
       )
 
     res.json({
