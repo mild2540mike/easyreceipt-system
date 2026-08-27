@@ -2858,12 +2858,21 @@ function ResponsiveDateRangePicker({
     close()
   }
 
-  function selectRecentDays(dayCount: number) {
-    const to = latestDate ?? new Date()
+  const reportRangeAnchor = latestDate ?? new Date()
+  const recentRange = (dayCount: number) => {
+    const to = new Date(reportRangeAnchor)
     const from = new Date(to)
 
     from.setDate(from.getDate() - (dayCount - 1))
-    setDraftRange({ from, to })
+    return { from, to }
+  }
+  const currentWeekRange = () => {
+    const to = new Date(reportRangeAnchor)
+    const from = new Date(to)
+    const daysSinceMonday = (from.getDay() + 6) % 7
+
+    from.setDate(from.getDate() - daysSinceMonday)
+    return { from, to }
   }
 
   const selectedDraftLabel =
@@ -2873,9 +2882,10 @@ function ResponsiveDateRangePicker({
         ? `${formatThaiLongDate(draftRange.from)} – เลือกวันสิ้นสุด`
         : "เลือกวันเริ่มต้นและวันสิ้นสุด"
   const quickRanges = [
-    { label: "วันนี้", days: 1 },
-    { label: "7 วันล่าสุด", days: 7 },
-    { label: "30 วันล่าสุด", days: 30 },
+    { id: "today", label: "วันนี้", range: recentRange(1) },
+    { id: "this-week", label: "สัปดาห์นี้", range: currentWeekRange() },
+    { id: "last-7-days", label: "7 วันล่าสุด", range: recentRange(7) },
+    { id: "last-30-days", label: "30 วันล่าสุด", range: recentRange(30) },
   ]
   const rangeCalendar = (numberOfMonths: 1 | 2) => (
     <Calendar
@@ -2907,11 +2917,28 @@ function ResponsiveDateRangePicker({
     <div className="flex flex-wrap gap-2 border-b border-border p-3">
       {quickRanges.map((range) => (
         <Button
-          key={range.days}
+          key={range.id}
           type="button"
-          variant="outline"
+          variant={
+            draftRange.from &&
+            draftRange.to &&
+            notificationDayKey(draftRange.from) ===
+              notificationDayKey(range.range.from) &&
+            notificationDayKey(draftRange.to) ===
+              notificationDayKey(range.range.to)
+              ? "secondary"
+              : "outline"
+          }
           size="sm"
-          onClick={() => selectRecentDays(range.days)}
+          aria-pressed={
+            Boolean(draftRange.from) &&
+            Boolean(draftRange.to) &&
+            notificationDayKey(draftRange.from as Date) ===
+              notificationDayKey(range.range.from) &&
+            notificationDayKey(draftRange.to as Date) ===
+              notificationDayKey(range.range.to)
+          }
+          onClick={() => setDraftRange(range.range)}
         >
           {range.label}
         </Button>
@@ -10522,7 +10549,7 @@ function ReportsView({ store }: { store: Store }) {
         <div>
           <h2 className="text-base font-semibold">ช่วงวันที่รายงาน</h2>
           <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-            ตัวเลขสรุปและกราฟทั้งหมดแสดงข้อมูลในช่วง {selectedDateRangeLabel}
+            เลือกดูสัปดาห์นี้ ช่วงหลายวัน หรือกำหนดวันที่เอง · กำลังแสดง {selectedDateRangeLabel}
           </p>
         </div>
         <div className="w-full sm:w-80">
