@@ -130,6 +130,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/toast"
 import {
   type EasyReceiptStore,
   type InventoryRow,
@@ -178,6 +179,34 @@ type NavItem = {
 const isBudgetManagementPageEnabled = true
 const isCashFlowReportTabEnabled = false
 const isDashboardPageEnabled = false
+
+type AppToastType = "success" | "info" | "warning" | "error"
+
+function showAppToast({
+  id,
+  type,
+  title,
+  description,
+}: {
+  id: string
+  type: AppToastType
+  title: string
+  description?: string
+}) {
+  toast.add({
+    id,
+    type,
+    title,
+    description,
+    timeout:
+      type === "error" || type === "warning"
+        ? 8000
+        : type === "success"
+          ? 4000
+          : 5000,
+    priority: type === "error" ? "high" : "low",
+  })
+}
 const isRecipePinButtonEnabled = false
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION
 
@@ -2194,7 +2223,6 @@ function BranchSwitcher({ store }: { store: Store }) {
   const [budgetBranchId, setBudgetBranchId] = useState("")
   const [budgetInput, setBudgetInput] = useState("")
   const [isUnlimitedBudget, setIsUnlimitedBudget] = useState(true)
-  const [budgetMessage, setBudgetMessage] = useState("")
   const budgetBranch = store.branches.find((branch) => branch.id === budgetBranchId)
 
   function openBudgetDialog(branch: Store["branches"][number]) {
@@ -2203,7 +2231,6 @@ function BranchSwitcher({ store }: { store: Store }) {
     setBudgetInput(
       branch.dailyPurchaseBudget === null ? "" : String(branch.dailyPurchaseBudget)
     )
-    setBudgetMessage("")
   }
 
   async function handleSaveBudget() {
@@ -2217,11 +2244,21 @@ function BranchSwitcher({ store }: { store: Store }) {
     )
 
     if (!result.ok) {
-      setBudgetMessage(result.error ?? "ไม่สามารถบันทึกงบประมาณสาขาได้")
+      showAppToast({
+        id: `branch-budget-${budgetBranch.id}`,
+        type: "error",
+        title: "บันทึกงบประมาณไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถบันทึกงบประมาณสาขาได้",
+      })
       return
     }
 
-    setBudgetMessage("")
+    showAppToast({
+      id: `branch-budget-${budgetBranch.id}`,
+      type: "success",
+      title: "บันทึกงบประมาณแล้ว",
+      description: budgetBranch.name,
+    })
     setBudgetBranchId("")
   }
 
@@ -2315,7 +2352,6 @@ function BranchSwitcher({ store }: { store: Store }) {
         onOpenChange={(open) => {
           if (!open) {
             setBudgetBranchId("")
-            setBudgetMessage("")
           }
         }}
       >
@@ -2376,11 +2412,6 @@ function BranchSwitcher({ store }: { store: Store }) {
                 />
               </div>
 
-              {budgetMessage && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {budgetMessage}
-                </div>
-              )}
             </div>
           )}
           <DialogFooter className="grid grid-cols-1 gap-2 p-4 pt-2 min-[390px]:grid-cols-2">
@@ -2990,7 +3021,7 @@ function ResponsiveDateRangePicker({
 }
 
 function PurchaseView({ store }: { store: Store }) {
-  const [purchaseMessage, setPurchaseMessage] = useState("")
+  const [purchaseFormError, setPurchaseFormError] = useState("")
   const [isPreparingScan, setIsPreparingScan] = useState(false)
   const [scanFeedback, setScanFeedback] = useState<{
     kind: "success" | "warning" | "error"
@@ -3077,74 +3108,99 @@ function PurchaseView({ store }: { store: Store }) {
   const canSavePurchaseDraft = store.purchaseItems.length > 0
   const canSubmitPurchase =
     hasPurchasesToSubmit && !hasIncompletePurchaseItems
-  const purchaseMessageIsError =
-    Boolean(store.purchaseError) ||
-    purchaseMessage.includes("ไม่สามารถ") ||
-    purchaseMessage.includes("กรุณา")
-
   async function handleConfirmSubmitPurchase() {
-    setPurchaseMessage("")
+    setPurchaseFormError("")
 
     if (!hasPurchasesToSubmit) {
-      setPurchaseMessage("กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ")
+      setPurchaseFormError("กรุณาเพิ่มรายการวัตถุดิบอย่างน้อย 1 รายการ")
       return
     }
 
     const result = await store.submitPurchase()
 
     if (!result.ok) {
-      setPurchaseMessage(result.error ?? "ไม่สามารถบันทึกใบซื้อได้")
+      showAppToast({
+        id: "purchase-submit",
+        type: "error",
+        title: "บันทึกใบซื้อไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถบันทึกใบซื้อได้",
+      })
       return
     }
 
     setIsPurchaseConfirmOpen(false)
-    setPurchaseMessage("บันทึกใบซื้อเข้าฐานข้อมูลและอัปเดตคลังวัตถุดิบแล้ว")
+    showAppToast({
+      id: "purchase-submit",
+      type: "success",
+      title: "บันทึกใบซื้อแล้ว",
+      description: "อัปเดตคลังวัตถุดิบเรียบร้อยแล้ว",
+    })
   }
 
   async function handleSavePurchaseDraft() {
-    setPurchaseMessage("")
+    setPurchaseFormError("")
     const wasEditing = Boolean(store.editingPurchaseDraftId)
     const localResult = store.saveFormDraft()
 
     if (!localResult.ok) {
-      setPurchaseMessage(
-        localResult.error ?? "ไม่สามารถบันทึกฉบับร่างในอุปกรณ์ได้"
-      )
+      showAppToast({
+        id: "purchase-draft-save",
+        type: "error",
+        title: "บันทึกฉบับร่างไม่สำเร็จ",
+        description:
+          localResult.error ?? "ไม่สามารถบันทึกฉบับร่างในอุปกรณ์ได้",
+      })
       return
     }
 
     if (hasIncompletePurchaseItems) {
-      setPurchaseMessage(
-        "บันทึกร่างไว้ในอุปกรณ์แล้ว เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ"
-      )
+      showAppToast({
+        id: "purchase-draft-save",
+        type: "info",
+        title: "บันทึกร่างไว้ในอุปกรณ์แล้ว",
+        description: "เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ",
+      })
       return
     }
 
     const result = await store.savePurchaseDraft()
 
-    setPurchaseMessage(
-      result.ok
+    showAppToast({
+      id: "purchase-draft-save",
+      type: result.ok ? "success" : "warning",
+      title: result.ok
         ? wasEditing
           ? "บันทึกการแก้ไขฉบับร่างแล้ว"
-          : "บันทึกฉบับร่างเข้าระบบแล้ว สามารถกลับมาเปิดต่อได้ภายหลัง"
-        : `บันทึกร่างไว้ในอุปกรณ์แล้ว แต่ส่งเข้าระบบไม่สำเร็จ: ${result.error ?? "กรุณาลองใหม่"}`
-    )
+          : "บันทึกฉบับร่างเข้าระบบแล้ว"
+        : "บันทึกร่างไว้ในอุปกรณ์แล้ว",
+      description: result.ok
+        ? "สามารถกลับมาเปิดต่อได้ภายหลัง"
+        : `แต่ส่งเข้าระบบไม่สำเร็จ: ${result.error ?? "กรุณาลองใหม่"}`,
+    })
   }
 
   function handleEditPurchaseDraft(purchaseId: string) {
-    setPurchaseMessage("")
+    setPurchaseFormError("")
     const result = store.beginPurchaseDraftEdit(purchaseId)
 
-    setPurchaseMessage(
-      result.ok
-        ? "เปิดฉบับร่างเพื่อแก้ไขแล้ว กดบันทึกร่างเพื่อเก็บการเปลี่ยนแปลง"
-        : (result.error ?? "ไม่สามารถเปิดฉบับร่างเพื่อแก้ไขได้")
-    )
+    showAppToast({
+      id: "purchase-draft-edit",
+      type: result.ok ? "info" : "error",
+      title: result.ok ? "เปิดฉบับร่างเพื่อแก้ไขแล้ว" : "เปิดฉบับร่างไม่สำเร็จ",
+      description: result.ok
+        ? "กดบันทึกร่างเพื่อเก็บการเปลี่ยนแปลง"
+        : (result.error ?? "ไม่สามารถเปิดฉบับร่างเพื่อแก้ไขได้"),
+    })
   }
 
   function handleCancelPurchaseDraftEdit() {
     store.cancelPurchaseDraftEdit()
-    setPurchaseMessage("ยกเลิกการแก้ไขแล้ว ฉบับร่างเดิมยังไม่เปลี่ยนแปลง")
+    showAppToast({
+      id: "purchase-draft-edit",
+      type: "info",
+      title: "ยกเลิกการแก้ไขแล้ว",
+      description: "ฉบับร่างเดิมยังไม่เปลี่ยนแปลง",
+    })
   }
 
   async function handleDeletePurchaseDraft() {
@@ -3152,16 +3208,24 @@ function PurchaseView({ store }: { store: Store }) {
       return
     }
 
-    setPurchaseMessage("")
     const result = await store.deletePurchaseDraft(draftPurchaseToDelete.id)
 
     if (!result.ok) {
-      setPurchaseMessage(result.error ?? "ไม่สามารถลบฉบับร่างได้")
+      showAppToast({
+        id: "purchase-draft-delete",
+        type: "error",
+        title: "ลบฉบับร่างไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถลบฉบับร่างได้",
+      })
       return
     }
 
     setDraftPurchaseToDelete(null)
-    setPurchaseMessage("ลบฉบับร่างแล้ว")
+    showAppToast({
+      id: "purchase-draft-delete",
+      type: "success",
+      title: "ลบฉบับร่างแล้ว",
+    })
   }
 
   async function handlePurchaseScanFile(file: File) {
@@ -3228,14 +3292,16 @@ function PurchaseView({ store }: { store: Store }) {
     purchaseId: string,
     itemId: string
   ) {
-    setPurchaseMessage("")
     const result = await store.deletePurchaseDraftItem(purchaseId, itemId)
 
-    setPurchaseMessage(
-      result.ok
-        ? "ลบรายการฉบับร่างแล้ว"
-        : (result.error ?? "ไม่สามารถลบรายการฉบับร่างได้")
-    )
+    showAppToast({
+      id: `purchase-draft-item-delete-${purchaseId}`,
+      type: result.ok ? "success" : "error",
+      title: result.ok ? "ลบรายการฉบับร่างแล้ว" : "ลบรายการไม่สำเร็จ",
+      description: result.ok
+        ? undefined
+        : (result.error ?? "ไม่สามารถลบรายการฉบับร่างได้"),
+    })
   }
 
   function setPurchaseExportGroupSelected(
@@ -3275,7 +3341,6 @@ function PurchaseView({ store }: { store: Store }) {
       return
     }
 
-    setPurchaseMessage("")
     setIsExportingPurchaseImage(true)
 
     try {
@@ -3298,15 +3363,22 @@ function PurchaseView({ store }: { store: Store }) {
         })),
       })
 
-      setPurchaseMessage(
-        `เริ่มดาวน์โหลดรูปสรุปของมาเพิ่ม ${selectedPurchaseExportGroups.length} บิลแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์`
-      )
+      showAppToast({
+        id: "purchase-export",
+        type: "info",
+        title: `เริ่มดาวน์โหลด ${selectedPurchaseExportGroups.length} บิลแล้ว`,
+        description: "ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์",
+      })
     } catch (error) {
-      setPurchaseMessage(
-        error instanceof Error
-          ? error.message
-          : "ไม่สามารถสร้างรูปสรุปของมาเพิ่มได้"
-      )
+      showAppToast({
+        id: "purchase-export",
+        type: "error",
+        title: "สร้างรูปสรุปไม่สำเร็จ",
+        description:
+          error instanceof Error
+            ? error.message
+            : "ไม่สามารถสร้างรูปสรุปของมาเพิ่มได้",
+      })
     } finally {
       setIsExportingPurchaseImage(false)
     }
@@ -3317,18 +3389,27 @@ function PurchaseView({ store }: { store: Store }) {
       return
     }
 
-    setPurchaseMessage("")
     const result = await store.deleteSavedPurchase(
       purchaseGroupToDelete.purchaseId
     )
 
     if (!result.ok) {
-      setPurchaseMessage(result.error ?? "ไม่สามารถลบบิลซื้อเข้าได้")
+      showAppToast({
+        id: "purchase-delete",
+        type: "error",
+        title: "ลบบิลซื้อเข้าไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถลบบิลซื้อเข้าได้",
+      })
       return
     }
 
     setPurchaseGroupToDelete(null)
-    setPurchaseMessage("ลบบิลซื้อเข้าและปรับยอดคลังเรียบร้อยแล้ว")
+    showAppToast({
+      id: "purchase-delete",
+      type: "success",
+      title: "ลบบิลซื้อเข้าแล้ว",
+      description: "ปรับยอดคลังเรียบร้อยแล้ว",
+    })
   }
 
   function togglePurchaseBill(purchaseId: string) {
@@ -3359,16 +3440,9 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
-      {(store.purchaseError || purchaseMessage) && (
-        <div
-          className={cn(
-            "rounded-lg border px-4 py-3 text-sm",
-            purchaseMessageIsError
-              ? "border-red-200 bg-red-50 text-red-800"
-              : "border-emerald-200 bg-emerald-50 text-emerald-800",
-          )}
-        >
-          {store.purchaseError || purchaseMessage}
+      {(store.purchaseError || purchaseFormError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {store.purchaseError || purchaseFormError}
         </div>
       )}
 
@@ -5381,7 +5455,6 @@ function FieldNumber({
 }
 
 function UsageView({ store }: { store: Store }) {
-  const [usageMessage, setUsageMessage] = useState("")
   const [isPreparingUsageScan, setIsPreparingUsageScan] = useState(false)
   const [usageScanFeedback, setUsageScanFeedback] = useState<{
     kind: "success" | "warning" | "error"
@@ -5403,10 +5476,6 @@ function UsageView({ store }: { store: Store }) {
       dateKey: "",
       excludedGroupIds: new Set(),
     }))
-  const usageMessageIsError =
-    Boolean(store.usageError) ||
-    usageMessage.includes("ไม่") ||
-    usageMessage.includes("กรุณา")
   const draftRows = store.usageItems
   const usageBatches = Array.from(
     draftRows.reduce((groups, item) => {
@@ -5546,26 +5615,39 @@ function UsageView({ store }: { store: Store }) {
   }
 
   async function handleSubmitUsage() {
-    setUsageMessage("")
     const result = await store.submitUsageDraft()
 
     if (!result.ok) {
-      setUsageMessage(result.error ?? "ไม่สามารถบันทึกของใช้ไปได้")
+      showAppToast({
+        id: "usage-submit",
+        type: "error",
+        title: "บันทึกของใช้ไปไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถบันทึกของใช้ไปได้",
+      })
       return
     }
 
-    setUsageMessage("บันทึกของใช้ไปทุกรอบและตัดคลังวัตถุดิบเรียบร้อย")
+    showAppToast({
+      id: "usage-submit",
+      type: "success",
+      title: "บันทึกของใช้ไปแล้ว",
+      description: "ตัดคลังวัตถุดิบเรียบร้อย",
+    })
   }
 
   function handleSaveUsageDraft() {
-    setUsageMessage("")
     const result = store.saveFormDraft("usage")
 
-    setUsageMessage(
-      result.ok
-        ? "บันทึกร่างไว้ในอุปกรณ์แล้ว เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ"
-        : (result.error ?? "ไม่สามารถบันทึกฉบับร่างได้")
-    )
+    showAppToast({
+      id: "usage-draft-save",
+      type: result.ok ? "info" : "error",
+      title: result.ok
+        ? "บันทึกร่างไว้ในอุปกรณ์แล้ว"
+        : "บันทึกฉบับร่างไม่สำเร็จ",
+      description: result.ok
+        ? "เมื่อกลับมาหน้านี้ระบบจะกู้รายการให้อัตโนมัติ"
+        : (result.error ?? "ไม่สามารถบันทึกฉบับร่างได้"),
+    })
   }
 
   function setUsageExportGroupSelected(groupId: string, selected: boolean) {
@@ -5599,7 +5681,6 @@ function UsageView({ store }: { store: Store }) {
       return
     }
 
-    setUsageMessage("")
     setIsExportingUsageImage(true)
 
     try {
@@ -5629,15 +5710,22 @@ function UsageView({ store }: { store: Store }) {
         })),
       })
 
-      setUsageMessage(
-        `เริ่มดาวน์โหลดรูปสรุปของใช้ไป ${selectedUsageExportGroups.length} รอบแล้ว ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์`
-      )
+      showAppToast({
+        id: "usage-export",
+        type: "info",
+        title: `เริ่มดาวน์โหลด ${selectedUsageExportGroups.length} รอบแล้ว`,
+        description: "ตรวจสอบโฟลเดอร์ Downloads ในแอปไฟล์",
+      })
     } catch (error) {
-      setUsageMessage(
-        error instanceof Error
-          ? error.message
-          : "ไม่สามารถสร้างรูปสรุปของใช้ไปได้"
-      )
+      showAppToast({
+        id: "usage-export",
+        type: "error",
+        title: "สร้างรูปสรุปไม่สำเร็จ",
+        description:
+          error instanceof Error
+            ? error.message
+            : "ไม่สามารถสร้างรูปสรุปของใช้ไปได้",
+      })
     } finally {
       setIsExportingUsageImage(false)
     }
@@ -5648,18 +5736,27 @@ function UsageView({ store }: { store: Store }) {
       return
     }
 
-    setUsageMessage("")
     const result = await store.deleteSavedUsageBatch(
       usageGroupToDelete.movements.map((movement) => movement.id)
     )
 
     if (!result.ok) {
-      setUsageMessage(result.error ?? "ไม่สามารถลบรอบของใช้ไปได้")
+      showAppToast({
+        id: "usage-delete",
+        type: "error",
+        title: "ลบรอบของใช้ไปไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถลบรอบของใช้ไปได้",
+      })
       return
     }
 
     setUsageGroupToDelete(null)
-    setUsageMessage("ลบรอบของใช้ไปและคืนยอดเข้าคลังเรียบร้อยแล้ว")
+    showAppToast({
+      id: "usage-delete",
+      type: "success",
+      title: "ลบรอบของใช้ไปแล้ว",
+      description: "คืนยอดเข้าคลังเรียบร้อยแล้ว",
+    })
   }
 
   function toggleUsageHistoryGroup(groupId: string) {
@@ -5678,16 +5775,9 @@ function UsageView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      {(store.usageError || usageMessage) && (
-        <div
-          className={cn(
-            "rounded-lg border px-4 py-3 text-sm",
-            usageMessageIsError
-              ? "border-red-200 bg-red-50 text-red-800"
-              : "border-emerald-200 bg-emerald-50 text-emerald-800"
-          )}
-        >
-          {store.usageError || usageMessage}
+      {store.usageError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {store.usageError}
         </div>
       )}
 
@@ -7191,7 +7281,6 @@ function StockView({ store }: { store: Store }) {
   const [deletingIngredientId, setDeletingIngredientId] = useState<
     string | null
   >(null)
-  const [stockMessage, setStockMessage] = useState("")
   const [stockDeleteError, setStockDeleteError] = useState("")
   const [stockSearch, setStockSearch] = useState("")
   const [stockCategory, setStockCategory] = useState("all")
@@ -7388,12 +7477,10 @@ function StockView({ store }: { store: Store }) {
     }
 
     setEditingIngredientId(item.ingredientId)
-    setStockMessage("")
   }
 
   function cancelStockEdit() {
     setEditingIngredientId(null)
-    setStockMessage("")
   }
 
   function startStockDelete(item: InventoryRow) {
@@ -7421,12 +7508,22 @@ function StockView({ store }: { store: Store }) {
     })
 
     if (!result.ok) {
-      setStockMessage(result.error ?? "ไม่สามารถบันทึกข้อมูลคลังวัตถุดิบได้")
+      showAppToast({
+        id: "stock-edit",
+        type: "error",
+        title: "บันทึกข้อมูลคลังไม่สำเร็จ",
+        description: result.error ?? "ไม่สามารถบันทึกข้อมูลคลังวัตถุดิบได้",
+      })
       return
     }
 
+    showAppToast({
+      id: "stock-edit",
+      type: "success",
+      title: "อัปเดตข้อมูลคลังแล้ว",
+      description: editingItem?.ingredient.name,
+    })
     setEditingIngredientId(null)
-    setStockMessage("")
   }
 
   async function confirmStockDelete() {
@@ -7456,6 +7553,12 @@ function StockView({ store }: { store: Store }) {
 
     setDeletingIngredientId(null)
     setStockDeleteError("")
+    showAppToast({
+      id: "stock-delete",
+      type: "success",
+      title: "ปิดใช้งานวัตถุดิบแล้ว",
+      description: deletingItem.ingredient.name,
+    })
   }
 
   return (
@@ -7905,7 +8008,6 @@ function StockView({ store }: { store: Store }) {
         key={editingIngredientId ?? "closed-stock-editor"}
         open={Boolean(editingIngredientId)}
         item={editingItem}
-        message={stockMessage}
         isSaving={store.isInventorySaving}
         canManageCatalog={store.canManageIngredientCatalog}
         onCancel={cancelStockEdit}
@@ -7960,7 +8062,6 @@ function createStockEditDraft(item?: InventoryRow): StockEditDraft {
 function StockEditDialog({
   open,
   item,
-  message,
   isSaving,
   canManageCatalog,
   onCancel,
@@ -7968,7 +8069,6 @@ function StockEditDialog({
 }: {
   open: boolean
   item?: InventoryRow
-  message: string
   isSaving: boolean
   canManageCatalog: boolean
   onCancel: () => void
@@ -7996,7 +8096,6 @@ function StockEditDialog({
         </DialogHeader>
         <StockEditForm
           draft={draft}
-          message={message}
           isSaving={isSaving}
           canManageCatalog={canManageCatalog}
           onChange={setDraft}
@@ -8010,7 +8109,6 @@ function StockEditDialog({
 
 function StockEditForm({
   draft,
-  message,
   isSaving,
   canManageCatalog,
   onChange,
@@ -8018,7 +8116,6 @@ function StockEditForm({
   onSave,
 }: {
   draft: StockEditDraft
-  message: string
   isSaving: boolean
   canManageCatalog: boolean
   onChange: (draft: StockEditDraft) => void
@@ -8115,12 +8212,6 @@ function StockEditForm({
           onChange={(value) => patchDraft({ defaultPrice: value })}
         />
       </div>
-
-      {message && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {message}
-        </div>
-      )}
 
       <div className="grid gap-2 sm:grid-cols-2">
         <Button type="submit" className="h-11" disabled={isSaving}>
@@ -8284,15 +8375,16 @@ function recipeMarginLabel(margin: number) {
 }
 
 function RecipesView({ store }: { store: Store }) {
-  const [cookMessage, setCookMessage] = useState("")
-
   async function handleUnpinRecipe(recipeId: string) {
     const result = await store.unpinRecipe(recipeId)
-    setCookMessage(
-      result.ok
-        ? "ถอนปักหมุดเมนูออกจากหน้าทดลองสูตรอาหารแล้ว"
-        : (result.error ?? "ไม่สามารถถอนปักหมุดสูตรอาหารได้")
-    )
+    showAppToast({
+      id: "recipe-unpin",
+      type: result.ok ? "success" : "error",
+      title: result.ok ? "ถอนปักหมุดเมนูแล้ว" : "ถอนปักหมุดไม่สำเร็จ",
+      description: result.ok
+        ? "นำออกจากหน้าทดลองสูตรอาหารแล้ว"
+        : (result.error ?? "ไม่สามารถถอนปักหมุดสูตรอาหารได้"),
+    })
   }
 
   return (
@@ -8314,11 +8406,6 @@ function RecipesView({ store }: { store: Store }) {
             {store.pinnedRecipeImpacts.length} สูตรที่ปักหมุด
           </Badge>
         </div>
-        {cookMessage && (
-          <div className="mt-4 rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
-            {cookMessage}
-          </div>
-        )}
         {store.isRecipesLoading && (
           <div className="mt-4 flex min-h-12 items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
             <LoaderCircle className="size-4 animate-spin" />
@@ -8598,21 +8685,34 @@ function RecipeFormView({
     const result = await store.pinRecipe(recipeId)
 
     if (!result.ok) {
-      setMessage(result.error ?? "ไม่พบสูตรอาหารที่ต้องการปักหมุด")
+      showAppToast({
+        id: "recipe-pin",
+        type: "error",
+        title: "ปักหมุดสูตรไม่สำเร็จ",
+        description: result.error ?? "ไม่พบสูตรอาหารที่ต้องการปักหมุด",
+      })
       return
     }
 
+    showAppToast({
+      id: "recipe-pin",
+      type: "success",
+      title: "ปักหมุดสูตรอาหารแล้ว",
+    })
     router.push("/portal/recipes")
   }
 
   async function handleDeleteExistingRecipe(recipeId: string) {
     const result = await store.deleteRecipe(recipeId)
 
-    setMessage(
-      result.ok
-        ? "ลบสูตรอาหารแล้ว"
-        : (result.error ?? "ไม่สามารถลบสูตรอาหารได้")
-    )
+    showAppToast({
+      id: "recipe-delete",
+      type: result.ok ? "success" : "error",
+      title: result.ok ? "ลบสูตรอาหารแล้ว" : "ลบสูตรอาหารไม่สำเร็จ",
+      description: result.ok
+        ? undefined
+        : (result.error ?? "ไม่สามารถลบสูตรอาหารได้"),
+    })
   }
 
   async function handleSubmitRecipe(event: FormEvent<HTMLFormElement>) {
@@ -8632,10 +8732,21 @@ function RecipeFormView({
 
     if (mode === "new") {
       setRecipeDraft(createRecipeDraft())
-      setMessage("สร้างสูตรและบันทึกไว้ในคลังสูตรแล้ว")
+      setMessage("")
+      showAppToast({
+        id: "recipe-save",
+        type: "success",
+        title: "สร้างสูตรอาหารแล้ว",
+        description: "บันทึกไว้ในคลังสูตรเรียบร้อย",
+      })
       return
     }
 
+    showAppToast({
+      id: "recipe-save",
+      type: "success",
+      title: "บันทึกการแก้ไขสูตรแล้ว",
+    })
     router.push("/portal/recipes")
   }
 
@@ -9451,7 +9562,6 @@ function BudgetsView({ store }: { store: Store }) {
   const [unlimitedDrafts, setUnlimitedDrafts] = useState<Record<string, boolean>>(
     {}
   )
-  const [messages, setMessages] = useState<Record<string, string>>({})
   const branches = store.accessibleBranches
   const limitedBranches = branches.filter(
     (branch) => branch.dailyPurchaseBudget !== null
@@ -9483,12 +9593,14 @@ function BudgetsView({ store }: { store: Store }) {
       isUnlimited ? null : toNumber(budgetValue)
     )
 
-    setMessages((current) => ({
-      ...current,
-      [branchId]: result.ok
-        ? "บันทึกงบรายวันแล้ว"
+    showAppToast({
+      id: `budget-${branchId}`,
+      type: result.ok ? "success" : "error",
+      title: result.ok ? "บันทึกงบรายวันแล้ว" : "บันทึกงบไม่สำเร็จ",
+      description: result.ok
+        ? branch.name
         : (result.error ?? "ไม่สามารถบันทึกงบรายวันได้"),
-    }))
+    })
   }
 
   return (
@@ -9567,8 +9679,6 @@ function BudgetsView({ store }: { store: Store }) {
                   currentBudget === null ? null : Math.max(currentBudget - usedToday, 0)
                 const isOverBudget =
                   currentBudget !== null && usedToday > currentBudget
-                const message = messages[branch.id]
-
                 return (
                   <TableRow key={branch.id}>
                     <TableCell>
@@ -9576,18 +9686,6 @@ function BudgetsView({ store }: { store: Store }) {
                       <p className="text-xs text-muted-foreground">
                         {branch.code} · {branch.location}
                       </p>
-                      {message && (
-                        <p
-                          className={cn(
-                            "mt-1 text-xs",
-                            message.includes("แล้ว")
-                              ? "text-emerald-700"
-                              : "text-red-700"
-                          )}
-                        >
-                          {message}
-                        </p>
-                      )}
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatCurrency(usedToday)}
@@ -9873,6 +9971,12 @@ function MemberFormView() {
         : store.accessibleBranches.slice(0, 1).map((branch) => branch.id)
     )
     setMessage("")
+    showAppToast({
+      id: "member-create",
+      type: "success",
+      title: "เพิ่มสมาชิกแล้ว",
+      description: name.trim(),
+    })
     router.push("/portal/members")
   }
 
@@ -10068,6 +10172,13 @@ function MemberEditDialog({
       return
     }
 
+    setMessage("")
+    showAppToast({
+      id: `member-edit-${member.id}`,
+      type: "success",
+      title: "อัปเดตข้อมูลสมาชิกแล้ว",
+      description: name.trim(),
+    })
     setOpen(false)
   }
 
@@ -10492,6 +10603,7 @@ function ReportsView({ store }: { store: Store }) {
                   totals={store.reportUsageReasonTotals}
                   dailyTotals={store.reportDailyUsageReasonTotals}
                   selectedDateRangeLabel={selectedDateRangeLabel}
+                  branchNames={store.reportBranchSummary.branchNames}
                 />
                 <div className="mt-5 border-t border-border pt-2 sm:mt-6 sm:pt-3">
                   <BranchReportBarSeries
@@ -10534,10 +10646,12 @@ function UsageReasonReport({
   totals,
   dailyTotals,
   selectedDateRangeLabel,
+  branchNames,
 }: {
   totals: Store["reportUsageReasonTotals"]
   dailyTotals: Store["reportDailyUsageReasonTotals"]
   selectedDateRangeLabel: string
+  branchNames: string[]
 }) {
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const effectiveSelectedReason =
@@ -10633,6 +10747,13 @@ function UsageReasonReport({
               <p className="text-sm font-semibold">แนวโน้มรายวัน · {selectedLabel}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {selectedGroupCount.toLocaleString("th-TH")} รอบในช่วงที่เลือก
+              </p>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                {branchNames.length === 0
+                  ? "ยังไม่มีโรงเรียนในขอบเขตรายงาน"
+                  : branchNames.length === 1
+                    ? `โรงเรียน: ${branchNames[0]}`
+                    : `รวม ${branchNames.length} โรงเรียน: ${branchNames.join(" · ")}`}
               </p>
             </div>
             <p className="shrink-0 text-base font-semibold tabular-nums text-primary">
@@ -10754,6 +10875,9 @@ const branchChartColors = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
 ]
 
 function BranchReportBarSeries({

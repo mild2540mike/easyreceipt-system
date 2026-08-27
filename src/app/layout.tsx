@@ -3,6 +3,7 @@ import { Geist_Mono, Noto_Sans_Thai } from "next/font/google";
 import { EasyReceiptProvider } from "@/components/easyreceipt/easyreceipt-provider";
 import { EasyReceiptQueryProvider } from "@/components/easyreceipt/query-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toast";
 import "./globals.css";
 
 const notoThai = Noto_Sans_Thai({
@@ -74,6 +75,7 @@ export default function RootLayout({
             <TooltipProvider>{children}</TooltipProvider>
           </EasyReceiptProvider>
         </EasyReceiptQueryProvider>
+        <Toaster timeout={5000} limit={3} />
       </body>
     </html>
   );
