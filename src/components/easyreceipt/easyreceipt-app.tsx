@@ -125,6 +125,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -3049,6 +3050,16 @@ function ResponsiveDateRangePicker({
 
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseFormError, setPurchaseFormError] = useState("")
+  const [purchaseText, setPurchaseText] = useState("")
+  const [purchaseTextMode, setPurchaseTextMode] = useState<
+    "inventory" | "ai"
+  >("inventory")
+  const [textImportFeedback, setTextImportFeedback] = useState<{
+    kind: "success" | "warning" | "error"
+    message: string
+    details: string[]
+    billName?: string
+  } | null>(null)
   const [isPreparingScan, setIsPreparingScan] = useState(false)
   const [scanFeedback, setScanFeedback] = useState<{
     kind: "success" | "warning" | "error"
@@ -3315,6 +3326,49 @@ function PurchaseView({ store }: { store: Store }) {
     }
   }
 
+  async function handlePurchaseTextImport() {
+    setTextImportFeedback(null)
+    store.clearPurchaseTextImportError()
+    const result = await store.importPurchaseText(
+      purchaseText,
+      purchaseTextMode
+    )
+
+    if (!result.ok) {
+      setTextImportFeedback({
+        kind: "error",
+        message: result.error,
+        details: [],
+      })
+      return
+    }
+
+    setPurchaseText("")
+    setTextImportFeedback({
+      kind: result.needsReviewCount > 0 ? "warning" : "success",
+      message: `สร้าง “${result.billName}” แล้ว ${result.itemCount} รายการ`,
+      details: [
+        result.needsReviewCount > 0
+          ? `ต้องตรวจสอบ ${result.needsReviewCount} รายการก่อนบันทึก`
+          : "จับคู่วัตถุดิบ จำนวน หน่วย และราคาครบแล้ว",
+        ...result.warnings,
+      ],
+      billName: result.billName,
+    })
+
+    window.setTimeout(() => {
+      const bills = document.querySelectorAll<HTMLElement>(
+        "[data-purchase-bill]"
+      )
+      bills.item(bills.length - 1)?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "center",
+      })
+    }, 0)
+  }
+
   async function handleDeletePurchaseDraftItem(
     purchaseId: string,
     itemId: string
@@ -3521,6 +3575,54 @@ function PurchaseView({ store }: { store: Store }) {
         </div>
       )}
 
+      {(textImportFeedback || store.purchaseTextImportError) && (
+        <div
+          aria-live="polite"
+          className={cn(
+            "flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between",
+            textImportFeedback?.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : textImportFeedback?.kind === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-red-200 bg-red-50 text-red-900"
+          )}
+        >
+          <div className="flex min-w-0 gap-2.5">
+            {textImportFeedback?.kind === "success" ? (
+              <CircleCheck className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium">
+                {textImportFeedback?.message || store.purchaseTextImportError}
+              </p>
+              {textImportFeedback && textImportFeedback.details.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed sm:text-sm">
+                  {textImportFeedback.details.map((detail, index) => (
+                    <li key={`${detail}-${index}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          {textImportFeedback?.billName && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 bg-background"
+              onClick={() => {
+                store.removePurchaseBill(textImportFeedback.billName ?? "")
+                setTextImportFeedback(null)
+              }}
+            >
+              <Trash2 className="size-4" />
+              ลบบิลนี้
+            </Button>
+          )}
+        </div>
+      )}
+
       <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
@@ -3589,6 +3691,92 @@ function PurchaseView({ store }: { store: Store }) {
                 เลือกจากคลังรูป ไฟล์ หรือถ่ายรูปใหม่บนมือถือ
               </p>
             </div>
+          </div>
+        </div>
+
+        <div className="mb-4 border-t border-border pt-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+            <div>
+              <Label htmlFor="purchase-text-import" className="text-sm font-semibold">
+                รายการรวม
+              </Label>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                หนึ่งรายการต่อบรรทัด เช่น “หมู 2 กก. 180” โดยเลขท้ายคือราคาต่อหน่วย
+              </p>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {purchaseText.length.toLocaleString("th-TH")}/20,000 ตัวอักษร
+            </span>
+          </div>
+          <Textarea
+            id="purchase-text-import"
+            value={purchaseText}
+            maxLength={20_000}
+            rows={5}
+            placeholder={"หมู 2 กก. 180\nน้ำมันพืช 3 ขวด 55\nผงมะนาวคนอร์"}
+            className="min-h-32"
+            disabled={
+              !store.canEditPurchase ||
+              Boolean(store.editingPurchaseDraftId) ||
+              store.isPurchaseTextImporting
+            }
+            onChange={(event) => setPurchaseText(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault()
+                if (purchaseText.trim() && !store.isPurchaseTextImporting) {
+                  void handlePurchaseTextImport()
+                }
+              }
+            }}
+          />
+          <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <Tabs
+              value={purchaseTextMode}
+              onValueChange={(value) =>
+                setPurchaseTextMode(value as "inventory" | "ai")
+              }
+              className="gap-1"
+            >
+              <TabsList className="h-10 w-full sm:w-fit" aria-label="วิธีแยกรายการรวม">
+                <TabsTrigger value="inventory" className="h-9 px-3">
+                  <Database className="size-4" />
+                  ค้นจากคลัง
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="h-9 px-3">
+                  <MessageCircle className="size-4" />
+                  แยกด้วย AI
+                </TabsTrigger>
+              </TabsList>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {purchaseTextMode === "inventory"
+                  ? "ไม่ใช้ AI: ค้นชื่อที่ตรงหรือใกล้เคียงจากคลังของสาขานี้"
+                  : "AI จะช่วยอ่านรูปแบบข้อความที่ไม่สม่ำเสมอ แล้วจับคู่กับคลังอีกครั้ง"}
+              </p>
+            </Tabs>
+            <Button
+              type="button"
+              className="h-11 w-full lg:w-auto"
+              onClick={() => void handlePurchaseTextImport()}
+              disabled={
+                !store.canEditPurchase ||
+                Boolean(store.editingPurchaseDraftId) ||
+                !purchaseText.trim() ||
+                store.isPurchaseTextImporting
+              }
+            >
+              {store.isPurchaseTextImporting ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  กำลังแยกรายการ
+                </>
+              ) : (
+                <>
+                  <List className="size-4" />
+                  สร้างบิลจากรายการ
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -5199,6 +5387,11 @@ function IngredientSelect({
     ? matchingSuggestionRows.slice(0, 50)
     : matchingSuggestionRows.slice(0, 7)
   const canAddIngredient = Boolean(query.trim()) && !exactIngredient
+  const importedSuggestionIngredients = (item.suggestedIngredientIds ?? [])
+    .map((ingredientId) => store.ingredientById.get(ingredientId))
+    .filter((ingredient): ingredient is NonNullable<typeof ingredient> =>
+      Boolean(ingredient)
+    )
   const resolvedActiveSuggestionIndex = suggestionRows.length === 0
     ? -1
     : Math.min(Math.max(activeSuggestionIndex, 0), suggestionRows.length - 1)
@@ -5344,6 +5537,24 @@ function IngredientSelect({
         <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700">
           <AlertTriangle className="size-3.5 shrink-0" />
           ยังไม่จับคู่กับวัตถุดิบในคลัง
+        </div>
+      )}
+
+      {!item.ingredientId && importedSuggestionIngredients.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">ใกล้เคียง:</span>
+          {importedSuggestionIngredients.map((ingredient) => (
+            <button
+              key={ingredient.id}
+              type="button"
+              className="inline-flex min-h-8 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-left text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              onClick={() => handleSelectIngredient(ingredient.id)}
+              disabled={!store.canEditPurchase}
+              title={`เลือก ${ingredient.name} ${ingredient.unit}`}
+            >
+              {ingredient.name} · {ingredient.unit}
+            </button>
+          ))}
         </div>
       )}
 

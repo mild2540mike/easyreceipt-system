@@ -150,6 +150,8 @@ export type PurchaseItem = {
   id: string
   ingredientId: string
   draftIngredientName?: string
+  suggestedIngredientIds?: string[]
+  importWarnings?: string[]
   quantity: number
   unit: string
   unitPrice: number

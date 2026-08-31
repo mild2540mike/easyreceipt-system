@@ -186,6 +186,30 @@ export type PurchaseScanResult = {
   warnings: string[]
 }
 
+export type PurchaseTextImportMode = "ai" | "inventory"
+
+export type PurchaseTextImportResult = {
+  mode: PurchaseTextImportMode
+  items: {
+    rawName: string
+    ingredientId: string | null
+    quantity: number
+    unit: string
+    unitPrice: number
+    lineTotal: number
+    warnings: string[]
+    suggestions: {
+      ingredientId: string
+      name: string
+      unit: string
+      defaultPrice: number
+      matchKind: "exact" | "contains" | "approximate"
+      score: number
+    }[]
+  }[]
+  warnings: string[]
+}
+
 type ApiPurchaseItem = {
   id: string
   ingredientId: string
@@ -1189,6 +1213,27 @@ export async function apiScanBranchPurchase(
   const data = await parseJsonResponse<{ scan: PurchaseScanResult }>(response)
 
   return data.scan
+}
+
+export async function apiImportBranchPurchaseText(
+  branchId: string,
+  text: string,
+  mode: PurchaseTextImportMode
+): Promise<PurchaseTextImportResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/purchases/text-import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ text, mode }),
+    }
+  )
+  const data = await parseJsonResponse<{ import: PurchaseTextImportResult }>(response)
+
+  return data.import
 }
 
 export async function apiUploadBranchPurchaseReceiptImage(

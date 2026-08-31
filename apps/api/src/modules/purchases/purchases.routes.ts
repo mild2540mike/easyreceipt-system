@@ -19,6 +19,10 @@ import {
   scanPurchaseReceipt,
 } from "./purchase-scan"
 import {
+  importPurchaseText,
+  purchaseTextImportRequestSchema,
+} from "./purchase-text-import"
+import {
   removePurchaseReceiptImage,
   savePurchaseReceiptImage,
 } from "./purchase-receipt-image"
@@ -199,6 +203,50 @@ purchasesRouter.post(
     })
 
     res.json({ scan })
+  })
+)
+
+purchasesRouter.post(
+  "/text-import",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = purchaseTextImportRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "purchase")) {
+      throw forbidden("Member does not have permission to import purchases.")
+    }
+
+    const inventoryRows = await prisma.branchInventory.findMany({
+      where: {
+        branchId,
+        ingredient: { isActive: true },
+      },
+      select: {
+        ingredient: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+            defaultPrice: true,
+          },
+        },
+      },
+    })
+    const imported = await importPurchaseText({
+      text: input.text,
+      mode: input.mode,
+      memberId: access.member.id,
+      ingredients: inventoryRows.map((row) => ({
+        id: row.ingredient.id,
+        name: row.ingredient.name,
+        unit: row.ingredient.unit,
+        defaultPrice: Number(row.ingredient.defaultPrice),
+      })),
+    })
+
+    res.json({ import: imported })
   })
 )
 
