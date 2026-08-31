@@ -3051,6 +3051,7 @@ function ResponsiveDateRangePicker({
 function PurchaseView({ store }: { store: Store }) {
   const [purchaseFormError, setPurchaseFormError] = useState("")
   const [purchaseText, setPurchaseText] = useState("")
+  const [isPurchaseTextOpen, setIsPurchaseTextOpen] = useState(false)
   const [purchaseTextMode, setPurchaseTextMode] = useState<
     "inventory" | "ai"
   >("inventory")
@@ -3344,6 +3345,7 @@ function PurchaseView({ store }: { store: Store }) {
     }
 
     setPurchaseText("")
+    setIsPurchaseTextOpen(false)
     setTextImportFeedback({
       kind: result.needsReviewCount > 0 ? "warning" : "success",
       message: `สร้าง “${result.billName}” แล้ว ${result.itemCount} รายการ`,
@@ -3645,8 +3647,8 @@ function PurchaseView({ store }: { store: Store }) {
                 onChange={store.setPurchaseDate}
               />
             </div>
-            <div className="min-w-52">
-              <Label className="mb-2 block">อัปโหลดรูปบิล</Label>
+            <div className="min-w-72">
+              <Label className="mb-2 block">เพิ่มบิลด้วย</Label>
               <input
                 ref={purchaseScanInputRef}
                 type="file"
@@ -3663,38 +3665,60 @@ function PurchaseView({ store }: { store: Store }) {
                   }
                 }}
               />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-full bg-background"
-                onClick={() => purchaseScanInputRef.current?.click()}
-                disabled={
-                  !store.canEditPurchase ||
-                  Boolean(store.editingPurchaseDraftId) ||
-                  isPreparingScan ||
-                  store.isPurchaseScanning
-                }
-              >
-                {isPreparingScan || store.isPurchaseScanning ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    กำลังอ่านรูป
-                  </>
-                ) : (
-                  <>
-                    <ImageUp className="size-4" />
-                    เลือกรูปบิล
-                  </>
-                )}
-              </Button>
-              <p className="mt-1.5 text-xs text-muted-foreground sm:hidden">
-                เลือกจากคลังรูป ไฟล์ หรือถ่ายรูปใหม่บนมือถือ
-              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={isPurchaseTextOpen ? "secondary" : "outline"}
+                  className={cn("h-11", !isPurchaseTextOpen && "bg-background")}
+                  aria-expanded={isPurchaseTextOpen}
+                  aria-controls="purchase-text-import-panel"
+                  onClick={() => setIsPurchaseTextOpen((current) => !current)}
+                  disabled={
+                    !store.canEditPurchase ||
+                    Boolean(store.editingPurchaseDraftId) ||
+                    store.isPurchaseTextImporting
+                  }
+                >
+                  <List className="size-4" />
+                  รายการรวม
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 bg-background"
+                  onClick={() => {
+                    setIsPurchaseTextOpen(false)
+                    purchaseScanInputRef.current?.click()
+                  }}
+                  disabled={
+                    !store.canEditPurchase ||
+                    Boolean(store.editingPurchaseDraftId) ||
+                    isPreparingScan ||
+                    store.isPurchaseScanning
+                  }
+                >
+                  {isPreparingScan || store.isPurchaseScanning ? (
+                    <>
+                      <LoaderCircle className="size-4 animate-spin" />
+                      กำลังอ่าน
+                    </>
+                  ) : (
+                    <>
+                      <ImageUp className="size-4" />
+                      อัปโหลดรูปบิล
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-4 border-t border-border pt-4">
+        {isPurchaseTextOpen && (
+        <div
+          id="purchase-text-import-panel"
+          className="mb-4 border-t border-border pt-4"
+        >
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
             <div>
               <Label htmlFor="purchase-text-import" className="text-sm font-semibold">
@@ -3779,6 +3803,7 @@ function PurchaseView({ store }: { store: Store }) {
             </Button>
           </div>
         </div>
+        )}
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
@@ -5693,6 +5718,17 @@ function FieldNumber({
 }
 
 function UsageView({ store }: { store: Store }) {
+  const [usageText, setUsageText] = useState("")
+  const [isUsageTextOpen, setIsUsageTextOpen] = useState(false)
+  const [usageTextMode, setUsageTextMode] = useState<"inventory" | "ai">(
+    "inventory"
+  )
+  const [usageTextFeedback, setUsageTextFeedback] = useState<{
+    kind: "success" | "warning" | "error"
+    message: string
+    details: string[]
+    batchId?: string
+  } | null>(null)
   const [isPreparingUsageScan, setIsPreparingUsageScan] = useState(false)
   const [usageScanFeedback, setUsageScanFeedback] = useState<{
     kind: "success" | "warning" | "error"
@@ -5729,6 +5765,16 @@ function UsageView({ store }: { store: Store }) {
     })
   )
   const readyRows = draftRows.filter((item) => item.ingredientId && item.quantity > 0)
+  const draftUsageByIngredientId = draftRows.reduce((totals, item) => {
+    if (item.ingredientId && item.quantity > 0) {
+      totals.set(
+        item.ingredientId,
+        (totals.get(item.ingredientId) ?? 0) + item.quantity
+      )
+    }
+
+    return totals
+  }, new Map<string, number>())
   const invalidRows = draftRows.filter((item) => {
     if (!item.ingredientId || item.quantity <= 0) {
       return false
@@ -5738,7 +5784,10 @@ function UsageView({ store }: { store: Store }) {
       (row) => row.ingredientId === item.ingredientId
     )
 
-    return !inventory || item.quantity > inventory.onHand
+    return (
+      !inventory ||
+      (draftUsageByIngredientId.get(item.ingredientId) ?? 0) > inventory.onHand
+    )
   })
   const usageReasonOptions = Array.from(
     new Set(
@@ -5784,7 +5833,8 @@ function UsageView({ store }: { store: Store }) {
     readyRows.length > 0 &&
     invalidRows.length === 0 &&
     !store.isUsageSaving &&
-    !store.isUsageScanning
+    !store.isUsageScanning &&
+    !store.isUsageTextImporting
 
   async function handleUsageScanFile(file: File) {
     setUsageScanFeedback(null)
@@ -5850,6 +5900,52 @@ function UsageView({ store }: { store: Store }) {
     } finally {
       setIsPreparingUsageScan(false)
     }
+  }
+
+  async function handleUsageTextImport() {
+    setUsageTextFeedback(null)
+    store.clearUsageTextImportError()
+    const result = await store.importUsageText(usageText, usageTextMode)
+
+    if (!result.ok) {
+      setUsageTextFeedback({
+        kind: "error",
+        message: result.error,
+        details: [],
+      })
+      return
+    }
+
+    setUsageText("")
+    setIsUsageTextOpen(false)
+    setUsageTextFeedback({
+      kind:
+        result.needsReviewCount > 0 || result.overStockCount > 0
+          ? "warning"
+          : "success",
+      message: `สร้าง “${result.batchName}” แล้ว ${result.itemCount} รายการ`,
+      details: [
+        result.needsReviewCount > 0
+          ? `ต้องตรวจสอบ ${result.needsReviewCount} รายการก่อนบันทึก`
+          : "จับคู่วัตถุดิบ จำนวน และหน่วยครบแล้ว",
+        ...(result.overStockCount > 0
+          ? [`มี ${result.overStockCount} รายการที่ยอดใช้รวมเกินคงเหลือ`]
+          : []),
+        ...result.warnings,
+      ],
+      batchId: result.batchId,
+    })
+
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLElement>(`[data-usage-batch-id="${result.batchId}"]`)
+        ?.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+          block: "center",
+        })
+    }, 0)
   }
 
   async function handleSubmitUsage() {
@@ -6073,6 +6169,54 @@ function UsageView({ store }: { store: Store }) {
         </div>
       )}
 
+      {(usageTextFeedback || store.usageTextImportError) && (
+        <div
+          aria-live="polite"
+          className={cn(
+            "flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between",
+            usageTextFeedback?.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : usageTextFeedback?.kind === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-red-200 bg-red-50 text-red-900"
+          )}
+        >
+          <div className="flex min-w-0 gap-2.5">
+            {usageTextFeedback?.kind === "success" ? (
+              <CircleCheck className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium">
+                {usageTextFeedback?.message || store.usageTextImportError}
+              </p>
+              {usageTextFeedback && usageTextFeedback.details.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs leading-relaxed sm:text-sm">
+                  {usageTextFeedback.details.map((detail, index) => (
+                    <li key={`${detail}-${index}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          {usageTextFeedback?.batchId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 bg-background"
+              onClick={() => {
+                store.removeUsageBatch(usageTextFeedback.batchId ?? "")
+                setUsageTextFeedback(null)
+              }}
+            >
+              <Trash2 className="size-4" />
+              ลบรอบนี้
+            </Button>
+          )}
+        </div>
+      )}
+
       <section className="rounded-lg border border-border bg-background p-3 sm:p-5">
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
@@ -6094,8 +6238,8 @@ function UsageView({ store }: { store: Store }) {
                 onChange={store.setUsageDate}
               />
             </div>
-            <div className="min-w-52">
-              <Label className="mb-2 block">อัปโหลดรูปบิล</Label>
+            <div className="min-w-72">
+              <Label className="mb-2 block">เพิ่มรายการด้วย</Label>
               <input
                 ref={usageScanInputRef}
                 type="file"
@@ -6112,35 +6256,140 @@ function UsageView({ store }: { store: Store }) {
                   }
                 }}
               />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-full bg-background"
-                onClick={() => usageScanInputRef.current?.click()}
-                disabled={
-                  !store.canEditUsage ||
-                  isPreparingUsageScan ||
-                  store.isUsageScanning
-                }
-              >
-                {isPreparingUsageScan || store.isUsageScanning ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    กำลังอ่านรูป
-                  </>
-                ) : (
-                  <>
-                    <ImageUp className="size-4" />
-                    เลือกรูปบิล
-                  </>
-                )}
-              </Button>
-              <p className="mt-1.5 text-xs text-muted-foreground sm:hidden">
-                เลือกจากคลังรูป ไฟล์ หรือถ่ายรูปใหม่บนมือถือ
-              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={isUsageTextOpen ? "secondary" : "outline"}
+                  className={cn("h-11", !isUsageTextOpen && "bg-background")}
+                  aria-expanded={isUsageTextOpen}
+                  aria-controls="usage-text-import-panel"
+                  onClick={() => setIsUsageTextOpen((current) => !current)}
+                  disabled={
+                    !store.canEditUsage ||
+                    store.isUsageTextImporting ||
+                    store.isUsageScanning
+                  }
+                >
+                  <List className="size-4" />
+                  รายการรวม
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 bg-background"
+                  onClick={() => {
+                    setIsUsageTextOpen(false)
+                    usageScanInputRef.current?.click()
+                  }}
+                  disabled={
+                    !store.canEditUsage ||
+                    isPreparingUsageScan ||
+                    store.isUsageScanning ||
+                    store.isUsageTextImporting
+                  }
+                >
+                  {isPreparingUsageScan || store.isUsageScanning ? (
+                    <>
+                      <LoaderCircle className="size-4 animate-spin" />
+                      กำลังอ่าน
+                    </>
+                  ) : (
+                    <>
+                      <ImageUp className="size-4" />
+                      อัปโหลดรูปบิล
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
+
+        {isUsageTextOpen && (
+          <div
+            id="usage-text-import-panel"
+            className="mb-4 border-t border-border pt-4"
+          >
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+              <div>
+                <Label htmlFor="usage-text-import" className="text-sm font-semibold">
+                  รายการรวม
+                </Label>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                  หนึ่งรายการต่อบรรทัด เช่น “หมู 2 กก.”
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {usageText.length.toLocaleString("th-TH")}/20,000 ตัวอักษร
+              </span>
+            </div>
+            <Textarea
+              id="usage-text-import"
+              value={usageText}
+              maxLength={20_000}
+              rows={5}
+              placeholder={"หมู 2 กก.\nน้ำมันพืช 3 ขวด\nผงมะนาวคนอร์"}
+              className="min-h-32"
+              disabled={!store.canEditUsage || store.isUsageTextImporting}
+              onChange={(event) => setUsageText(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault()
+                  if (usageText.trim() && !store.isUsageTextImporting) {
+                    void handleUsageTextImport()
+                  }
+                }
+              }}
+            />
+            <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <Tabs
+                value={usageTextMode}
+                onValueChange={(value) =>
+                  setUsageTextMode(value as "inventory" | "ai")
+                }
+                className="gap-1"
+              >
+                <TabsList className="h-10 w-full sm:w-fit" aria-label="วิธีแยกรายการรวม">
+                  <TabsTrigger value="inventory" className="h-9 px-3">
+                    <Database className="size-4" />
+                    ค้นจากคลัง
+                  </TabsTrigger>
+                  <TabsTrigger value="ai" className="h-9 px-3">
+                    <MessageCircle className="size-4" />
+                    แยกด้วย AI
+                  </TabsTrigger>
+                </TabsList>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {usageTextMode === "inventory"
+                    ? "ไม่ใช้ AI: ค้นชื่อที่ตรงหรือใกล้เคียงจากคลังของสาขานี้"
+                    : "AI จะช่วยอ่านรูปแบบข้อความที่ไม่สม่ำเสมอ แล้วจับคู่กับคลังอีกครั้ง"}
+                </p>
+              </Tabs>
+              <Button
+                type="button"
+                className="h-11 w-full lg:w-auto"
+                onClick={() => void handleUsageTextImport()}
+                disabled={
+                  !store.canEditUsage ||
+                  !usageText.trim() ||
+                  store.isUsageTextImporting
+                }
+              >
+                {store.isUsageTextImporting ? (
+                  <>
+                    <LoaderCircle className="size-4 animate-spin" />
+                    กำลังแยกรายการ
+                  </>
+                ) : (
+                  <>
+                    <List className="size-4" />
+                    สร้างรอบจากรายการ
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-3">
           {usageBatches.map((batch) => (
@@ -6807,7 +7056,9 @@ function UsageBatchCard({
       <div
         className={cn(
           "border-b p-3 sm:p-4",
-          isDraftSaved
+          !reason.trim()
+            ? "border-amber-200 bg-amber-50/45"
+            : isDraftSaved
             ? "border-amber-200 bg-amber-50/20"
             : "border-border bg-background"
         )}
@@ -6819,8 +7070,15 @@ function UsageBatchCard({
           onChange={(value) => store.updateUsageBatchReason(batchId, value)}
           disabled={!store.canEditUsage || store.isUsageSaving}
         />
-        <p className="mt-2 text-xs text-muted-foreground">
-          เหตุผลนี้จะใช้กับวัตถุดิบทุกรายการในกลุ่มนี้
+        <p
+          className={cn(
+            "mt-2 text-xs",
+            reason.trim() ? "text-muted-foreground" : "font-medium text-amber-800"
+          )}
+        >
+          {reason.trim()
+            ? "เหตุผลนี้จะใช้กับวัตถุดิบทุกรายการในกลุ่มนี้"
+            : "กรุณาเลือกเหตุผลรวมก่อนบันทึก"}
         </p>
       </div>
 
@@ -7127,11 +7385,14 @@ function UsageMobileItem({
   const inventoryRow = store.inventoryRows.find(
     (row) => row.ingredientId === item.ingredientId
   )
+  const totalDraftUsage = store.usageItems
+    .filter((draftItem) => draftItem.ingredientId === item.ingredientId)
+    .reduce((total, draftItem) => total + draftItem.quantity, 0)
   const afterQuantity = inventoryRow
-    ? Math.max(inventoryRow.onHand - item.quantity, 0)
+    ? Math.max(inventoryRow.onHand - totalDraftUsage, 0)
     : 0
   const isOverStock = Boolean(
-    inventoryRow && item.quantity > inventoryRow.onHand
+    inventoryRow && totalDraftUsage > inventoryRow.onHand
   )
 
   return (
@@ -7162,6 +7423,7 @@ function UsageMobileItem({
       <div>
         <Label className="mb-1.5 block text-xs">ชื่อวัตถุดิบ</Label>
         <UsageIngredientSelect
+          key={`${item.id}-${item.ingredientId}`}
           value={item.ingredientId}
           initialQuery={item.draftIngredientName}
           store={store}
@@ -7186,6 +7448,7 @@ function UsageMobileItem({
             ยังไม่จับคู่กับวัตถุดิบในคลัง
           </div>
         )}
+        <UsageImportAssistance item={item} store={store} />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -7254,11 +7517,14 @@ function UsageDraftTableRow({
   const inventoryRow = store.inventoryRows.find(
     (row) => row.ingredientId === item.ingredientId
   )
+  const totalDraftUsage = store.usageItems
+    .filter((draftItem) => draftItem.ingredientId === item.ingredientId)
+    .reduce((total, draftItem) => total + draftItem.quantity, 0)
   const afterQuantity = inventoryRow
-    ? Math.max(inventoryRow.onHand - item.quantity, 0)
+    ? Math.max(inventoryRow.onHand - totalDraftUsage, 0)
     : 0
   const isOverStock = Boolean(
-    inventoryRow && item.quantity > inventoryRow.onHand
+    inventoryRow && totalDraftUsage > inventoryRow.onHand
   )
 
   return (
@@ -7275,6 +7541,7 @@ function UsageDraftTableRow({
       </TableCell>
       <TableCell className="align-top">
         <UsageIngredientSelect
+          key={`${item.id}-${item.ingredientId}`}
           value={item.ingredientId}
           initialQuery={item.draftIngredientName}
           store={store}
@@ -7299,6 +7566,7 @@ function UsageDraftTableRow({
             ยังไม่จับคู่กับวัตถุดิบในคลัง
           </div>
         )}
+        <UsageImportAssistance item={item} store={store} />
       </TableCell>
       <TableCell className="text-right">
         {inventoryRow
@@ -7347,6 +7615,65 @@ function UsageDraftTableRow({
         </Button>
       </TableCell>
     </TableRow>
+  )
+}
+
+function UsageImportAssistance({
+  item,
+  store,
+}: {
+  item: UsageDraftItem
+  store: Store
+}) {
+  const suggestedRows = (item.suggestedIngredientIds ?? [])
+    .map((ingredientId) =>
+      store.inventoryRows.find((row) => row.ingredientId === ingredientId)
+    )
+    .filter((row): row is InventoryRow => Boolean(row))
+  const warnings = (item.importWarnings ?? []).filter(
+    (warning) => warning !== "ยังไม่จับคู่กับวัตถุดิบในคลัง"
+  )
+
+  if (suggestedRows.length === 0 && warnings.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      {suggestedRows.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">อาจหมายถึง</p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestedRows.map((row) => (
+              <Button
+                key={row.ingredientId}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 max-w-full bg-sky-50 px-2.5 text-xs text-sky-900 hover:bg-sky-100"
+                onClick={() =>
+                  store.updateUsageItem(item.id, {
+                    ingredientId: row.ingredientId,
+                    draftIngredientName: undefined,
+                  })
+                }
+                disabled={!store.canEditUsage}
+              >
+                <span className="truncate">{row.ingredient.name}</span>
+                <span className="shrink-0 text-sky-700">
+                  · {row.ingredient.unit}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+      {warnings.map((warning) => (
+        <p key={warning} className="text-xs leading-relaxed text-amber-700">
+          {warning}
+        </p>
+      ))}
+    </div>
   )
 }
 

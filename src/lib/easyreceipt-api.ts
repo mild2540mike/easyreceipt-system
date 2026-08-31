@@ -210,6 +210,27 @@ export type PurchaseTextImportResult = {
   warnings: string[]
 }
 
+export type UsageTextImportMode = PurchaseTextImportMode
+
+export type UsageTextImportResult = {
+  mode: UsageTextImportMode
+  items: {
+    rawName: string
+    ingredientId: string | null
+    quantity: number
+    unit: string
+    warnings: string[]
+    suggestions: {
+      ingredientId: string
+      name: string
+      unit: string
+      matchKind: "exact" | "contains" | "approximate"
+      score: number
+    }[]
+  }[]
+  warnings: string[]
+}
+
 type ApiPurchaseItem = {
   id: string
   ingredientId: string
@@ -1213,6 +1234,27 @@ export async function apiScanBranchPurchase(
   const data = await parseJsonResponse<{ scan: PurchaseScanResult }>(response)
 
   return data.scan
+}
+
+export async function apiImportBranchUsageText(
+  branchId: string,
+  text: string,
+  mode: UsageTextImportMode
+): Promise<UsageTextImportResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/inventory/usage/text-import`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ text, mode }),
+    }
+  )
+  const data = await parseJsonResponse<{ import: UsageTextImportResult }>(response)
+
+  return data.import
 }
 
 export async function apiImportBranchPurchaseText(

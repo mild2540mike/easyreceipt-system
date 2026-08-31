@@ -28,6 +28,10 @@ import {
   ingredientPriceAttributionInclude,
   recordIngredientPrice,
 } from "./ingredient-price"
+import {
+  importUsageText,
+  usageTextImportRequestSchema,
+} from "./usage-text-import"
 
 const catalogUpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -596,6 +600,47 @@ inventoryRouter.post(
     })
 
     res.status(201).json({ inventory: serializeInventoryRow(inventory) })
+  })
+)
+
+inventoryRouter.post(
+  "/usage/text-import",
+  asyncHandler(async (req, res) => {
+    const member = getAuthMember(req)
+    const branchId = routeParam(req.params.branchId, "branchId")
+    const input = usageTextImportRequestSchema.parse(req.body)
+    const access = await assertBranchAccess(prisma, member.id, branchId)
+
+    if (!memberCanEditMenu(access.member, "usage")) {
+      throw forbidden("Member does not have permission to import usage records.")
+    }
+
+    const inventoryRows = await prisma.branchInventory.findMany({
+      where: {
+        branchId,
+        ingredient: { isActive: true },
+      },
+      select: {
+        ingredient: {
+          select: {
+            id: true,
+            name: true,
+            unit: true,
+          },
+        },
+      },
+    })
+    const imported = await importUsageText({
+      text: input.text,
+      mode: input.mode,
+      memberId: access.member.id,
+      ingredients: inventoryRows.map((row) => ({
+        ...row.ingredient,
+        defaultPrice: 0,
+      })),
+    })
+
+    res.json({ import: imported })
   })
 )
 

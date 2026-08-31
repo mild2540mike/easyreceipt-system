@@ -49,6 +49,7 @@ import {
   apiLogout,
   apiPinBranchRecipe,
   apiImportBranchPurchaseText,
+  apiImportBranchUsageText,
   apiScanBranchPurchase,
   apiScanBranchUsage,
   apiUploadBranchPurchaseReceiptImage,
@@ -72,6 +73,7 @@ import {
   type ReportSummary,
   type StockOutApiInput,
   type UsageBatchApiInput,
+  type UsageTextImportMode,
   type UpdateInventoryApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
@@ -138,6 +140,8 @@ export type UsageDraftItem = {
   id: string
   ingredientId: string
   draftIngredientName?: string
+  suggestedIngredientIds?: string[]
+  importWarnings?: string[]
   quantity: number
   batchId?: string
   batchName?: string
@@ -377,6 +381,8 @@ function storableUsageItems(items: UsageDraftItem[]) {
   return items.map((item) => {
     const storableItem = { ...item }
     delete storableItem.receiptImage
+    delete storableItem.suggestedIngredientIds
+    delete storableItem.importWarnings
     return storableItem
   })
 }
@@ -743,6 +749,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const [purchaseScanError, setPurchaseScanError] = useState("")
   const [purchaseTextImportError, setPurchaseTextImportError] = useState("")
   const [usageScanError, setUsageScanError] = useState("")
+  const [usageTextImportError, setUsageTextImportError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
   const [memberMutationError, setMemberMutationError] = useState("")
 
@@ -1324,6 +1331,26 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     onError: (error) => {
       setPurchaseTextImportError(
         errorMessage(error, "ไม่สามารถสร้างบิลจากรายการรวมได้")
+      )
+    },
+  })
+
+  const importUsageTextMutation = useMutation({
+    mutationFn: ({
+      branchId,
+      text,
+      mode,
+    }: {
+      branchId: string
+      text: string
+      mode: UsageTextImportMode
+    }) => apiImportBranchUsageText(branchId, text, mode),
+    onMutate: () => {
+      setUsageTextImportError("")
+    },
+    onError: (error) => {
+      setUsageTextImportError(
+        errorMessage(error, "ไม่สามารถสร้างรอบจากรายการรวมได้")
       )
     },
   })
@@ -2506,9 +2533,21 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   ) {
     updateActiveWorkspace((workspace) => ({
       ...workspace,
-      usageItems: workspace.usageItems.map((item) =>
-        item.id === itemId ? { ...item, ...patch } : item
-      ),
+      usageItems: workspace.usageItems.map((item) => {
+        if (item.id !== itemId) return item
+
+        const nextItem = { ...item, ...patch }
+        const changesIngredient =
+          Object.prototype.hasOwnProperty.call(patch, "ingredientId") ||
+          Object.prototype.hasOwnProperty.call(patch, "draftIngredientName")
+
+        if (changesIngredient) {
+          nextItem.suggestedIngredientIds = undefined
+        }
+        nextItem.importWarnings = undefined
+
+        return nextItem
+      }),
     }))
   }
 
@@ -2878,6 +2917,135 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
 
   function clearPurchaseScanError() {
     setPurchaseScanError("")
+  }
+
+  async function importUsageText(
+    text: string,
+    mode: UsageTextImportMode
+  ) {
+    if (!currentMember || !activeBranchId) {
+      return {
+        ok: false as const,
+        error: "ยังไม่ได้เข้าสู่ระบบหรือเลือกสาขา",
+      }
+    }
+
+    if (!canEditUsage) {
+      return {
+        ok: false as const,
+        error: "บัญชีนี้ไม่มีสิทธิ์เพิ่มรายการของใช้ไป",
+      }
+    }
+
+    const cleanText = text.trim()
+    if (!cleanText) {
+      return {
+        ok: false as const,
+        error: "กรุณากรอกรายการรวมอย่างน้อย 1 รายการ",
+      }
+    }
+
+    const branchIdAtStart = activeBranchId
+    const dateKeyAtStart = usageDateKey
+
+    try {
+      const imported = await importUsageTextMutation.mutateAsync({
+        branchId: branchIdAtStart,
+        text: cleanText,
+        mode,
+      })
+      const currentContext = usageScanContextRef.current
+
+      if (
+        currentContext.branchId !== branchIdAtStart ||
+        currentContext.dateKey !== dateKeyAtStart
+      ) {
+        const error =
+          "มีการเปลี่ยนสาขาหรือวันที่ระหว่างประมวลผล กรุณาสร้างรอบจากรายการใหม่"
+        setUsageTextImportError(error)
+        return { ok: false as const, error }
+      }
+
+      let batchName = "รายการรวม"
+      const batchId = `${branchIdAtStart}-usage-text-import-${Date.now()}`
+      const now = Date.now()
+      let needsReviewCount = 0
+      let overStockCount = 0
+
+      updateBranchWorkspace(branchIdAtStart, (workspace) => {
+        batchName = uniquePurchaseBillName(
+          "รายการรวม",
+          workspace.usageItems.map((item) => item.batchName ?? "")
+        )
+
+        const nextItems = imported.items.map((item, index): UsageDraftItem => {
+          if (!item.ingredientId || item.quantity <= 0 || !item.unit.trim()) {
+            needsReviewCount += 1
+          }
+
+          return {
+            id: `${batchId}-item-${now}-${index}`,
+            ingredientId: item.ingredientId ?? "",
+            draftIngredientName: item.ingredientId ? undefined : item.rawName,
+            suggestedIngredientIds: item.suggestions.map(
+              (suggestion) => suggestion.ingredientId
+            ),
+            importWarnings: item.warnings,
+            quantity: item.quantity,
+            batchId,
+            batchName,
+            reason: "",
+          }
+        })
+        const usageByIngredientId = new Map<string, number>()
+
+        for (const item of [...workspace.usageItems, ...nextItems]) {
+          if (!item.ingredientId || item.quantity <= 0) continue
+          usageByIngredientId.set(
+            item.ingredientId,
+            roundQuantity(
+              (usageByIngredientId.get(item.ingredientId) ?? 0) + item.quantity
+            )
+          )
+        }
+
+        overStockCount = nextItems.filter((item) => {
+          if (!item.ingredientId || item.quantity <= 0) return false
+          const inventory = inventoryRowByIngredientId.get(item.ingredientId)
+
+          return (
+            !inventory ||
+            (usageByIngredientId.get(item.ingredientId) ?? 0) > inventory.onHand
+          )
+        }).length
+
+        return {
+          ...workspace,
+          usageItems: [...workspace.usageItems, ...nextItems],
+        }
+      })
+
+      return {
+        ok: true as const,
+        batchId,
+        batchName,
+        itemCount: imported.items.length,
+        needsReviewCount,
+        overStockCount,
+        warnings: imported.warnings,
+      }
+    } catch (error) {
+      const message = errorMessage(
+        error,
+        "ไม่สามารถสร้างรอบจากรายการรวมได้"
+      )
+      setUsageTextImportError(message)
+      return { ok: false as const, error: message }
+    }
+  }
+
+  function clearUsageTextImportError() {
+    setUsageTextImportError("")
   }
 
   async function scanUsageImage(image: PurchaseScanImageInput) {
@@ -4311,6 +4479,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     updateUsageBatchReason,
     removeUsageBatch,
     removeUsageItem,
+    importUsageText,
+    clearUsageTextImportError,
     scanUsageImage,
     clearUsageScanError,
     submitUsageDraft,
@@ -4354,6 +4524,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isUsageSaving:
       createUsageMutation.isPending || uploadUsageReceiptMutation.isPending,
     isUsageScanning: scanUsageMutation.isPending,
+    isUsageTextImporting: importUsageTextMutation.isPending,
     isPurchaseDraftDeleting:
       deletePurchaseDraftMutation.isPending ||
       deletePurchaseDraftItemMutation.isPending,
@@ -4364,6 +4535,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     purchaseScanError,
     purchaseTextImportError,
     usageScanError,
+    usageTextImportError,
     usageError,
     canManageBranchBudget,
     canManageIngredientCatalog,
