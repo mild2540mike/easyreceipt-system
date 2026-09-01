@@ -150,6 +150,7 @@ import {
   normalizeMemberPermissions,
 } from "@/lib/easyreceipt-data"
 import { rankIngredientSearchCandidates } from "@/lib/ingredient-matching"
+import { createInventoryXlsx } from "@/lib/inventory-xlsx"
 import { preparePurchaseScanImage } from "@/lib/purchase-scan-image"
 import type {
   MenuPermissionKey,
@@ -7851,6 +7852,7 @@ function StockView({ store }: { store: Store }) {
   const [stockCategory, setStockCategory] = useState("all")
   const [stockFilter, setStockFilter] = useState("in-stock")
   const [stockFilterModalOpen, setStockFilterModalOpen] = useState(false)
+  const [isStockExporting, setIsStockExporting] = useState(false)
   const [stockViewMode, setStockViewMode] = useState<"mobile" | "table">(
     "table"
   )
@@ -8126,6 +8128,54 @@ function StockView({ store }: { store: Store }) {
     })
   }
 
+  async function exportStockXlsx() {
+    if (
+      isStockExporting ||
+      store.isInventoryLoading ||
+      visibleInventoryRows.length === 0 ||
+      !store.activeBranch
+    ) {
+      return
+    }
+
+    setIsStockExporting(true)
+
+    try {
+      const { buffer, filename } = await createInventoryXlsx({
+        branchCode: store.activeBranch.code,
+        branchName: store.activeBranch.name,
+        items: visibleInventoryRows.map((item) => ({
+          ingredientName: item.ingredient.name,
+          unit: item.ingredient.unit,
+          onHand: item.onHand,
+          latestPrice: item.ingredient.defaultPrice,
+        })),
+      })
+
+      downloadBlob(
+        filename,
+        new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+      )
+      showAppToast({
+        id: "stock-xlsx-export",
+        type: "success",
+        title: "ส่งออกไฟล์ XLSX แล้ว",
+        description: `${visibleInventoryRows.length} รายการ · ตรวจสอบโฟลเดอร์ Downloads`,
+      })
+    } catch {
+      showAppToast({
+        id: "stock-xlsx-export",
+        type: "error",
+        title: "ส่งออกไฟล์ XLSX ไม่สำเร็จ",
+        description: "กรุณาลองใหม่อีกครั้ง",
+      })
+    } finally {
+      setIsStockExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -8200,6 +8250,35 @@ function StockView({ store }: { store: Store }) {
 
       <section className="hidden rounded-lg border border-border bg-background p-4 lg:block">
         {renderStockFilterControls()}
+      </section>
+
+      <section
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        aria-label="ส่งออกคลังวัตถุดิบ"
+      >
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          ส่งออกตามตัวกรองปัจจุบัน · {visibleInventoryRows.length} รายการ
+          {store.activeBranch ? ` · ${store.activeBranch.name}` : ""}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 w-full shrink-0 sm:w-auto"
+          onClick={() => void exportStockXlsx()}
+          disabled={
+            isStockExporting ||
+            store.isInventoryLoading ||
+            visibleInventoryRows.length === 0 ||
+            !store.activeBranch
+          }
+        >
+          {isStockExporting ? (
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Download className="size-4" aria-hidden="true" />
+          )}
+          {isStockExporting ? "กำลังสร้าง XLSX…" : "Export XLSX"}
+        </Button>
       </section>
 
       {visibleInventoryRows.length === 0 && (
