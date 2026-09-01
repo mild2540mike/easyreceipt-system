@@ -27,6 +27,7 @@ export const openApiDocument = {
     { name: "Reports" },
     { name: "Members" },
     { name: "Notifications" },
+    { name: "Integrations" },
   ],
   components: {
     securitySchemes: {
@@ -37,6 +38,13 @@ export const openApiDocument = {
         description:
           "HttpOnly JWT cookie set by POST /auth/login. Swagger UI sends it automatically after a successful login on the same host.",
       },
+      integrationToken: {
+        type: "apiKey",
+        in: "header",
+        name: "X-Integration-Token",
+        description:
+          "Shared server token with at least 32 characters used by the Google Apps Script inventory sync.",
+      },
     },
     parameters: {
       branchId: {
@@ -44,6 +52,8 @@ export const openApiDocument = {
         in: "path",
         required: true,
         schema: { type: "string" },
+        description:
+          "Branch ID. The Google Sheets integration route also accepts a unique branch code such as WSK.",
         example: "branch-hq",
       },
       ingredientId: {
@@ -391,6 +401,66 @@ export const openApiDocument = {
           metadata: { type: "object", additionalProperties: true },
         },
       },
+      GoogleSheetsInventoryItem: {
+        type: "object",
+        required: ["ingredientName", "unit", "onHand", "latestPrice"],
+        properties: {
+          ingredientName: { type: "string", example: "ข้าวสาร" },
+          unit: { type: "string", example: "กก." },
+          onHand: { type: "number", example: 12.5 },
+          latestPrice: { type: "number", example: 65 },
+        },
+      },
+      GoogleSheetsInventoryResponse: {
+        type: "object",
+        required: ["branch", "exportedAt", "inventory"],
+        properties: {
+          branch: {
+            type: "object",
+            required: ["id", "code", "name"],
+            properties: {
+              id: { type: "string", example: "branch-hq" },
+              code: { type: "string", example: "HQ" },
+              name: { type: "string", example: "สำนักงานใหญ่" },
+            },
+          },
+          exportedAt: { type: "string", format: "date-time" },
+          inventory: {
+            type: "array",
+            items: {
+              $ref: "#/components/schemas/GoogleSheetsInventoryItem",
+            },
+          },
+        },
+      },
+      GoogleSheetsBranchInventory: {
+        type: "object",
+        required: ["id", "code", "name", "inventory"],
+        properties: {
+          id: { type: "string", example: "branch-wat-sakaeo" },
+          code: { type: "string", example: "WSK" },
+          name: { type: "string", example: "โรงเรียนวัดสระแก้ว" },
+          inventory: {
+            type: "array",
+            items: {
+              $ref: "#/components/schemas/GoogleSheetsInventoryItem",
+            },
+          },
+        },
+      },
+      GoogleSheetsAllInventoryResponse: {
+        type: "object",
+        required: ["exportedAt", "branches"],
+        properties: {
+          exportedAt: { type: "string", format: "date-time" },
+          branches: {
+            type: "array",
+            items: {
+              $ref: "#/components/schemas/GoogleSheetsBranchInventory",
+            },
+          },
+        },
+      },
     },
     responses: {
       Unauthorized: {
@@ -632,6 +702,50 @@ export const openApiDocument = {
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/integrations/google-sheets/inventory": {
+      get: {
+        tags: ["Integrations"],
+        summary: "Read active inventory for every active branch.",
+        security: [{ integrationToken: [] }],
+        responses: {
+          "200": {
+            description: "All active branches and their inventory.",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/GoogleSheetsAllInventoryResponse",
+                },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/integrations/google-sheets/branches/{branchId}/inventory": {
+      get: {
+        tags: ["Integrations"],
+        summary: "Read active branch inventory for Google Sheets sync.",
+        deprecated: true,
+        security: [{ integrationToken: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        responses: {
+          "200": {
+            description: "Branch inventory prepared for Google Sheets.",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/GoogleSheetsInventoryResponse",
+                },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "404": { $ref: "#/components/responses/NotFound" },
         },
       },
     },

@@ -17,6 +17,7 @@ import { authRouter } from "./modules/auth/auth.routes"
 import { branchesRouter } from "./modules/branches/branches.routes"
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes"
 import { inventoryRouter } from "./modules/inventory/inventory.routes"
+import { integrationsRouter } from "./modules/integrations/integrations.routes"
 import { membersRouter } from "./modules/members/members.routes"
 import { notificationsRouter } from "./modules/notifications/notifications.routes"
 import { purchasesRouter } from "./modules/purchases/purchases.routes"
@@ -61,6 +62,7 @@ export function createApp() {
   })
 
   app.use("/api/v1/auth", authRouter)
+  app.use("/api/v1/integrations", integrationsRouter)
   app.use("/api/v1/branches", requireAuth, branchesRouter)
   app.use("/api/v1/branches/:branchId/dashboard", requireAuth, dashboardRouter)
   app.use("/api/v1/branches/:branchId/inventory", requireAuth, inventoryRouter)
