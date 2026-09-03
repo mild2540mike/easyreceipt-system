@@ -7925,8 +7925,7 @@ function StockView({ store }: { store: Store }) {
     () =>
       store.inventoryRows.reduce(
         (total, item) =>
-          total +
-          Math.max(item.onHand, 0) * Math.max(item.costPerUnit, 0),
+          total + item.onHand * item.ingredient.defaultPrice,
         0
       ),
     [store.inventoryRows]
@@ -8139,7 +8138,7 @@ function StockView({ store }: { store: Store }) {
         <MetricCard
           label="มูลค่าคงเหลือทั้งหมด"
           value={formatCurrency(totalStockValue)}
-          helper="คงเหลือจริง × ต้นทุนเฉลี่ยต่อหน่วย"
+          helper="รวมทุกรายการ: คงเหลือสต๊อก × ราคาล่าสุด/หน่วย"
           icon={CircleDollarSign}
           tone="border-violet-200 bg-violet-50 text-violet-800"
           valueClassName="break-words text-lg tabular-nums sm:text-2xl"
