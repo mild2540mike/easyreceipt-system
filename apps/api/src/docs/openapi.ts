@@ -1,3 +1,5 @@
+import { stockCheckPaths, stockCheckSchemas } from "./stock-check.openapi"
+
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -85,6 +87,7 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      ...stockCheckSchemas,
       ErrorResponse: {
         type: "object",
         properties: {
@@ -161,6 +164,8 @@ export const openApiDocument = {
           available: { type: "number", example: 7.5 },
           suggestedPurchaseQuantity: { type: "number", example: 0 },
           lastUpdatedAt: { type: "string", format: "date-time" },
+          inventoryVersion: { type: "string", format: "date-time" },
+          lastCount: { $ref: "#/components/schemas/LastStockCount" },
         },
       },
       PurchaseItemInput: {
@@ -498,6 +503,7 @@ export const openApiDocument = {
     },
   },
   paths: {
+    ...stockCheckPaths,
     "/health": {
       get: {
         tags: ["Health"],

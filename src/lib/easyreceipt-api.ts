@@ -1,3 +1,4 @@
+import type { SavedStockCheck, StockCheckSaveInput, StockCheckSummary } from "@/lib/stock-check"
 import type {
   Branch,
   Ingredient,
@@ -13,6 +14,40 @@ import type {
 } from "@/lib/easyreceipt-data"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_EASYRECEIPT_API_URL
+
+export class StockCheckApiError extends Error {
+  constructor(message: string, public status: number, public ingredientIds: string[] = []) {
+    super(message)
+    this.name = "StockCheckApiError"
+  }
+}
+
+async function stockCheckRequest<T>(branchId: string, suffix = "", input?: StockCheckSaveInput): Promise<T> {
+  if (!apiBaseUrl) throw new Error("ยังไม่ได้เชื่อมต่อระบบบันทึกข้อมูล")
+  const response = await fetch(`${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/stock-checks${suffix}`, {
+    credentials: "include",
+    signal: AbortSignal.timeout(40_000),
+    ...(input ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) } : {}),
+  })
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    throw new StockCheckApiError(data?.error?.message ?? "บันทึกหรือโหลดผลเช็คไม่สำเร็จ กรุณาลองอีกครั้ง", response.status,
+      Array.isArray(data?.error?.details?.ingredientIds) ? data.error.details.ingredientIds : [])
+  }
+  return response.json() as Promise<T>
+}
+
+export async function apiSaveStockCheck(branchId: string, input: StockCheckSaveInput) {
+  return (await stockCheckRequest<{ check: SavedStockCheck }>(branchId, "", input)).check
+}
+
+export function apiGetStockChecks(branchId: string, offset = 0) {
+  return stockCheckRequest<{ checks: StockCheckSummary[]; nextOffset: number | null }>(branchId, `?offset=${offset}`)
+}
+
+export async function apiGetStockCheck(branchId: string, checkId: string) {
+  return (await stockCheckRequest<{ check: SavedStockCheck }>(branchId, `/${encodeURIComponent(checkId)}`)).check
+}
 
 function apiAssetUrl(path: string) {
   if (!apiBaseUrl) {
@@ -295,6 +330,8 @@ export type ApiInventoryRow = {
   available?: number | string
   suggestedPurchaseQuantity?: number | string
   lastUpdatedAt: string
+  inventoryVersion?: string
+  lastCount?: InventoryItem["lastCount"]
 }
 
 export type ApiInventoryResponse = {
@@ -688,6 +725,8 @@ function normalizeInventoryRow(row: ApiInventoryRow): NormalizedInventoryRow {
       reorderPoint: toNumber(row.reorderPoint),
       costPerUnit: toNumber(row.costPerUnit),
       lastUpdated: formatApiDateTime(row.lastUpdatedAt),
+      inventoryVersion: row.inventoryVersion,
+      lastCount: row.lastCount,
     },
   }
 }

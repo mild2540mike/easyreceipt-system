@@ -34,6 +34,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   CircleCheck,
+  ClipboardCheck,
   Database,
   Download,
   ExternalLink,
@@ -48,6 +49,7 @@ import {
   Maximize2,
   MessageCircle,
   Minimize2,
+  MoreHorizontal,
   Minus,
   Package,
   PanelLeftClose,
@@ -110,6 +112,7 @@ import {
 } from "@/components/ui/select"
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -166,6 +169,8 @@ import type {
 } from "@/lib/easyreceipt-api"
 import { saveDailySummaryImages } from "@/lib/daily-summary-image"
 import { cn } from "@/lib/utils"
+import { LastStockCount } from "./last-stock-count"
+import { StockCheckView } from "@/components/easyreceipt/stock-check-view"
 
 type NavItem = {
   id: ViewId
@@ -249,6 +254,15 @@ const navItems: NavItem[] = [
     color: "text-emerald-700 bg-emerald-50 border-emerald-200",
   },
   {
+    id: "stock-check",
+    label: "เช็คสต็อก",
+    shortLabel: "เช็คสต็อก",
+    description: "นับของจริงและเทียบยอดในระบบ",
+    href: "/portal/stock/check",
+    icon: ClipboardCheck,
+    color: "text-sky-800 bg-sky-50 border-sky-200",
+  },
+  {
     id: "recipes",
     label: "ทดลองสูตรอาหาร",
     shortLabel: "ทดลอง",
@@ -319,6 +333,8 @@ function canAccessView(view: ViewId, member: Store["currentMember"]) {
     return memberCanViewMenu(member, "usage")
   }
 
+  if (view === "stock-check") return memberCanViewMenu(member, "stock-check")
+
   if (view === "stock") {
     return canAccessStock(member)
   }
@@ -349,6 +365,7 @@ function visibleNavItems(member: Store["currentMember"]) {
       (item.id !== "purchase" || canAccessPurchase(member)) &&
       (item.id !== "usage" || memberCanViewMenu(member, "usage")) &&
       (item.id !== "stock" || canAccessStock(member)) &&
+      (item.id !== "stock-check" || memberCanViewMenu(member, "stock-check")) &&
       (item.id !== "recipes" || memberCanViewMenu(member, "recipes")) &&
       (item.id !== "reports" || canAccessReports(member)) &&
       (item.id !== "members" || canAccessMemberManagement(member)) &&
@@ -1003,7 +1020,8 @@ export function EasyReceiptPortalPage({
               <div
                 className={cn(
                   "flex size-11 shrink-0 items-center justify-center rounded-lg border",
-                  activeItem.color
+                  activeItem.color,
+                  activeView === "stock-check" && "max-[360px]:hidden"
                 )}
               >
                 <ActiveIcon className="size-5" />
@@ -1068,6 +1086,7 @@ export function EasyReceiptPortalPage({
                   {activeView === "purchase" && <PurchaseView store={store} />}
                   {activeView === "usage" && <UsageView store={store} />}
                   {activeView === "stock" && <StockView store={store} />}
+                  {activeView === "stock-check" && <StockCheckView store={store} />}
                   {activeView === "recipes" && <RecipesView store={store} />}
                   {activeView === "reports" && memberCanAccessReports && (
                     <ReportsView store={store} />
@@ -1802,11 +1821,18 @@ function MobileBottomNav({
   currentMember: Store["currentMember"]
 }) {
   const items = visibleNavItems(currentMember)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const priority: ViewId[] = ["purchase", "usage", "stock-check", "stock"]
+  const mainItems = items.length <= 5
+    ? items
+    : [...items.filter((item) => priority.includes(item.id)), ...items.filter((item) => !priority.includes(item.id))].slice(0, 4)
+  const moreItems = items.filter((item) => !mainItems.includes(item))
+  const moreIsActive = moreItems.some((item) => item.id === activeView)
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
+    <nav aria-label="เมนูหลักบนโทรศัพท์" className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
       <div className="mx-auto grid max-w-lg grid-flow-col auto-cols-fr gap-1">
-        {items.map((item) => {
+        {mainItems.map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id
 
@@ -1821,12 +1847,31 @@ function MobileBottomNav({
                 isActive && "bg-muted text-foreground"
               )}
               href={item.href}
+              aria-current={isActive ? "page" : undefined}
             >
               <Icon className="size-5" />
               <span className="truncate">{item.shortLabel}</span>
             </Link>
           )
         })}
+        {moreItems.length > 0 && (
+          <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+            <SheetTrigger render={<Button variant={moreIsActive ? "secondary" : "ghost"} className="h-14 min-w-0 flex-col gap-1 px-1 text-[0.72rem]" />}>
+              <MoreHorizontal className="size-5" />
+              <span>เพิ่มเติม</span>
+            </SheetTrigger>
+            <SheetContent side="bottom" showCloseButton={false} className="max-h-[80dvh] overflow-y-auto rounded-t-xl pb-[env(safe-area-inset-bottom)]">
+              <SheetHeader><SheetTitle className="text-lg">เมนูเพิ่มเติม</SheetTitle><SheetDescription>เลือกหน้าที่ต้องการใช้งาน</SheetDescription></SheetHeader>
+              <div className="space-y-2 px-4 pb-4">
+                {moreItems.map((item) => {
+                  const Icon = item.icon
+                  return <Link key={item.id} href={item.href} aria-current={activeView === item.id ? "page" : undefined} onClick={() => setMoreOpen(false)} className={cn(buttonVariants({ variant: activeView === item.id ? "secondary" : "ghost" }), "h-14 w-full justify-start gap-3 px-4 text-base")}><Icon className="size-5" />{item.label}</Link>
+                })}
+                <SheetClose render={<Button variant="outline" className="h-12 w-full text-base" />}>ปิดเมนู</SheetClose>
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
       </div>
     </nav>
   )
@@ -8135,6 +8180,10 @@ function StockView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
+      {memberCanViewMenu(store.currentMember, "stock-check") && <Link href="/portal/stock/check" className={cn(buttonVariants({ variant: "outline" }), "h-auto min-h-14 w-full justify-start gap-3 whitespace-normal px-4 py-3 text-base")}>
+        <ClipboardCheck className="size-5 shrink-0 text-primary" />
+        <span><span className="block font-semibold">เช็คสต็อก</span><span className="block text-sm text-muted-foreground">นับของจริง แล้วเทียบกับยอดในระบบ</span></span>
+      </Link>}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label="วัตถุดิบทั้งหมด"
@@ -8323,11 +8372,9 @@ function StockView({ store }: { store: Store }) {
                     </div>
 
                     <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3 text-sm">
-                      <div>
-                        <dt className="text-xs text-muted-foreground">รับเข้า</dt>
-                        <dd className="mt-0.5 font-medium tabular-nums text-emerald-700">
-                          +{formatNumber(item.incoming)} {item.ingredient.unit}
-                        </dd>
+                      <div className="col-span-2">
+                        <dt className="mb-1 text-xs text-muted-foreground">นับได้จริง</dt>
+                        <dd><LastStockCount count={item.lastCount} /></dd>
                       </div>
                       <div className="col-span-2 rounded-lg bg-muted/50 p-3">
                         <dt className="text-xs text-muted-foreground">
@@ -8361,10 +8408,10 @@ function StockView({ store }: { store: Store }) {
               <TableRow>
                 <TableHead className="min-w-56">วัตถุดิบ</TableHead>
                 <TableHead className="min-w-28 text-right">คงเหลือ</TableHead>
+                <TableHead className="min-w-44">นับได้จริง</TableHead>
                 {/* Temporarily hidden: reserved quantity column.
                 <TableHead className="min-w-28 text-right">จองใช้</TableHead>
                 */}
-                <TableHead className="min-w-28 text-right">รับเข้า</TableHead>
                 <TableHead className="min-w-72">
                   ราคาล่าสุด/หน่วย
                 </TableHead>
@@ -8405,14 +8452,12 @@ function StockView({ store }: { store: Store }) {
                   <TableCell className="text-right">
                     {formatNumber(item.onHand)} {item.ingredient.unit}
                   </TableCell>
+                <TableCell><LastStockCount count={item.lastCount} /></TableCell>
                   {/* Temporarily hidden: reserved quantity column.
                   <TableCell className="text-right">
                     {formatNumber(item.reserved)} {item.ingredient.unit}
                   </TableCell>
                   */}
-                  <TableCell className="text-right text-emerald-700">
-                    +{formatNumber(item.incoming)} {item.ingredient.unit}
-                  </TableCell>
                   <TableCell>
                     <div className="font-semibold tabular-nums">
                       {formatCurrency(item.ingredient.defaultPrice)}
@@ -8472,10 +8517,10 @@ function StockView({ store }: { store: Store }) {
             <TableRow>
               <TableHead>วัตถุดิบ</TableHead>
               <TableHead className="text-right">คงเหลือ</TableHead>
+              <TableHead>นับได้จริง</TableHead>
               {/* Temporarily hidden: reserved quantity column.
               <TableHead className="text-right">จองใช้</TableHead>
               */}
-              <TableHead className="text-right">รับเข้า</TableHead>
               <TableHead>ราคาล่าสุด/หน่วย</TableHead>
               <TableHead>สถานะ</TableHead>
               <TableHead>อัปเดตสต็อกล่าสุด</TableHead>
@@ -8512,14 +8557,12 @@ function StockView({ store }: { store: Store }) {
                 <TableCell className="text-right">
                   {formatNumber(item.onHand)} {item.ingredient.unit}
                 </TableCell>
+                <TableCell><LastStockCount count={item.lastCount} /></TableCell>
                 {/* Temporarily hidden: reserved quantity column.
                 <TableCell className="text-right">
                   {formatNumber(item.reserved)} {item.ingredient.unit}
                 </TableCell>
                 */}
-                <TableCell className="text-right text-emerald-700">
-                  +{formatNumber(item.incoming)} {item.ingredient.unit}
-                </TableCell>
                 <TableCell className="max-w-80">
                   <div className="font-semibold tabular-nums">
                     {formatCurrency(item.ingredient.defaultPrice)}
@@ -10958,7 +11001,7 @@ function MemberMenuPermissionEditor({
                   onChange={(checked) => updatePermission(key, { view: checked })}
                 />
                 <PermissionToggle
-                  label="เพิ่ม ลบ แก้ไข"
+                  label={key === "stock-check" ? "บันทึกและปรับยอดคลัง" : "เพิ่ม ลบ แก้ไข"}
                   checked={permission.edit}
                   onChange={(checked) => updatePermission(key, { edit: checked })}
                 />

@@ -150,6 +150,26 @@
 }
 
 @layer components {
+  .stock-check-progress {
+    appearance: none;
+    background: var(--muted);
+    color: var(--primary);
+  }
+
+  .stock-check-progress::-webkit-progress-bar {
+    background: var(--muted);
+  }
+
+  .stock-check-progress::-webkit-progress-value {
+    background: var(--primary);
+    border-radius: 999px;
+  }
+
+  .stock-check-progress::-moz-progress-bar {
+    background: var(--primary);
+    border-radius: 999px;
+  }
+
   .freezable-table th:not(:empty) {
     cursor: pointer;
     user-select: none;

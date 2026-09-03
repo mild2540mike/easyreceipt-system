@@ -32,6 +32,10 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2034") {
+      res.status(409).json({ error: { message: "มีการแก้ไขข้อมูลพร้อมกัน กรุณาโหลดข้อมูลล่าสุดแล้วลองอีกครั้ง" } })
+      return
+    }
     res.status(400).json({
       error: {
         message: "Database request failed.",

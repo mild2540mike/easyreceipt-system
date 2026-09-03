@@ -37,6 +37,14 @@ jobs:
           npm run build
           npm run api:build
 
+      - name: Apply Database Migrations
+        shell: powershell
+        run: |
+          npm run db:migrate:deploy
+          if ($LASTEXITCODE -ne 0) {
+            throw "Database migrations failed; applications were not reloaded."
+          }
+
       # 5. สั่ง PM2 รีโหลด/เริ่มทำงานแอปพลิเคชัน
       - name: Deploy and Reload PM2
         shell: powershell

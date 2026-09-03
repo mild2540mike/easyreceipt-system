@@ -1,5 +1,8 @@
 "use client"
 
+import { apiSaveStockCheck } from "@/lib/easyreceipt-api"
+import type { StockCheckSaveInput } from "@/lib/stock-check"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -4048,6 +4051,22 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
   }
 
+  async function refreshStockCheckInventory(branchId: string) {
+    await queryClient.invalidateQueries({ queryKey: inventoryQueryKey(branchId) })
+  }
+
+  async function submitStockCheck(branchId: string, input: StockCheckSaveInput) {
+    const result = await apiSaveStockCheck(branchId, input)
+    // A failed refresh must not turn an already committed save into a failure.
+    void Promise.allSettled([
+      refreshStockCheckInventory(branchId),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey(branchId) }),
+      queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
+      queryClient.invalidateQueries({ queryKey: ["easyreceipt", "stock-checks"] }),
+    ])
+    return result
+  }
+
   async function refreshRecipeAndInventory(branchId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recipesQueryKey(branchId) }),
@@ -4552,6 +4571,8 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     isStockOutSaving: createStockOutMutation.isPending,
     inventoryError,
     canEditInventory,
+    submitStockCheck,
+    refreshStockCheckInventory,
     canEditRecipes,
     canEditUsage,
     addIngredientFromPurchase,

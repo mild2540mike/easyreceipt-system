@@ -39,6 +39,10 @@ function activeViewFromPathname(pathname: string): ViewId | undefined {
     return "usage"
   }
 
+  if (pathname.startsWith("/portal/stock/check")) {
+    return "stock-check"
+  }
+
   if (pathname.startsWith("/portal/stock")) {
     return "stock"
   }

@@ -162,9 +162,12 @@ const deleteUsageBatchSchema = z.object({
 
 export const inventoryRouter = Router({ mergeParams: true })
 
+const lastCountInclude = { include: { stockCheck: true } } as const
+
 type InventoryRowWithIngredient = Prisma.BranchInventoryGetPayload<{
   include: {
     ingredient: { include: typeof ingredientPriceAttributionInclude }
+    lastStockCheckItem: typeof lastCountInclude
   }
 }>
 
@@ -221,6 +224,15 @@ function serializeInventoryRow(row: InventoryRowWithIngredient) {
       0
     ),
     lastUpdatedAt: row.lastUpdatedAt,
+    inventoryVersion: row.updatedAt.toISOString(),
+    lastCount: row.lastStockCheckItem ? {
+      quantity: Number(row.lastStockCheckItem.actualQuantity),
+      unit: row.lastStockCheckItem.unit,
+      countedAt: row.lastStockCheckItem.countedAt,
+      savedAt: row.lastStockCheckItem.stockCheck.savedAt,
+      countedBy: row.lastStockCheckItem.stockCheck.createdByName,
+      checkId: row.lastStockCheckItem.stockCheckId,
+    } : null,
   }
 }
 
@@ -352,6 +364,7 @@ inventoryRouter.get(
       where: { branchId, ingredient: { isActive: true } },
       include: {
         ingredient: { include: ingredientPriceAttributionInclude },
+        lastStockCheckItem: lastCountInclude,
       },
       orderBy: { ingredient: { name: "asc" } },
     })
@@ -595,9 +608,10 @@ inventoryRouter.post(
         },
         include: {
           ingredient: { include: ingredientPriceAttributionInclude },
+          lastStockCheckItem: lastCountInclude,
         },
       })
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     res.status(201).json({ inventory: serializeInventoryRow(inventory) })
   })
@@ -736,9 +750,7 @@ inventoryRouter.post(
             in: usageItems.map((item) => item.ingredientId),
           },
         },
-        include: {
-          ingredient: true,
-        },
+        include: { ingredient: true, lastStockCheckItem: lastCountInclude },
       })
       const inventoryByIngredientId = new Map(
         inventoryRows.map((row) => [row.ingredientId, row] as const)
@@ -804,9 +816,7 @@ inventoryRouter.post(
             onHand: afterQuantity,
             lastUpdatedAt: new Date(),
           },
-          include: {
-            ingredient: true,
-          },
+          include: { ingredient: true, lastStockCheckItem: lastCountInclude },
         })
 
         await tx.auditLog.create({
@@ -863,7 +873,7 @@ inventoryRouter.post(
         inventory: updatedInventory,
         movements,
       }
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     res.status(201).json({
       inventory: result.inventory.map(serializeInventoryRow),
@@ -894,9 +904,7 @@ inventoryRouter.delete(
           branchId,
           movementType: "usage_out",
         },
-        include: {
-          ingredient: true,
-        },
+        include: { ingredient: true },
       })
 
       if (movements.length !== input.movementIds.length) {
@@ -1038,7 +1046,7 @@ inventoryRouter.delete(
           (metadata) => metadata.receiptImagePath
         )?.receiptImagePath ?? null
       )
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await removeUsageReceiptImage(receiptImagePath)
     res.status(204).send()
@@ -1099,7 +1107,7 @@ inventoryRouter.post(
           branchId,
           ingredientId: { in: Array.from(totalByIngredientId.keys()) },
         },
-        include: { ingredient: true },
+        include: { ingredient: true, lastStockCheckItem: lastCountInclude },
       })
       const inventoryByIngredientId = new Map(
         inventoryRows.map((row) => [row.ingredientId, row] as const)
@@ -1227,11 +1235,11 @@ inventoryRouter.post(
           branchId,
           ingredientId: { in: Array.from(totalByIngredientId.keys()) },
         },
-        include: { ingredient: true },
+        include: { ingredient: true, lastStockCheckItem: lastCountInclude },
       })
 
       return { inventory: updatedInventory, movements }
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     res.status(201).json({
       inventory: result.inventory.map((row) =>
@@ -1265,9 +1273,7 @@ inventoryRouter.post(
             ingredientId: input.ingredientId,
           },
         },
-        include: {
-          ingredient: true,
-        },
+        include: { ingredient: true, lastStockCheckItem: lastCountInclude },
       })
 
       if (!currentInventory) {
@@ -1331,13 +1337,11 @@ inventoryRouter.post(
           onHand: afterQuantity,
           lastUpdatedAt: new Date(),
         },
-        include: {
-          ingredient: true,
-        },
+        include: { ingredient: true, lastStockCheckItem: lastCountInclude },
       })
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
-    res.status(201).json({ inventory })
+    res.status(201).json({ inventory: serializeInventoryRow(inventory as InventoryRowWithIngredient) })
   })
 )
 
@@ -1532,6 +1536,7 @@ inventoryRouter.patch(
         },
         include: {
           ingredient: { include: ingredientPriceAttributionInclude },
+          lastStockCheckItem: lastCountInclude,
         },
       })
 
@@ -1554,7 +1559,7 @@ inventoryRouter.patch(
       }
 
       return updatedInventory
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     res.json({ inventory: serializeInventoryRow(inventory) })
   })

@@ -7,6 +7,7 @@ export type MenuPermissionKey =
   | "purchase"
   | "usage"
   | "stock"
+  | "stock-check"
   | "recipes"
   | "reports"
   | "members"
@@ -18,6 +19,7 @@ export const menuPermissionKeys: MenuPermissionKey[] = [
   "purchase",
   "usage",
   "stock",
+  "stock-check",
   "recipes",
   "reports",
   "members",
@@ -131,6 +133,7 @@ export function defaultMemberPermissions(role: string): MemberMenuPermissions {
     purchase: { view: true, edit: true },
     usage: { view: true, edit: true },
     stock: { view: true, edit: false },
+    "stock-check": { view: true, edit: true },
     recipes: { view: true, edit: true },
     reports: { view: false, edit: false },
     members: { view: false, edit: false },

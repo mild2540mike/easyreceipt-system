@@ -3,6 +3,7 @@ export type ViewId =
   | "purchase"
   | "usage"
   | "stock"
+  | "stock-check"
   | "recipes"
   | "reports"
   | "budgets"
@@ -16,6 +17,7 @@ export type MenuPermissionKey =
   | "purchase"
   | "usage"
   | "stock"
+  | "stock-check"
   | "recipes"
   | "reports"
   | "members"
@@ -34,6 +36,7 @@ export const menuPermissionKeys: MenuPermissionKey[] = [
   "purchase",
   "usage",
   "stock",
+  "stock-check",
   "recipes",
   "reports",
   "members",
@@ -51,6 +54,7 @@ export function defaultMemberPermissions(role: MemberRole): MemberMenuPermission
     purchase: { view: true, edit: true },
     usage: { view: true, edit: true },
     stock: { view: true, edit: false },
+    "stock-check": { view: true, edit: true },
     recipes: { view: true, edit: true },
     reports: { view: false, edit: false },
     members: { view: false, edit: false },
@@ -174,6 +178,15 @@ export type InventoryItem = {
   reorderPoint: number
   costPerUnit: number
   lastUpdated: string
+  inventoryVersion?: string
+  lastCount?: {
+    quantity: number
+    unit: string
+    countedAt: string
+    savedAt: string
+    countedBy: string
+    checkId: string
+  } | null
 }
 
 export type RecipeIngredient = {

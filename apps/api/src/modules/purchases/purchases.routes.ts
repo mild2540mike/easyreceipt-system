@@ -599,7 +599,7 @@ purchasesRouter.delete(
       }
 
       return purchase.receiptImageStoredName
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await removePurchaseReceiptImage(
       receiptImageStoredName

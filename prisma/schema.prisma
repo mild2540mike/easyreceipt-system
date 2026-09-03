@@ -43,6 +43,7 @@ model Branch {
   reservations     StockReservation[]
   cookingRuns      CookingRun[]
   stockMovements   StockMovement[]
+  stockChecks      StockCheck[]
   auditLogs        AuditLog[]
   ingredientPriceUpdates Ingredient[] @relation("IngredientPriceUpdatedBranch")
 
@@ -73,6 +74,7 @@ model Member {
   recipePlans    RecipePlan[]         @relation("RecipePlanPlannedBy")
   cookingRuns    CookingRun[]         @relation("CookingRunCookedBy")
   stockMovements StockMovement[]      @relation("StockMovementCreatedBy")
+  stockChecks    StockCheck[]
   usageReasons   UsageReason[]        @relation("UsageReasonCreatedBy")
   auditLogs      AuditLog[]           @relation("AuditLogActor")
   ingredientPriceUpdates Ingredient[] @relation("IngredientPriceUpdatedBy")
@@ -120,6 +122,7 @@ model Ingredient {
   recipeItems            RecipeItem[]
   reservations           StockReservation[]
   stockMovements         StockMovement[]
+  stockCheckItems        StockCheckItem[]
 
   @@unique([organizationId, name, unit])
   @@index([organizationId, category])
@@ -140,13 +143,54 @@ model BranchInventory {
   lastUpdatedAt    DateTime @default(now()) @db.DateTime2
   createdAt        DateTime @default(now()) @db.DateTime2
   updatedAt        DateTime @updatedAt @db.DateTime2
+  lastStockCheckItemId String? @db.NVarChar(64)
 
   branch     Branch     @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lastStockCheckItem StockCheckItem? @relation(fields: [lastStockCheckItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([branchId, ingredientId])
   @@index([ingredientId])
+  @@index([lastStockCheckItemId])
   @@map("branch_inventory")
+}
+
+model StockCheck {
+  id String @id @default(cuid()) @db.NVarChar(64)
+  branchId String @db.NVarChar(64)
+  createdByMemberId String @db.NVarChar(64)
+  createdByName String @db.NVarChar(160)
+  requestId String @db.NVarChar(64)
+  requestHash String @db.NVarChar(64)
+  startedAt DateTime @db.DateTime2
+  savedAt DateTime @default(now()) @db.DateTime2
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy Member @relation(fields: [createdByMemberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items StockCheckItem[]
+
+  @@unique([branchId, requestId])
+  @@index([branchId, savedAt])
+  @@index([createdByMemberId])
+  @@map("stock_checks")
+}
+
+model StockCheckItem {
+  id String @id @default(cuid()) @db.NVarChar(64)
+  stockCheckId String @db.NVarChar(64)
+  ingredientId String @db.NVarChar(64)
+  name String @db.NVarChar(160)
+  unit String @db.NVarChar(32)
+  systemQuantity Decimal @db.Decimal(18, 3)
+  actualQuantity Decimal @db.Decimal(18, 3)
+  difference Decimal @db.Decimal(18, 3)
+  countedAt DateTime @db.DateTime2
+  stockCheck StockCheck @relation(fields: [stockCheckId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latestForInventory BranchInventory[]
+
+  @@unique([stockCheckId, ingredientId])
+  @@index([ingredientId])
+  @@map("stock_check_items")
 }
 
 model Purchase {

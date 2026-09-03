@@ -16,6 +16,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler"
 import { authRouter } from "./modules/auth/auth.routes"
 import { branchesRouter } from "./modules/branches/branches.routes"
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes"
+import { stockChecksRouter } from "./modules/inventory/stock-check.routes"
 import { inventoryRouter } from "./modules/inventory/inventory.routes"
 import { integrationsRouter } from "./modules/integrations/integrations.routes"
 import { membersRouter } from "./modules/members/members.routes"
@@ -65,6 +66,7 @@ export function createApp() {
   app.use("/api/v1/integrations", integrationsRouter)
   app.use("/api/v1/branches", requireAuth, branchesRouter)
   app.use("/api/v1/branches/:branchId/dashboard", requireAuth, dashboardRouter)
+  app.use("/api/v1/branches/:branchId/stock-checks", requireAuth, stockChecksRouter)
   app.use("/api/v1/branches/:branchId/inventory", requireAuth, inventoryRouter)
   app.use("/api/v1/branches/:branchId/purchases", requireAuth, purchasesRouter)
   app.use("/api/v1/branches/:branchId/recipes", requireAuth, recipesRouter)

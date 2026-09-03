@@ -17,6 +17,7 @@
     "db:sync-catalog:apply": "node prisma/scripts/sync-global-ingredient-catalog.mjs --apply",
     "db:seed": "prisma generate && prisma db seed",
     "db:studio": "prisma studio",
+    "preapi:dev": "npm run db:migrate:deploy",
     "api:dev": "tsx watch apps/api/src/server.ts",
     "preapi:build": "npm run db:generate",
     "api:build": "tsc -p apps/api/tsconfig.json",
