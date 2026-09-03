@@ -3441,6 +3441,10 @@ function PurchaseView({ store }: { store: Store }) {
               "วัตถุดิบ",
             quantity: item.quantity,
             unit: item.unit,
+            latestUnitPrice:
+              store.ingredientById.get(item.ingredientId)?.defaultPrice ??
+              item.ingredient?.defaultPrice ??
+              null,
             price: item.lineTotal,
           })),
         })),
@@ -6039,6 +6043,10 @@ function UsageView({ store }: { store: Store }) {
               "วัตถุดิบ",
             quantity: movement.quantity,
             unit: movement.unit,
+            latestUnitPrice:
+              store.ingredientById.get(movement.ingredientId)?.defaultPrice ??
+              movement.ingredient?.defaultPrice ??
+              null,
             price: movement.quantity * movement.unitCost,
           })),
         })),

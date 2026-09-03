@@ -4,6 +4,7 @@ export type DailySummaryImageRow = {
   name: string
   quantity: number
   unit: string
+  latestUnitPrice: number | null
   price: number
 }
 
@@ -264,8 +265,9 @@ function createPageCanvas({
   let y = pageHeaderHeight
   const tableLeft = pageHorizontalPadding
   const tableRight = canvasWidth - pageHorizontalPadding
-  const quantityX = 600
-  const unitX = 760
+  const quantityX = 520
+  const unitX = 600
+  const latestUnitPriceX = 840
   const priceX = tableRight
 
   for (const group of groups) {
@@ -313,7 +315,12 @@ function createPageCanvas({
       color: "#334155",
       font: `700 19px ${fontFamily}`,
     })
-    drawText("ราคา", priceX - 16, y + 34, {
+    drawText("ราคาล่าสุด/หน่วย", latestUnitPriceX, y + 34, {
+      align: "right",
+      color: "#334155",
+      font: `700 19px ${fontFamily}`,
+    })
+    drawText("ราคารวม", priceX - 16, y + 34, {
       align: "right",
       color: "#334155",
       font: `700 19px ${fontFamily}`,
@@ -330,21 +337,33 @@ function createPageCanvas({
 
       drawText(row.name || "วัตถุดิบ", tableLeft + 16, y + 37, {
         font: `500 21px ${fontFamily}`,
-        maximumWidth: quantityX - tableLeft - 70,
+        maximumWidth: quantityX - tableLeft - 150,
       })
       drawText(formatNumber(row.quantity), quantityX, y + 37, {
         align: "right",
         font: `500 21px ${fontFamily}`,
+        maximumWidth: 112,
       })
       drawText(row.unit || "-", unitX, y + 37, {
         align: "center",
         color: "#475569",
         font: `400 20px ${fontFamily}`,
-        maximumWidth: 130,
+        maximumWidth: 100,
       })
+      drawText(
+        row.latestUnitPrice == null ? "-" : formatCurrency(row.latestUnitPrice),
+        latestUnitPriceX,
+        y + 37,
+        {
+          align: "right",
+          font: `500 21px ${fontFamily}`,
+          maximumWidth: 170,
+        }
+      )
       drawText(formatCurrency(row.price), priceX - 16, y + 37, {
         align: "right",
         font: `600 21px ${fontFamily}`,
+        maximumWidth: 148,
       })
       y += tableRowHeight
     }
