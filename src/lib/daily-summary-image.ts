@@ -4,7 +4,7 @@ export type DailySummaryImageRow = {
   name: string
   quantity: number
   unit: string
-  latestUnitPrice: number | null
+  unitPrice: number | null
   price: number
 }
 
@@ -267,7 +267,7 @@ function createPageCanvas({
   const tableRight = canvasWidth - pageHorizontalPadding
   const quantityX = 520
   const unitX = 600
-  const latestUnitPriceX = 840
+  const unitPriceX = 840
   const priceX = tableRight
 
   for (const group of groups) {
@@ -315,7 +315,7 @@ function createPageCanvas({
       color: "#334155",
       font: `700 19px ${fontFamily}`,
     })
-    drawText("ราคาล่าสุด/หน่วย", latestUnitPriceX, y + 34, {
+    drawText(type === "purchase" ? "ราคาต่อหน่วย" : "ราคาล่าสุด/หน่วย", unitPriceX, y + 34, {
       align: "right",
       color: "#334155",
       font: `700 19px ${fontFamily}`,
@@ -351,8 +351,8 @@ function createPageCanvas({
         maximumWidth: 100,
       })
       drawText(
-        row.latestUnitPrice == null ? "-" : formatCurrency(row.latestUnitPrice),
-        latestUnitPriceX,
+        row.unitPrice == null ? "-" : formatCurrency(row.unitPrice),
+        unitPriceX,
         y + 37,
         {
           align: "right",

@@ -3509,10 +3509,7 @@ function PurchaseView({ store }: { store: Store }) {
               "วัตถุดิบ",
             quantity: item.quantity,
             unit: item.unit,
-            latestUnitPrice:
-              store.ingredientById.get(item.ingredientId)?.defaultPrice ??
-              item.ingredient?.defaultPrice ??
-              null,
+            unitPrice: item.unitPrice,
             price: item.lineTotal,
           })),
         })),
@@ -5837,16 +5834,6 @@ function UsageView({ store }: { store: Store }) {
     })
   )
   const readyRows = draftRows.filter((item) => item.ingredientId && item.quantity > 0)
-  const draftUsageByIngredientId = draftRows.reduce((totals, item) => {
-    if (item.ingredientId && item.quantity > 0) {
-      totals.set(
-        item.ingredientId,
-        (totals.get(item.ingredientId) ?? 0) + item.quantity
-      )
-    }
-
-    return totals
-  }, new Map<string, number>())
   const invalidRows = draftRows.filter((item) => {
     if (!item.ingredientId || item.quantity <= 0) {
       return false
@@ -5856,10 +5843,7 @@ function UsageView({ store }: { store: Store }) {
       (row) => row.ingredientId === item.ingredientId
     )
 
-    return (
-      !inventory ||
-      (draftUsageByIngredientId.get(item.ingredientId) ?? 0) > inventory.onHand
-    )
+    return !inventory
   })
   const usageReasonOptions = Array.from(
     new Set(
@@ -6111,7 +6095,7 @@ function UsageView({ store }: { store: Store }) {
               "วัตถุดิบ",
             quantity: movement.quantity,
             unit: movement.unit,
-            latestUnitPrice:
+            unitPrice:
               store.ingredientById.get(movement.ingredientId)?.defaultPrice ??
               movement.ingredient?.defaultPrice ??
               null,
@@ -7465,7 +7449,7 @@ function UsageMobileItem({
     .filter((draftItem) => draftItem.ingredientId === item.ingredientId)
     .reduce((total, draftItem) => total + draftItem.quantity, 0)
   const afterQuantity = inventoryRow
-    ? Math.max(inventoryRow.onHand - totalDraftUsage, 0)
+    ? inventoryRow.onHand - totalDraftUsage
     : 0
   const isOverStock = Boolean(
     inventoryRow && totalDraftUsage > inventoryRow.onHand
@@ -7597,7 +7581,7 @@ function UsageDraftTableRow({
     .filter((draftItem) => draftItem.ingredientId === item.ingredientId)
     .reduce((total, draftItem) => total + draftItem.quantity, 0)
   const afterQuantity = inventoryRow
-    ? Math.max(inventoryRow.onHand - totalDraftUsage, 0)
+    ? inventoryRow.onHand - totalDraftUsage
     : 0
   const isOverStock = Boolean(
     inventoryRow && totalDraftUsage > inventoryRow.onHand
@@ -10684,7 +10668,7 @@ function BranchEditDialog({ branch, store, className }: { branch: ManagedBranch;
           </div>
           {message && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{message}</p>}
           <DialogFooter className="p-0 pt-2">
-            <Button type="button" variant="outline" className="h-11" onClick={() => setOpen(false)}>เก็บข้อมูลเดิม</Button>
+            <Button type="button" variant="outline" className="h-11" onClick={() => setOpen(false)}>ยกเลิก</Button>
             <Button type="submit" className="h-11" disabled={store.isBranchSaving || !name.trim() || !location.trim()}>
               {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <Save className="size-4" />}
               บันทึกการแก้ไข
@@ -10813,7 +10797,7 @@ function BranchFormView() {
                 {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <Plus className="size-4" />}
                 เพิ่มสาขา
               </Button>
-              <Link href="/portal/branches" className={buttonVariants({ variant: "outline", className: "h-11" })}>เก็บรายการเดิม</Link>
+              <Link href="/portal/branches" className={buttonVariants({ variant: "outline", className: "h-11" })}>ยกเลิก</Link>
             </div>
           </form>
         </CardContent>

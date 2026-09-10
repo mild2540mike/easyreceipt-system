@@ -4195,20 +4195,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       )
     }
 
-    for (const [ingredientId, quantity] of quantityByIngredientId) {
+    for (const ingredientId of quantityByIngredientId.keys()) {
       const inventoryRow = inventoryRowByIngredientId.get(ingredientId)
 
       if (!inventoryRow) {
         return {
           ok: false,
           error: "กรุณาเลือกวัตถุดิบให้ครบทุกแถว",
-        }
-      }
-
-      if (quantity > inventoryRow.onHand) {
-        return {
-          ok: false,
-          error: `${inventoryRow.ingredient.name} คงเหลือไม่พอสำหรับตัดคลัง`,
         }
       }
     }

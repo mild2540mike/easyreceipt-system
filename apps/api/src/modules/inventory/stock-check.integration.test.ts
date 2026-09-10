@@ -139,6 +139,38 @@ describe("stock checks on isolated SQL Server", { skip: !enabled }, () => {
     })
   }
 
+  for (const endpoint of ["usage", "usage/batch"]) {
+    it(`${endpoint} saves usage beyond stock, including zero and negative balances`, async () => {
+      const rows = await Promise.all([0, 11, -2].map(inventory))
+      const items = rows.map((row) => ({ ingredientId: row.ingredientId, quantity: 5 }))
+      const payload = endpoint === "usage"
+        ? { reason: "ใช้ประจำวัน", items: [...items, ...items] }
+        : {
+            groups: [1, 2].map((index) => ({
+              batchId: randomUUID(),
+              name: `รอบ ${index}`,
+              reason: "ใช้ประจำวัน",
+              items,
+            })),
+          }
+      const response = await fetch(`${base}/${branchId}/inventory/${endpoint}`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify(payload),
+      })
+      assert.equal(response.status, 201, await response.clone().text())
+      for (const [index, row] of rows.entries()) {
+        const saved = await db.branchInventory.findUniqueOrThrow({ where: { id: row.id } })
+        assert.equal(Number(saved.onHand), [-10, 1, -12][index])
+        const movements = await db.stockMovement.findMany({
+          where: { branchId, ingredientId: row.ingredientId, movementType: "usage_out" },
+        })
+        assert.equal(movements.reduce((total, movement) => total + Number(movement.quantity), 0), 10)
+        assert.ok(movements.some((movement) => Number(movement.afterQuantity) === Number(saved.onHand)))
+      }
+    })
+  }
+
   it("stores equal, missing, excess, zero and fractional counts together; untouched rows stay unchanged", async () => {
     const rows = await Promise.all([10, 10, 0, 10, 10].map(inventory))
     const request = input(rows.slice(0, 4), [10, 0, 1.25, 8.125])

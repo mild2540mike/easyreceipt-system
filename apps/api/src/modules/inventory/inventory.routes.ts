@@ -762,14 +762,6 @@ inventoryRouter.post(
         if (!inventory) {
           throw notFound(`Inventory item ${item.ingredientId} not found.`)
         }
-
-        const beforeQuantity = Number(inventory.onHand)
-
-        if (item.quantity > beforeQuantity) {
-          throw badRequest(
-            `${inventory.ingredient.name} does not have enough stock.`
-          )
-        }
       }
 
       const occurredAt = input.occurredAt ?? new Date()
@@ -1113,17 +1105,11 @@ inventoryRouter.post(
         inventoryRows.map((row) => [row.ingredientId, row] as const)
       )
 
-      for (const [ingredientId, quantity] of totalByIngredientId) {
+      for (const ingredientId of totalByIngredientId.keys()) {
         const inventory = inventoryByIngredientId.get(ingredientId)
 
         if (!inventory) {
           throw notFound(`Inventory item ${ingredientId} not found.`)
-        }
-
-        if (quantity > Number(inventory.onHand)) {
-          throw badRequest(
-            `${inventory.ingredient.name} does not have enough stock.`
-          )
         }
       }
 
