@@ -8191,6 +8191,19 @@ function StockView({ store }: { store: Store }) {
         <ClipboardCheck className="size-5 shrink-0 text-primary" />
         <span><span className="block font-semibold">เช็คสต็อก</span><span className="block text-sm text-muted-foreground">นับของจริง แล้วเทียบกับยอดในระบบ</span></span>
       </Link>}
+      <div className="flex sm:justify-end">
+        <a
+          href="https://docs.google.com/spreadsheets/d/1Komsh-pPE98nHwk6zigcwFMhZpRTZLPWoTapnZAtCPw/edit?usp=sharing"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(buttonVariants({ variant: "outline" }), "h-11 w-full gap-2 px-4 sm:w-auto")}
+          aria-label="เปิด Google Sheet คลังวัตถุดิบในแท็บใหม่"
+        >
+          <Table2 className="size-4" />
+          เปิด Google Sheet
+          <ExternalLink className="size-4" />
+        </a>
+      </div>
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label="วัตถุดิบทั้งหมด"
