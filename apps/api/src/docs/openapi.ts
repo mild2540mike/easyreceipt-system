@@ -196,6 +196,19 @@ export const openApiDocument = {
           },
         },
       },
+      ManagedBranch: {
+        allOf: [
+          { $ref: "#/components/schemas/Branch" },
+          {
+            type: "object",
+            properties: {
+              assignedMemberCount: { type: "integer", minimum: 0 },
+              soleAccessMemberCount: { type: "integer", minimum: 0 },
+            },
+            required: ["assignedMemberCount", "soleAccessMemberCount"],
+          },
+        ],
+      },
       PurchaseDraftUpdateInput: {
         type: "object",
         required: ["purchaseDate", "name", "items"],
@@ -647,6 +660,34 @@ export const openApiDocument = {
           "401": { $ref: "#/components/responses/Unauthorized" },
         },
       },
+      post: {
+        tags: ["Branches"],
+        summary: "Create a branch. Owner only.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["code", "name", "location"],
+                properties: {
+                  code: { type: "string", pattern: "^[A-Za-z0-9_-]+$", maxLength: 20 },
+                  name: { type: "string", minLength: 1, maxLength: 160 },
+                  location: { type: "string", minLength: 1, maxLength: 180 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created branch with owner access and empty inventory." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
     },
     "/branches/{branchId}/budget": {
       patch: {
@@ -728,6 +769,91 @@ export const openApiDocument = {
             },
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/branches/manage": {
+      get: {
+        tags: ["Branches"],
+        summary: "List active and inactive branches with member counts. Owner only.",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Managed branches.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    branches: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/ManagedBranch" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+    "/branches/{branchId}": {
+      patch: {
+        tags: ["Branches"],
+        summary: "Update a branch name or location. Owner only.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  name: { type: "string", minLength: 1, maxLength: 160 },
+                  location: { type: "string", minLength: 1, maxLength: 180 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated branch." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Branches"],
+        summary: "Deactivate a branch while preserving history. Owner only.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        responses: {
+          "204": { description: "Branch deactivated." },
+          "400": { description: "Last active branch or members would lose all active branch access." },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/branches/{branchId}/restore": {
+      post: {
+        tags: ["Branches"],
+        summary: "Restore an inactive branch and repair owner access and inventory. Owner only.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ $ref: "#/components/parameters/branchId" }],
+        responses: {
+          "200": { description: "Restored branch." },
+          "400": { $ref: "#/components/responses/ValidationError" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
         },
       },
     },

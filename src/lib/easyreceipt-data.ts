@@ -7,6 +7,7 @@ export type ViewId =
   | "recipes"
   | "reports"
   | "budgets"
+  | "branches"
   | "members"
 
 export type MemberRole = "owner" | "manager" | "staff"
@@ -101,6 +102,12 @@ export type Branch = {
   name: string
   location: string
   dailyPurchaseBudget: number | null
+  isActive: boolean
+}
+
+export type ManagedBranch = Branch & {
+  assignedMemberCount: number
+  soleAccessMemberCount: number
 }
 
 export type Member = {

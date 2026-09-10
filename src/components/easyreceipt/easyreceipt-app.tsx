@@ -156,6 +156,7 @@ import { rankIngredientSearchCandidates } from "@/lib/ingredient-matching"
 import { preparePurchaseScanImage } from "@/lib/purchase-scan-image"
 import type {
   MenuPermissionKey,
+  ManagedBranch,
   MemberMenuPermissions,
   MemberRole,
   MemberStatus,
@@ -290,6 +291,15 @@ const navItems: NavItem[] = [
     color: "text-lime-700 bg-lime-50 border-lime-200",
   },
   {
+    id: "branches",
+    label: "จัดการสาขา",
+    shortLabel: "สาขา",
+    description: "เพิ่ม แก้ไข และปิดใช้งานสาขา",
+    href: "/portal/branches",
+    icon: Building2,
+    color: "text-blue-700 bg-blue-50 border-blue-200",
+  },
+  {
     id: "members",
     label: "สมาชิก",
     shortLabel: "สมาชิก",
@@ -306,6 +316,10 @@ function canAccessMemberManagement(member: Store["currentMember"]) {
 
 function canAccessBudgetManagement(member: Store["currentMember"]) {
   return memberCanViewMenu(member, "budgets")
+}
+
+function canAccessBranchManagement(member: Store["currentMember"]) {
+  return member?.role === "owner"
 }
 
 function canAccessReports(member: Store["currentMember"]) {
@@ -355,6 +369,10 @@ function canAccessView(view: ViewId, member: Store["currentMember"]) {
     return isBudgetManagementPageEnabled && canAccessBudgetManagement(member)
   }
 
+  if (view === "branches") {
+    return canAccessBranchManagement(member)
+  }
+
   return true
 }
 
@@ -369,6 +387,7 @@ function visibleNavItems(member: Store["currentMember"]) {
       (item.id !== "recipes" || memberCanViewMenu(member, "recipes")) &&
       (item.id !== "reports" || canAccessReports(member)) &&
       (item.id !== "members" || canAccessMemberManagement(member)) &&
+      (item.id !== "branches" || canAccessBranchManagement(member)) &&
       (item.id !== "budgets" ||
         (isBudgetManagementPageEnabled && canAccessBudgetManagement(member)))
   )
@@ -984,6 +1003,7 @@ export function EasyReceiptPortalPage({
   const memberCanAccessBudgets =
     isBudgetManagementPageEnabled &&
     canAccessBudgetManagement(store.currentMember)
+  const memberCanAccessBranches = canAccessBranchManagement(store.currentMember)
   const currentNavItems = visibleNavItems(store.currentMember)
   const activeViewIsAllowed = canAccessView(activeView, store.currentMember)
   const activeItem =
@@ -1093,6 +1113,9 @@ export function EasyReceiptPortalPage({
                   )}
                   {activeView === "budgets" && memberCanAccessBudgets && (
                     <BudgetsView store={store} />
+                  )}
+                  {activeView === "branches" && memberCanAccessBranches && (
+                    <BranchesView store={store} />
                   )}
                   {activeView === "members" && memberCanAccessMembers && (
                     <MembersView store={store} />
@@ -10379,6 +10402,422 @@ function BudgetsView({ store }: { store: Store }) {
           </FreezableTable>
         </div>
       </section>
+    </div>
+  )
+}
+
+type BranchStatusFilter = "active" | "inactive" | "all"
+
+function BranchesView({ store }: { store: Store }) {
+  const [search, setSearch] = useState("")
+  const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase("th"))
+  const [statusFilter, setStatusFilter] = useState<BranchStatusFilter>("active")
+  const activeBranchCount = store.managedBranches.filter(
+    (branch) => branch.isActive
+  ).length
+  const filteredBranches = store.managedBranches.filter((branch) => {
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "active" ? branch.isActive : !branch.isActive)
+    const searchable = `${branch.code} ${branch.name} ${branch.location}`.toLocaleLowerCase("th")
+
+    return matchesStatus && (!deferredSearch || searchable.includes(deferredSearch))
+  })
+
+  return (
+    <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
+      <section className="rounded-lg border border-border bg-background p-3 sm:p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <h2 className="text-base font-semibold sm:text-lg">สาขาในองค์กร</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              จัดการชื่อ ที่ตั้ง และสถานะสาขา โดยประวัติการทำงานเดิมจะถูกเก็บไว้เสมอ
+            </p>
+          </div>
+          <Link
+            href="/portal/branches/new"
+            className={buttonVariants({ className: "h-11 w-full sm:w-fit" })}
+          >
+            <Plus className="size-4" />
+            เพิ่มสาขา
+          </Link>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <div>
+            <Label htmlFor="branch-search" className="mb-2 block">
+              ค้นหาสาขา
+            </Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="branch-search"
+                className="h-11 pl-9"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="ค้นหาจากรหัส ชื่อ หรือที่ตั้ง"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="mb-2 block">สถานะสาขา</Label>
+            <Tabs
+              value={statusFilter}
+              onValueChange={(value) => {
+                if (value === "active" || value === "inactive" || value === "all") {
+                  setStatusFilter(value)
+                }
+              }}
+            >
+              <TabsList
+                aria-label="สถานะสาขา"
+                className="grid h-11 w-full grid-cols-3 md:w-72"
+              >
+                <TabsTrigger value="active">ใช้งาน</TabsTrigger>
+                <TabsTrigger value="inactive">ปิดใช้งาน</TabsTrigger>
+                <TabsTrigger value="all">ทั้งหมด</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </div>
+      </section>
+
+      {store.branchError && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <p className="font-medium">โหลดหรือบันทึกข้อมูลสาขาไม่สำเร็จ</p>
+          <p className="mt-1">{store.branchError}</p>
+        </div>
+      )}
+
+      {store.isManagedBranchesLoading ? (
+        <div role="status" aria-label="กำลังโหลดรายการสาขา" className="space-y-2 rounded-lg border border-border bg-background p-4">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+          ))}
+        </div>
+      ) : filteredBranches.length === 0 ? (
+        <div className="rounded-lg border border-border bg-background px-4 py-10 text-center">
+          <Building2 className="mx-auto size-8 text-muted-foreground" />
+          <h3 className="mt-3 font-semibold">
+            {store.managedBranches.length === 0 ? "ยังไม่มีสาขา" : "ไม่พบสาขาที่ค้นหา"}
+          </h3>
+          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+            {store.managedBranches.length === 0
+              ? "เพิ่มสาขาแรกเพื่อเริ่มกำหนดสมาชิกและบันทึกข้อมูลการทำงาน"
+              : "ลองเปลี่ยนคำค้นหาหรือตัวกรองสถานะ"}
+          </p>
+          {store.managedBranches.length === 0 && (
+            <Link href="/portal/branches/new" className={buttonVariants({ className: "mt-4 h-11" })}>
+              <Plus className="size-4" />
+              เพิ่มสาขาแรก
+            </Link>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="hidden overflow-x-auto rounded-lg border border-border bg-background md:block">
+            <Table>
+              <TableHeader className="bg-muted/40">
+                <TableRow>
+                  <TableHead className="min-w-64">สาขา</TableHead>
+                  <TableHead className="min-w-64">ที่ตั้ง</TableHead>
+                  <TableHead className="w-36">สมาชิก</TableHead>
+                  <TableHead className="w-32">สถานะ</TableHead>
+                  <TableHead className="w-64 text-right">จัดการ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredBranches.map((branch) => (
+                  <TableRow key={branch.id} className="hover:bg-muted/30">
+                    <TableCell>
+                      <p className="font-semibold">{branch.name}</p>
+                      <p className="text-xs text-muted-foreground">รหัส {branch.code}</p>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{branch.location}</TableCell>
+                    <TableCell>{branch.assignedMemberCount} คน</TableCell>
+                    <TableCell><BranchStatusBadge isActive={branch.isActive} /></TableCell>
+                    <TableCell className="text-right">
+                      <BranchActions branch={branch} activeBranchCount={activeBranchCount} store={store} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="divide-y divide-border rounded-lg border border-border bg-background md:hidden">
+            {filteredBranches.map((branch) => (
+              <div key={branch.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{branch.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">รหัส {branch.code}</p>
+                  </div>
+                  <BranchStatusBadge isActive={branch.isActive} />
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">{branch.location}</p>
+                <p className="mt-1 text-xs text-muted-foreground">สมาชิก {branch.assignedMemberCount} คน</p>
+                <div className="mt-4">
+                  <BranchActions branch={branch} activeBranchCount={activeBranchCount} store={store} mobile />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function BranchStatusBadge({ isActive }: { isActive: boolean }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "h-7 shrink-0",
+        isActive
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-slate-200 bg-slate-50 text-slate-700"
+      )}
+    >
+      {isActive ? "ใช้งาน" : "ปิดใช้งาน"}
+    </Badge>
+  )
+}
+
+function BranchActions({
+  branch,
+  activeBranchCount,
+  store,
+  mobile = false,
+}: {
+  branch: ManagedBranch
+  activeBranchCount: number
+  store: Store
+  mobile?: boolean
+}) {
+  async function handleRestore() {
+    const result = await store.restoreBranch(branch.id)
+    showAppToast({
+      id: `branch-restore-${branch.id}`,
+      type: result.ok ? "success" : "error",
+      title: result.ok ? "เปิดใช้งานสาขาแล้ว" : "เปิดใช้งานสาขาไม่สำเร็จ",
+      description: result.ok ? branch.name : result.error,
+    })
+  }
+
+  return (
+    <div className={cn("inline-flex gap-2", mobile && "grid w-full grid-cols-2")}>
+      <BranchEditDialog branch={branch} store={store} className={mobile ? "h-11 w-full" : undefined} />
+      {branch.isActive ? (
+        <BranchDeactivateDialog
+          branch={branch}
+          activeBranchCount={activeBranchCount}
+          store={store}
+          className={mobile ? "h-11 w-full" : undefined}
+        />
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className={cn("h-9", mobile && "h-11 w-full")}
+          disabled={store.isBranchSaving}
+          onClick={handleRestore}
+        >
+          {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <CircleCheck className="size-4" />}
+          เปิดใช้งาน
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function BranchEditDialog({ branch, store, className }: { branch: ManagedBranch; store: Store; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(branch.name)
+  const [location, setLocation] = useState(branch.location)
+  const [message, setMessage] = useState("")
+
+  function openEditor() {
+    setName(branch.name)
+    setLocation(branch.location)
+    setMessage("")
+    setOpen(true)
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const result = await store.updateBranchDetails(branch.id, { name, location })
+    if (!result.ok) {
+      setMessage(result.error ?? "ไม่สามารถบันทึกข้อมูลสาขาได้")
+      return
+    }
+
+    setOpen(false)
+    showAppToast({ id: `branch-edit-${branch.id}`, type: "success", title: "บันทึกข้อมูลสาขาแล้ว", description: name.trim() })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button type="button" variant="outline" className={cn("h-9", className)} onClick={openEditor}>
+        <Pencil className="size-4" />
+        แก้ไข
+      </Button>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>แก้ไขสาขา</DialogTitle>
+          <DialogDescription>แก้ไขชื่อและที่ตั้งของสาขา รหัสสาขาจะไม่เปลี่ยน</DialogDescription>
+        </DialogHeader>
+        <form className="space-y-4 px-4 pb-4" onSubmit={handleSubmit}>
+          <div>
+            <Label htmlFor={`branch-code-${branch.id}`} className="mb-2 block">รหัสสาขา</Label>
+            <Input id={`branch-code-${branch.id}`} className="h-11" value={branch.code} disabled />
+            <p className="mt-1.5 text-xs text-muted-foreground">รหัสสาขาถูกล็อกเพื่อป้องกันการเชื่อมต่อข้อมูลคลาดเคลื่อน</p>
+          </div>
+          <div>
+            <Label htmlFor={`branch-name-${branch.id}`} className="mb-2 block">ชื่อสาขา</Label>
+            <Input id={`branch-name-${branch.id}`} className="h-11" value={name} maxLength={160} onChange={(event) => setName(event.target.value)} required />
+          </div>
+          <div>
+            <Label htmlFor={`branch-location-${branch.id}`} className="mb-2 block">ที่ตั้ง</Label>
+            <Input id={`branch-location-${branch.id}`} className="h-11" value={location} maxLength={180} onChange={(event) => setLocation(event.target.value)} required />
+          </div>
+          {message && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{message}</p>}
+          <DialogFooter className="p-0 pt-2">
+            <Button type="button" variant="outline" className="h-11" onClick={() => setOpen(false)}>เก็บข้อมูลเดิม</Button>
+            <Button type="submit" className="h-11" disabled={store.isBranchSaving || !name.trim() || !location.trim()}>
+              {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <Save className="size-4" />}
+              บันทึกการแก้ไข
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BranchDeactivateDialog({ branch, activeBranchCount, store, className }: { branch: ManagedBranch; activeBranchCount: number; store: Store; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const [message, setMessage] = useState("")
+  const blocker =
+    activeBranchCount <= 1
+      ? "สาขานี้เป็นสาขาสุดท้ายขององค์กร จึงไม่สามารถปิดใช้งานได้"
+      : branch.soleAccessMemberCount > 0
+        ? `มีสมาชิก ${branch.soleAccessMemberCount} คนที่ไม่มีสาขาใช้งานอื่น กรุณาย้ายสมาชิกก่อน`
+        : ""
+
+  async function handleDeactivate() {
+    const result = await store.deactivateBranch(branch.id)
+    if (!result.ok) {
+      setMessage(result.error ?? "ไม่สามารถปิดใช้งานสาขาได้")
+      return
+    }
+
+    setOpen(false)
+    showAppToast({ id: `branch-deactivate-${branch.id}`, type: "success", title: "ปิดใช้งานสาขาแล้ว", description: `${branch.name} ถูกนำออกจากงานประจำ แต่ประวัติทั้งหมดจะยังอยู่` })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (nextOpen) setMessage("") }}>
+      <Button type="button" variant="destructive" className={cn("h-9", className)} onClick={() => setOpen(true)}>
+        <Trash2 className="size-4" />
+        ปิดใช้งาน
+      </Button>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>ปิดใช้งาน “{branch.name}”</DialogTitle>
+          <DialogDescription>สาขาจะหายจากตัวเลือก งานประจำ และรายงานใหม่ แต่ข้อมูลซื้อ สต็อก และประวัติเดิมจะไม่ถูกลบ</DialogDescription>
+        </DialogHeader>
+        {blocker && (
+          <div className="mx-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <p>{blocker}</p>
+            {branch.soleAccessMemberCount > 0 && (
+              <Link href="/portal/members" className="mt-2 inline-flex font-medium text-primary underline-offset-2 hover:underline">ไปจัดการสมาชิก</Link>
+            )}
+          </div>
+        )}
+        {message && <p role="alert" className="mx-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{message}</p>}
+        <DialogFooter>
+          <Button type="button" variant="outline" className="h-11" onClick={() => setOpen(false)}>เก็บสาขาไว้</Button>
+          <Button type="button" variant="destructive" className="h-11" disabled={Boolean(blocker) || store.isBranchSaving} onClick={handleDeactivate}>
+            {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <Trash2 className="size-4" />}
+            ปิดใช้งานสาขา
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function EasyReceiptBranchFormPage() {
+  return (
+    <EasyReceiptPortalPage activeView="branches">
+      <BranchFormView />
+    </EasyReceiptPortalPage>
+  )
+}
+
+function BranchFormView() {
+  const store = useEasyReceipt()
+  const router = useRouter()
+  const [code, setCode] = useState("")
+  const [name, setName] = useState("")
+  const [location, setLocation] = useState("")
+  const [message, setMessage] = useState("")
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const result = await store.createBranch({ code, name, location })
+    if (!result.ok) {
+      setMessage(result.error ?? "ไม่สามารถเพิ่มสาขาได้")
+      return
+    }
+
+    showAppToast({ id: "branch-create", type: "success", title: "เพิ่มสาขาแล้ว", description: name.trim() })
+    router.push("/portal/branches")
+  }
+
+  return (
+    <div className="space-y-4">
+      <Link href="/portal/branches" className={buttonVariants({ variant: "ghost", className: "h-11 w-fit px-2" })}>
+        <ArrowLeft className="size-4" />
+        กลับหน้าจัดการสาขา
+      </Link>
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardAction><span className="flex size-10 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700"><Building2 className="size-5" /></span></CardAction>
+          <CardTitle>เพิ่มสาขา</CardTitle>
+          <CardDescription>สร้างพื้นที่ทำงานใหม่พร้อมคลังวัตถุดิบเริ่มต้น และให้ Owner ทุกคนเข้าถึงโดยอัตโนมัติ</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="new-branch-code" className="mb-2 block">รหัสสาขา</Label>
+                <Input id="new-branch-code" className="h-11 uppercase" value={code} maxLength={20} pattern="[A-Za-z0-9_-]+" onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="เช่น BKK01" required aria-describedby="new-branch-code-help" />
+                <p id="new-branch-code-help" className="mt-1.5 text-xs text-muted-foreground">ใช้ตัวอักษรอังกฤษ ตัวเลข _ หรือ - และเปลี่ยนไม่ได้หลังสร้าง</p>
+              </div>
+              <div>
+                <Label htmlFor="new-branch-name" className="mb-2 block">ชื่อสาขา</Label>
+                <Input id="new-branch-name" className="h-11" value={name} maxLength={160} onChange={(event) => setName(event.target.value)} placeholder="เช่น สาขาโรงเรียนกลาง" required />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="new-branch-location" className="mb-2 block">ที่ตั้ง</Label>
+              <Input id="new-branch-location" className="h-11" value={location} maxLength={180} onChange={(event) => setLocation(event.target.value)} placeholder="เช่น อำเภอเมืองนครราชสีมา" required />
+            </div>
+            <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">สาขาใหม่จะเริ่มแบบไม่จำกัดงบรายวัน สามารถตั้งงบภายหลังได้จากเมนู “งบรายวัน”</div>
+            {message && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{message}</p>}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button type="submit" className="h-11" disabled={store.isBranchSaving || !code.trim() || !name.trim() || !location.trim()}>
+                {store.isBranchSaving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> : <Plus className="size-4" />}
+                เพิ่มสาขา
+              </Button>
+              <Link href="/portal/branches" className={buttonVariants({ variant: "outline", className: "h-11" })}>เก็บรายการเดิม</Link>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -27,6 +27,10 @@ const EasyReceiptLayoutContext =
   createContext<EasyReceiptLayoutContextValue | null>(null)
 
 function activeViewFromPathname(pathname: string): ViewId | undefined {
+  if (pathname.startsWith("/portal/branches")) {
+    return "branches"
+  }
+
   if (pathname.startsWith("/portal/members")) {
     return "members"
   }

@@ -3,6 +3,7 @@ import type {
   Branch,
   Ingredient,
   InventoryItem,
+  ManagedBranch,
   Member,
   MemberMenuPermissions,
   MemberRole,
@@ -76,6 +77,22 @@ type ApiMember = {
 
 type ApiBranch = Omit<Branch, "dailyPurchaseBudget"> & {
   dailyPurchaseBudget?: number | string | null
+}
+
+type ApiManagedBranch = ApiBranch & {
+  assignedMemberCount: number
+  soleAccessMemberCount: number
+}
+
+export type CreateBranchApiInput = {
+  code: string
+  name: string
+  location: string
+}
+
+export type UpdateBranchApiInput = {
+  name: string
+  location: string
 }
 
 type ApiMemberWithBranches = ApiMember & {
@@ -616,6 +633,15 @@ function normalizeBranch(branch: ApiBranch): Branch {
       branch.dailyPurchaseBudget === undefined
         ? null
         : toNumber(branch.dailyPurchaseBudget),
+    isActive: branch.isActive ?? true,
+  }
+}
+
+function normalizeManagedBranch(branch: ApiManagedBranch): ManagedBranch {
+  return {
+    ...normalizeBranch(branch),
+    assignedMemberCount: toNumber(branch.assignedMemberCount),
+    soleAccessMemberCount: toNumber(branch.soleAccessMemberCount),
   }
 }
 
@@ -880,6 +906,67 @@ export async function apiGetBranches(): Promise<Branch[]> {
   const data = await parseJsonResponse<{ branches: ApiBranch[] }>(response)
 
   return data.branches.map(normalizeBranch)
+}
+
+export async function apiGetManagedBranches(): Promise<ManagedBranch[]> {
+  const response = await fetch(`${apiBaseUrl}/branches/manage`, {
+    method: "GET",
+    credentials: "include",
+  })
+  const data = await parseJsonResponse<{ branches: ApiManagedBranch[] }>(response)
+
+  return data.branches.map(normalizeManagedBranch)
+}
+
+export async function apiCreateBranch(
+  input: CreateBranchApiInput
+): Promise<Branch> {
+  const response = await fetch(`${apiBaseUrl}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  })
+  const data = await parseJsonResponse<{ branch: ApiBranch }>(response)
+
+  return normalizeBranch(data.branch)
+}
+
+export async function apiUpdateBranch(
+  branchId: string,
+  input: UpdateBranchApiInput
+): Promise<Branch> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(input),
+    }
+  )
+  const data = await parseJsonResponse<{ branch: ApiBranch }>(response)
+
+  return normalizeBranch(data.branch)
+}
+
+export async function apiDeactivateBranch(branchId: string): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}`,
+    { method: "DELETE", credentials: "include" }
+  )
+
+  await ensureEmptyResponse(response)
+}
+
+export async function apiRestoreBranch(branchId: string): Promise<Branch> {
+  const response = await fetch(
+    `${apiBaseUrl}/branches/${encodeURIComponent(branchId)}/restore`,
+    { method: "POST", credentials: "include" }
+  )
+  const data = await parseJsonResponse<{ branch: ApiBranch }>(response)
+
+  return normalizeBranch(data.branch)
 }
 
 export async function apiUpdateBranchBudget(

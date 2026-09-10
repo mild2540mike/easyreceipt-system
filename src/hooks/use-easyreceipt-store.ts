@@ -11,6 +11,7 @@ import {
   type CashFlowMetric,
   type Ingredient,
   type InventoryItem,
+  type ManagedBranch,
   type Member,
   type MemberMenuPermissions,
   type MemberRole,
@@ -26,11 +27,13 @@ import {
 import {
   apiAddMember,
   apiCookBranchRecipePlan,
+  apiCreateBranch,
   apiCreateBranchIngredientFromPurchase,
   apiCreateBranchPurchaseBatch,
   apiCreateBranchUsageBatch,
   apiCreateBranchStockOut,
   apiCreateBranchRecipe,
+  apiDeactivateBranch,
   apiDeleteBranchInventoryItem,
   apiDeleteBranchPurchase,
   apiDeleteBranchPurchaseDraft,
@@ -39,6 +42,7 @@ import {
   apiDeleteBranchUsageBatch,
   apiGetBranchDashboard,
   apiGetBranches,
+  apiGetManagedBranches,
   apiGetBranchInventory,
   apiGetBranchInventoryMovements,
   apiGetBranchPurchases,
@@ -51,6 +55,7 @@ import {
   apiLogin,
   apiLogout,
   apiPinBranchRecipe,
+  apiRestoreBranch,
   apiImportBranchPurchaseText,
   apiImportBranchUsageText,
   apiScanBranchPurchase,
@@ -58,12 +63,14 @@ import {
   apiUploadBranchPurchaseReceiptImage,
   apiUploadBranchUsageReceiptImage,
   apiUnpinBranchRecipe,
+  apiUpdateBranch,
   apiUpdateBranchBudget,
   apiUpdateBranchInventory,
   apiUpdateBranchPurchaseDraft,
   apiUpdateBranchRecipe,
   apiUpdateMember,
   type AddMemberApiInput,
+  type CreateBranchApiInput,
   type DashboardSummary,
   type NormalizedInventoryRow,
   type NormalizedInventorySnapshot,
@@ -78,6 +85,7 @@ import {
   type UsageBatchApiInput,
   type UsageTextImportMode,
   type UpdateInventoryApiInput,
+  type UpdateBranchApiInput,
   type UpdateMemberApiInput,
 } from "@/lib/easyreceipt-api"
 import { uniquePurchaseBillName } from "@/lib/purchase-scan"
@@ -222,6 +230,7 @@ const sessionBranchKey = "easyreceipt.branchId"
 const formDraftStoragePrefix = "easyreceipt.form-draft.v1"
 const authSessionQueryKey = ["easyreceipt", "auth", "me"] as const
 const branchesQueryKey = ["easyreceipt", "branches"] as const
+const managedBranchesQueryKey = ["easyreceipt", "branches", "manage"] as const
 const membersQueryKey = (memberId: string) =>
   ["easyreceipt", "members", memberId] as const
 const reportsQueryKey = ["easyreceipt", "reports", "summary"] as const
@@ -755,6 +764,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const [usageTextImportError, setUsageTextImportError] = useState("")
   const [recipeMutationError, setRecipeMutationError] = useState("")
   const [memberMutationError, setMemberMutationError] = useState("")
+  const [branchMutationError, setBranchMutationError] = useState("")
 
   const activeWorkspace = activeBranchId
     ? (branchWorkspaces[activeBranchId] ?? createEmptyBranchWorkspace(activeBranchId))
@@ -921,6 +931,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const canViewReports = memberCanViewMenu(currentMember, "reports")
   const canViewMembers = memberCanViewMenu(currentMember, "members")
   const canViewBudgets = memberCanViewMenu(currentMember, "budgets")
+  const canManageBranches = currentMember?.role === "owner"
   const hasPortalView = Boolean(routeActiveView)
   const shouldLoadDashboard = Boolean(
     hasPortalView &&
@@ -971,6 +982,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
   const shouldLoadMembers = Boolean(
     hasPortalView && currentMember && canViewMembers && effectiveActiveView === "members"
   )
+  const shouldLoadManagedBranches = Boolean(
+    hasPortalView && canManageBranches && effectiveActiveView === "branches"
+  )
 
   const authSessionQuery = useQuery({
     queryKey: authSessionQueryKey,
@@ -983,6 +997,13 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     queryFn: apiGetBranches,
     enabled: Boolean(currentMember),
     staleTime: 60_000,
+  })
+
+  const managedBranchesQuery = useQuery({
+    queryKey: managedBranchesQueryKey,
+    queryFn: apiGetManagedBranches,
+    enabled: shouldLoadManagedBranches,
+    staleTime: 30_000,
   })
 
   const dashboardQuery = useQuery({
@@ -1104,6 +1125,99 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       void queryClient.invalidateQueries({
         queryKey: ["easyreceipt", "purchases", branch.id],
       })
+    },
+  })
+
+  const refreshBranchManagementQueries = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: authSessionQueryKey }),
+      queryClient.invalidateQueries({ queryKey: branchesQueryKey }),
+      queryClient.invalidateQueries({ queryKey: managedBranchesQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ["easyreceipt", "members"] }),
+      queryClient.invalidateQueries({ queryKey: reportsQueryKey }),
+    ])
+  }, [queryClient])
+
+  const createBranchMutation = useMutation({
+    mutationFn: (input: CreateBranchApiInput) => apiCreateBranch(input),
+    onMutate: () => setBranchMutationError(""),
+    onSuccess: async (branch) => {
+      setBranches((items) =>
+        items.some((item) => item.id === branch.id) ? items : [...items, branch]
+      )
+      setCurrentMember((member) =>
+        member && !member.branchIds.includes(branch.id)
+          ? { ...member, branchIds: [...member.branchIds, branch.id] }
+          : member
+      )
+      await refreshBranchManagementQueries()
+    },
+    onError: (error) => {
+      setBranchMutationError(errorMessage(error, "ไม่สามารถเพิ่มสาขาได้"))
+    },
+  })
+
+  const updateBranchMutation = useMutation({
+    mutationFn: ({ branchId, input }: { branchId: string; input: UpdateBranchApiInput }) =>
+      apiUpdateBranch(branchId, input),
+    onMutate: () => setBranchMutationError(""),
+    onSuccess: async (branch) => {
+      setBranches((items) =>
+        items.map((item) => (item.id === branch.id ? branch : item))
+      )
+      await refreshBranchManagementQueries()
+    },
+    onError: (error) => {
+      setBranchMutationError(errorMessage(error, "ไม่สามารถแก้ไขสาขาได้"))
+    },
+  })
+
+  const deactivateBranchMutation = useMutation({
+    mutationFn: (branchId: string) => apiDeactivateBranch(branchId),
+    onMutate: () => setBranchMutationError(""),
+    onSuccess: async (_, branchId) => {
+      const remainingBranches = branches.filter((branch) => branch.id !== branchId)
+      setBranches(remainingBranches)
+      setCurrentMember((member) =>
+        member
+          ? {
+              ...member,
+              branchIds: member.branchIds.filter((id) => id !== branchId),
+            }
+          : member
+      )
+      if (activeBranchId === branchId) {
+        const nextBranchId = remainingBranches[0]?.id ?? ""
+        setActiveBranchId(nextBranchId)
+        if (nextBranchId) {
+          saveBranchSession(nextBranchId)
+        } else {
+          clearBranchSession()
+        }
+      }
+      await refreshBranchManagementQueries()
+    },
+    onError: (error) => {
+      setBranchMutationError(errorMessage(error, "ไม่สามารถปิดใช้งานสาขาได้"))
+    },
+  })
+
+  const restoreBranchMutation = useMutation({
+    mutationFn: (branchId: string) => apiRestoreBranch(branchId),
+    onMutate: () => setBranchMutationError(""),
+    onSuccess: async (branch) => {
+      setBranches((items) =>
+        items.some((item) => item.id === branch.id) ? items : [...items, branch]
+      )
+      setCurrentMember((member) =>
+        member && !member.branchIds.includes(branch.id)
+          ? { ...member, branchIds: [...member.branchIds, branch.id] }
+          : member
+      )
+      await refreshBranchManagementQueries()
+    },
+    onError: (error) => {
+      setBranchMutationError(errorMessage(error, "ไม่สามารถเปิดใช้งานสาขาได้"))
     },
   })
 
@@ -3727,6 +3841,88 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     }
   }
 
+  async function createBranch(input: CreateBranchApiInput): Promise<ActionResult> {
+    if (!canManageBranches) {
+      return { ok: false, error: "เฉพาะ Owner เท่านั้นที่เพิ่มสาขาได้" }
+    }
+
+    const code = input.code.trim().toUpperCase()
+    const name = input.name.trim()
+    const location = input.location.trim()
+
+    if (!/^[A-Z0-9_-]{1,20}$/.test(code)) {
+      return {
+        ok: false,
+        error: "รหัสสาขาต้องเป็นตัวอักษรอังกฤษ ตัวเลข _ หรือ - ไม่เกิน 20 ตัว",
+      }
+    }
+
+    if (!name || !location) {
+      return { ok: false, error: "กรุณากรอกชื่อสาขาและที่ตั้งให้ครบ" }
+    }
+
+    try {
+      await createBranchMutation.mutateAsync({ code, name, location })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error, "ไม่สามารถเพิ่มสาขาได้") }
+    }
+  }
+
+  async function updateBranchDetails(
+    branchId: string,
+    input: UpdateBranchApiInput
+  ): Promise<ActionResult> {
+    if (!canManageBranches) {
+      return { ok: false, error: "เฉพาะ Owner เท่านั้นที่แก้ไขสาขาได้" }
+    }
+
+    const name = input.name.trim()
+    const location = input.location.trim()
+    if (!name || !location) {
+      return { ok: false, error: "กรุณากรอกชื่อสาขาและที่ตั้งให้ครบ" }
+    }
+
+    try {
+      await updateBranchMutation.mutateAsync({ branchId, input: { name, location } })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error, "ไม่สามารถแก้ไขสาขาได้") }
+    }
+  }
+
+  async function deactivateBranch(branchId: string): Promise<ActionResult> {
+    if (!canManageBranches) {
+      return { ok: false, error: "เฉพาะ Owner เท่านั้นที่ปิดใช้งานสาขาได้" }
+    }
+
+    try {
+      await deactivateBranchMutation.mutateAsync(branchId)
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถปิดใช้งานสาขาได้"),
+      }
+    }
+  }
+
+  async function restoreBranch(branchId: string): Promise<ActionResult> {
+    if (!canManageBranches) {
+      return { ok: false, error: "เฉพาะ Owner เท่านั้นที่เปิดใช้งานสาขาได้" }
+    }
+
+    try {
+      await restoreBranchMutation.mutateAsync(branchId)
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: errorMessage(error, "ไม่สามารถเปิดใช้งานสาขาได้"),
+      }
+    }
+  }
+
   async function addIngredientFromPurchase(
     input: NewIngredientFromPurchaseInput
   ) {
@@ -4456,6 +4652,7 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     login,
     logout,
     branches,
+    managedBranches: (managedBranchesQuery.data ?? []) as ManagedBranch[],
     activeBranch,
     activeBranchId,
     accessibleBranches,
@@ -4557,7 +4754,23 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
     usageTextImportError,
     usageError,
     canManageBranchBudget,
+    canManageBranches,
     canManageIngredientCatalog,
+    isManagedBranchesLoading: managedBranchesQuery.isPending && shouldLoadManagedBranches,
+    isBranchSaving:
+      createBranchMutation.isPending ||
+      updateBranchMutation.isPending ||
+      deactivateBranchMutation.isPending ||
+      restoreBranchMutation.isPending,
+    branchError:
+      branchMutationError ||
+      (managedBranchesQuery.isError
+        ? errorMessage(managedBranchesQuery.error, "ไม่สามารถโหลดรายการสาขาได้")
+        : ""),
+    createBranch,
+    updateBranchDetails,
+    deactivateBranch,
+    restoreBranch,
     isBranchBudgetSaving: updateBranchBudgetMutation.isPending,
     updateBranchBudget,
     ingredients: ingredientList,
