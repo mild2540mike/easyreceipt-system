@@ -29,8 +29,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
-    "@prisma/adapter-mssql": "^7.8.0",
-    "@prisma/client": "^7.8.0",
+    "@prisma/adapter-mssql": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "@tanstack/react-query": "^5.101.2",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -44,10 +44,10 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.21.0",
-    "next": "16.2.9",
+    "next": "16.3.4",
     "pino-http": "^11.0.0",
     "pm2": "^7.0.3",
-    "prisma": "^7.8.0",
+    "prisma": "^7.10.0",
     "react": "19.2.4",
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.4",
@@ -70,9 +70,21 @@
     "@types/react-dom": "^19",
     "@types/swagger-ui-express": "^4.1.8",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2"
+    },
+    "prisma": {
+      "mysql2": "3.24.4"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "js-yaml": "4.3.2"
   }
 }
