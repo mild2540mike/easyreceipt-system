@@ -8184,10 +8184,6 @@ function StockView({ store }: { store: Store }) {
 
   return (
     <div className="space-y-5">
-      {memberCanViewMenu(store.currentMember, "stock-check") && <Link href="/portal/stock/check" className={cn(buttonVariants({ variant: "outline" }), "h-auto min-h-14 w-full justify-start gap-3 whitespace-normal px-4 py-3 text-base")}>
-        <ClipboardCheck className="size-5 shrink-0 text-primary" />
-        <span><span className="block font-semibold">เช็คสต็อก</span><span className="block text-sm text-muted-foreground">นับของจริง แล้วเทียบกับยอดในระบบ</span></span>
-      </Link>}
       <div className="flex sm:justify-end">
         <a
           href="https://docs.google.com/spreadsheets/d/1Komsh-pPE98nHwk6zigcwFMhZpRTZLPWoTapnZAtCPw/edit?usp=sharing"
