@@ -6095,10 +6095,7 @@ function UsageView({ store }: { store: Store }) {
               "วัตถุดิบ",
             quantity: movement.quantity,
             unit: movement.unit,
-            unitPrice:
-              store.ingredientById.get(movement.ingredientId)?.defaultPrice ??
-              movement.ingredient?.defaultPrice ??
-              null,
+            unitPrice: movement.unitCost,
             price: movement.quantity * movement.unitCost,
           })),
         })),
@@ -10487,10 +10484,9 @@ function BranchesView({ store }: { store: Store }) {
       )}
 
       {store.isManagedBranchesLoading ? (
-        <div role="status" aria-label="กำลังโหลดรายการสาขา" className="space-y-2 rounded-lg border border-border bg-background p-4">
-          {[0, 1, 2].map((item) => (
-            <div key={item} className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
-          ))}
+        <div role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
+          กำลังโหลดรายการสาขา...
         </div>
       ) : filteredBranches.length === 0 ? (
         <div className="rounded-lg border border-border bg-background px-4 py-10 text-center">

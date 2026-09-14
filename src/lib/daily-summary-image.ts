@@ -262,6 +262,15 @@ function createPageCanvas({
     }
   )
 
+  if (type === "usage") {
+    drawText(
+      "ใช้ต้นทุน ณ วันที่บันทึกใช้ · * ต้นทุนเป็นศูนย์ โปรดตรวจสอบข้อมูลต้นทุน",
+      pageHorizontalPadding,
+      211,
+      { color: "#475569", font: `400 18px ${fontFamily}` }
+    )
+  }
+
   let y = pageHeaderHeight
   const tableLeft = pageHorizontalPadding
   const tableRight = canvasWidth - pageHorizontalPadding
@@ -315,7 +324,7 @@ function createPageCanvas({
       color: "#334155",
       font: `700 19px ${fontFamily}`,
     })
-    drawText(type === "purchase" ? "ราคาต่อหน่วย" : "ราคาล่าสุด/หน่วย", unitPriceX, y + 34, {
+    drawText(type === "purchase" ? "ราคาต่อหน่วย" : "ต้นทุน/หน่วย", unitPriceX, y + 34, {
       align: "right",
       color: "#334155",
       font: `700 19px ${fontFamily}`,
@@ -351,7 +360,9 @@ function createPageCanvas({
         maximumWidth: 100,
       })
       drawText(
-        row.unitPrice == null ? "-" : formatCurrency(row.unitPrice),
+        row.unitPrice == null
+          ? "-"
+          : `${formatCurrency(row.unitPrice)}${type === "usage" && row.unitPrice === 0 ? " *" : ""}`,
         unitPriceX,
         y + 37,
         {
