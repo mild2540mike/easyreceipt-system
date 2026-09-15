@@ -171,6 +171,75 @@ describe("stock checks on isolated SQL Server", { skip: !enabled }, () => {
     })
   }
 
+  for (const purchaseBeforeDeletion of [false, true]) {
+    it(`deleting and re-adding usage preserves current decimal costs (intervening purchase: ${purchaseBeforeDeletion})`, async () => {
+      const rows = await Promise.all([10, 0, -5].map(inventory))
+      for (const [index, row] of rows.entries()) {
+        await db.branchInventory.update({
+          where: { id: row.id },
+          data: { costPerUnit: 42.75 + index },
+        })
+      }
+      const items = rows.flatMap((row) => [
+        { ingredientId: row.ingredientId, quantity: 1.25 },
+        { ingredientId: row.ingredientId, quantity: 0.75 },
+      ])
+      async function saveUsage() {
+        const response = await fetch(`${base}/${branchId}/inventory/usage/batch`, {
+          method: "POST",
+          headers: auth,
+          body: JSON.stringify({
+            groups: [{ batchId: randomUUID(), name: "ทดสอบต้นทุน", reason: "ใช้ประจำวัน", items }],
+          }),
+        })
+        assert.equal(response.status, 201, await response.clone().text())
+        return db.stockMovement.findMany({
+          where: { branchId, ingredientId: { in: rows.map((row) => row.ingredientId) }, movementType: "usage_out" },
+        })
+      }
+      const original = await saveUsage()
+      if (purchaseBeforeDeletion) {
+        const response = await fetch(`${base}/${branchId}/purchases`, {
+          method: "POST",
+          headers: auth,
+          body: JSON.stringify({
+            purchaseDate: new Date().toISOString(), vendor: "ร้านทดสอบ", status: "saved",
+            items: rows.map((row) => ({ ingredientId: row.ingredientId, quantity: 10, unit: "กก.", unitPrice: 81.25 })),
+          }),
+        })
+        assert.equal(response.status, 201, await response.clone().text())
+      }
+      const beforeDeletion = await Promise.all(rows.map((row) =>
+        db.branchInventory.findUniqueOrThrow({ where: { id: row.id } })
+      ))
+      if (purchaseBeforeDeletion) {
+        assert.ok(beforeDeletion.every((row, index) => Number(row.costPerUnit) !== 42.75 + index))
+      }
+      const response = await fetch(`${base}/${branchId}/inventory/usage/batches`, {
+        method: "DELETE",
+        headers: auth,
+        body: JSON.stringify({ movementIds: original.map((movement) => movement.id) }),
+      })
+      assert.equal(response.status, 204, await response.clone().text())
+      assert.equal(await db.stockMovement.count({ where: { id: { in: original.map((movement) => movement.id) } } }), 0)
+      for (const row of beforeDeletion) {
+        const restored = await db.branchInventory.findUniqueOrThrow({ where: { id: row.id } })
+        assert.equal(Number(restored.onHand), Number(row.onHand) + 2)
+        assert.equal(Number(restored.costPerUnit), Number(row.costPerUnit))
+      }
+      const recreated = await saveUsage()
+      for (const row of beforeDeletion) {
+        const saved = await db.branchInventory.findUniqueOrThrow({ where: { id: row.id } })
+        assert.equal(Number(saved.onHand), Number(row.onHand))
+        assert.equal(Number(saved.costPerUnit), Number(row.costPerUnit))
+        const movements = recreated.filter((movement) => movement.ingredientId === row.ingredientId)
+        assert.ok(movements.length > 0)
+        assert.equal(movements.reduce((total, movement) => total + Number(movement.quantity), 0), 2)
+        assert.ok(movements.every((movement) => Number(movement.unitCost) === Number(row.costPerUnit)))
+      }
+    })
+  }
+
   it("stores equal, missing, excess, zero and fractional counts together; untouched rows stay unchanged", async () => {
     const rows = await Promise.all([10, 10, 0, 10, 10].map(inventory))
     const request = input(rows.slice(0, 4), [10, 0, 1.25, 8.125])

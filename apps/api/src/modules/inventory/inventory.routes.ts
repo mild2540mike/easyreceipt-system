@@ -942,24 +942,14 @@ inventoryRouter.delete(
         throw badRequest("รายการที่เลือกไม่ได้อยู่ในรอบของใช้ไปเดียวกัน")
       }
 
-      const totalsByIngredientId = new Map<
-        string,
-        { quantity: number; value: number }
-      >()
+      const totalsByIngredientId = new Map<string, number>()
 
       for (const movement of movements) {
-        const current = totalsByIngredientId.get(movement.ingredientId) ?? {
-          quantity: 0,
-          value: 0,
-        }
-        current.quantity = roundQuantity(
-          current.quantity + Number(movement.quantity)
+        const current = totalsByIngredientId.get(movement.ingredientId) ?? 0
+        totalsByIngredientId.set(
+          movement.ingredientId,
+          roundQuantity(current + Number(movement.quantity))
         )
-        current.value = roundMoney(
-          current.value +
-            Number(movement.quantity) * Number(movement.unitCost)
-        )
-        totalsByIngredientId.set(movement.ingredientId, current)
       }
 
       const inventoryRows = await tx.branchInventory.findMany({
@@ -985,13 +975,8 @@ inventoryRouter.delete(
 
         const beforeQuantity = Number(inventory.onHand)
         const afterQuantity = roundQuantity(
-          beforeQuantity + restored.quantity
+          beforeQuantity + restored
         )
-        const currentValue = beforeQuantity * Number(inventory.costPerUnit)
-        const nextCostPerUnit =
-          afterQuantity > 0
-            ? roundMoney((currentValue + restored.value) / afterQuantity)
-            : 0
 
         await tx.branchInventory.update({
           where: {
@@ -999,7 +984,6 @@ inventoryRouter.delete(
           },
           data: {
             onHand: afterQuantity,
-            costPerUnit: nextCostPerUnit,
             lastUpdatedAt: new Date(),
           },
         })
