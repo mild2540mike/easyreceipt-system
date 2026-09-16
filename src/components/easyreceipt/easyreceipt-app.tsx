@@ -4150,7 +4150,7 @@ function PurchaseView({ store }: { store: Store }) {
                     <TableHead>วัตถุดิบ</TableHead>
                     <TableHead>ปริมาณ</TableHead>
                     <TableHead>หน่วย</TableHead>
-                    <TableHead>ราคาต่อหน่วย</TableHead>
+                    <TableHead>ราคาซื้อ/หน่วย</TableHead>
                     <TableHead className="text-right">รวม</TableHead>
                     <TableHead className="w-28">สถานะ</TableHead>
                   </TableRow>
@@ -4366,7 +4366,6 @@ function groupSavedPurchaseRowsByBill(
 
     if (existingGroup) {
       existingGroup.rows.push(row)
-      existingGroup.total += row.item.lineTotal
       continue
     }
 
@@ -4374,7 +4373,7 @@ function groupSavedPurchaseRowsByBill(
       purchaseId: row.purchase.id,
       billName: row.purchase.vendor,
       receiptImagePath: row.purchase.receiptImagePath,
-      total: row.item.lineTotal,
+      total: row.purchase.total,
       rows: [row],
     })
   }
@@ -4538,7 +4537,7 @@ function PurchaseHistoryMobileGroup({
                         </div>
                         <div className="text-right">
                           <dt className="text-xs text-muted-foreground">
-                            ราคาต่อหน่วย
+                            ราคาซื้อ/หน่วย
                           </dt>
                           <dd className="mt-0.5 font-medium">
                             {formatCurrency(item.unitPrice)}

@@ -324,7 +324,7 @@ function createPageCanvas({
       color: "#334155",
       font: `700 19px ${fontFamily}`,
     })
-    drawText(type === "purchase" ? "ราคาต่อหน่วย" : "ต้นทุน/หน่วย", unitPriceX, y + 34, {
+    drawText(type === "purchase" ? "ราคาซื้อ/หน่วย" : "ต้นทุน/หน่วย", unitPriceX, y + 34, {
       align: "right",
       color: "#334155",
       font: `700 19px ${fontFamily}`,
