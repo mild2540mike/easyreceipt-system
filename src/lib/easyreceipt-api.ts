@@ -394,6 +394,7 @@ export type UpdateInventoryApiInput = {
   inventory?: {
     onHand?: number
     reorderPoint?: number
+    costPerUnit?: number
   }
 }
 

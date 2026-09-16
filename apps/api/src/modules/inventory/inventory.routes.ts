@@ -42,8 +42,9 @@ const catalogUpdateSchema = z.object({
 })
 
 const branchInventoryUpdateSchema = z.object({
-  onHand: z.coerce.number().min(0).optional(),
+  onHand: z.coerce.number().optional(),
   reorderPoint: z.coerce.number().min(0).optional(),
+  costPerUnit: z.coerce.number().min(0).optional(),
 })
 
 const updateInventorySchema = z
@@ -56,7 +57,7 @@ const updateInventorySchema = z
     unit: z.string().min(1).optional(),
     defaultPrice: z.coerce.number().min(0).optional(),
     supplier: z.string().min(1).optional(),
-    onHand: z.coerce.number().min(0).optional(),
+    onHand: z.coerce.number().optional(),
     reorderPoint: z.coerce.number().min(0).optional(),
     costPerUnit: z.coerce.number().min(0).optional(),
   })
@@ -405,7 +406,6 @@ inventoryRouter.get(
         createdBy: true,
       },
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-      take: 100,
     })
     const movementIds = movements.map((movement) => movement.id)
     const auditLogs =
@@ -1369,6 +1369,7 @@ inventoryRouter.patch(
       const inventoryInput = {
         onHand: input.onHand,
         reorderPoint: input.reorderPoint,
+        costPerUnit: input.costPerUnit,
         ...input.inventory,
       }
       const nextIngredient = {
@@ -1391,11 +1392,10 @@ inventoryRouter.patch(
           inventoryInput.reorderPoint === undefined
             ? Number(currentInventory.reorderPoint)
             : roundQuantity(inventoryInput.reorderPoint),
-        // Legacy clients may still send this branch-only internal value.
         costPerUnit:
-          input.costPerUnit === undefined
+          inventoryInput.costPerUnit === undefined
             ? Number(currentInventory.costPerUnit)
-            : roundMoney(input.costPerUnit),
+            : roundMoney(inventoryInput.costPerUnit),
       }
       const catalogChanges = [
         { field: "name", before: currentIngredient.name, after: nextIngredient.name },

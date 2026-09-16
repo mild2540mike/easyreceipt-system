@@ -1949,7 +1949,7 @@ const notificationChangeLabels: Record<string, string> = {
   defaultPrice: "ราคาตลาด/หน่วย",
   onHand: "คงเหลือ",
   reorderPoint: "จุดสั่งซื้อ",
-  costPerUnit: "ราคาปัจจุบัน/หน่วย",
+  costPerUnit: "ต้นทุน/หน่วย",
 }
 
 function notificationChangeValue(change: NotificationChange, value: unknown) {
@@ -5752,6 +5752,7 @@ function FieldNumber({
   disabled = false,
   blankWhenZero = false,
   clearZeroOnFocus = false,
+  allowNegative = false,
 }: {
   label: string
   value: number
@@ -5759,6 +5760,7 @@ function FieldNumber({
   disabled?: boolean
   blankWhenZero?: boolean
   clearZeroOnFocus?: boolean
+  allowNegative?: boolean
 }) {
   const [isFocused, setIsFocused] = useState(false)
   const shouldShowBlank =
@@ -5769,7 +5771,7 @@ function FieldNumber({
       <Label className="mb-2 block">{label}</Label>
       <Input
         type="number"
-        min="0"
+        min={allowNegative ? undefined : 0}
         step="0.01"
         value={shouldShowBlank ? "" : value}
         onChange={(event) => onChange(toNumber(event.target.value))}
@@ -7141,13 +7143,14 @@ function UsageBatchCard({
 
       {isDesktopLayout ? (
         <div className="overflow-x-auto">
-          <FreezableTable className="w-full min-w-[42rem] table-fixed text-xs sm:text-sm">
+          <FreezableTable className="w-full min-w-[48rem] table-fixed text-xs sm:text-sm">
             <colgroup>
               <col className="w-10" />
               <col className="w-50" />
               <col className="w-20" />
               <col className="w-20" />
               <col className="w-14" />
+              <col className="w-24" />
               <col className="w-20" />
               <col className="w-12" />
             </colgroup>
@@ -7158,6 +7161,7 @@ function UsageBatchCard({
                 <TableHead className="text-right">คงเหลือ</TableHead>
                 <TableHead>จำนวนที่ใช้</TableHead>
                 <TableHead>หน่วย</TableHead>
+                <TableHead className="text-right">ต้นทุน/หน่วย</TableHead>
                 <TableHead className="text-right">หลังบันทึก</TableHead>
                 <TableHead />
               </TableRow>
@@ -7531,6 +7535,12 @@ function UsageMobileItem({
             {inventoryRow?.ingredient.unit ?? "-"}
           </div>
         </div>
+        <div className="col-span-2 flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">ต้นทุน/หน่วย</span>
+          <span className="font-medium tabular-nums">
+            {inventoryRow ? formatCurrency(inventoryRow.costPerUnit) : "-"}
+          </span>
+        </div>
       </div>
 
       <div
@@ -7647,6 +7657,9 @@ function UsageDraftTableRow({
       </TableCell>
       <TableCell>
         {inventoryRow?.ingredient.unit ?? "-"}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {inventoryRow ? formatCurrency(inventoryRow.costPerUnit) : "-"}
       </TableCell>
       <TableCell
         className={cn(
@@ -7950,6 +7963,7 @@ function StockView({ store }: { store: Store }) {
         (stockFilter === "new" &&
           item.ingredient.category === newIngredientCategory) ||
         (stockFilter === "in-stock" && item.onHand > 0) ||
+        (stockFilter === "zero-cost" && item.costPerUnit === 0) ||
         item.status === stockFilter
 
       return matchesSearch && matchesCategory && matchesStatus
@@ -7978,6 +7992,9 @@ function StockView({ store }: { store: Store }) {
   const incomingCount = store.inventoryRows.filter((item) => item.incoming > 0)
     .length
   const inStockCount = store.inventoryRows.filter((item) => item.onHand > 0).length
+  const zeroCostCount = store.inventoryRows.filter(
+    (item) => item.costPerUnit === 0
+  ).length
   const totalStockValue = useMemo(
     () =>
       store.inventoryRows.reduce(
@@ -7994,6 +8011,7 @@ function StockView({ store }: { store: Store }) {
     { id: "new", label: `วัตถุดิบใหม่ ${newIngredientCount}` },
     { id: "low", label: `ต้องดูแล ${store.lowStockItems.length}` },
     { id: "in-stock", label: `มีคงเหลือ ${inStockCount}` },
+    { id: "zero-cost", label: `ต้นทุน/หน่วยเป็น 0 (${zeroCostCount})` },
   ]
 
   function clearStockFilters() {
@@ -8406,6 +8424,12 @@ function StockView({ store }: { store: Store }) {
                         </dt>
                         <dd className="mt-0.5 font-medium">{item.lastUpdated}</dd>
                       </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">ต้นทุน/หน่วย</dt>
+                        <dd className="mt-0.5 font-semibold tabular-nums">
+                          {formatCurrency(item.costPerUnit)}
+                        </dd>
+                      </div>
                     </dl>
                   </article>
                 ))}
@@ -8413,7 +8437,7 @@ function StockView({ store }: { store: Store }) {
             </section>
           </TabsContent>
 
-          <TabsContent value="table">
+          <TabsContent value="table" className="min-w-0">
             <section className="overflow-hidden rounded-lg border border-border bg-background xl:hidden">
               <div className="overflow-x-auto">
                 <FreezableTable>
@@ -8428,6 +8452,7 @@ function StockView({ store }: { store: Store }) {
                 <TableHead className="min-w-72">
                   ราคาล่าสุด/หน่วย
                 </TableHead>
+                <TableHead className="min-w-28 text-right">ต้นทุน/หน่วย</TableHead>
                 <TableHead className="min-w-32">สถานะ</TableHead>
                 <TableHead className="w-32 text-right">จัดการ</TableHead>
               </TableRow>
@@ -8471,13 +8496,16 @@ function StockView({ store }: { store: Store }) {
                     {formatNumber(item.reserved)} {item.ingredient.unit}
                   </TableCell>
                   */}
-                  <TableCell>
+                  <TableCell className="max-w-72 whitespace-normal break-words">
                     <div className="font-semibold tabular-nums">
                       {formatCurrency(item.ingredient.defaultPrice)}
                     </div>
                     <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
                       {formatIngredientPriceAttribution(item.ingredient)}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">
+                    {formatCurrency(item.costPerUnit)}
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -8524,8 +8552,13 @@ function StockView({ store }: { store: Store }) {
               </div>
             </section>
 
-            <section className="hidden overflow-hidden rounded-lg border border-border bg-background xl:block">
-              <FreezableTable>
+            <section
+              className="hidden overflow-x-auto rounded-lg border border-border bg-background xl:block"
+              tabIndex={0}
+              role="region"
+              aria-label="ตารางคลังวัตถุดิบ เลื่อนแนวนอนเพื่อดูทุกคอลัมน์"
+            >
+              <FreezableTable className="min-w-[68rem]">
           <TableHeader>
             <TableRow>
               <TableHead>วัตถุดิบ</TableHead>
@@ -8535,6 +8568,7 @@ function StockView({ store }: { store: Store }) {
               <TableHead className="text-right">จองใช้</TableHead>
               */}
               <TableHead>ราคาล่าสุด/หน่วย</TableHead>
+              <TableHead className="text-right">ต้นทุน/หน่วย</TableHead>
               <TableHead>สถานะ</TableHead>
               <TableHead>อัปเดตสต็อกล่าสุด</TableHead>
               <TableHead className="w-32 text-right">จัดการ</TableHead>
@@ -8576,13 +8610,16 @@ function StockView({ store }: { store: Store }) {
                   {formatNumber(item.reserved)} {item.ingredient.unit}
                 </TableCell>
                 */}
-                <TableCell className="max-w-80">
+                <TableCell className="w-64 max-w-64 whitespace-normal break-words">
                   <div className="font-semibold tabular-nums">
                     {formatCurrency(item.ingredient.defaultPrice)}
                   </div>
                   <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
                     {formatIngredientPriceAttribution(item.ingredient)}
                   </div>
+                </TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatCurrency(item.costPerUnit)}
                 </TableCell>
                 <TableCell>
                   <Badge
@@ -8817,6 +8854,7 @@ function StockEditForm({
         <FieldNumber
           label="คงเหลือ"
           value={draft.onHand}
+          allowNegative
           clearZeroOnFocus
           onChange={(value) => patchDraft({ onHand: value })}
         />
@@ -8838,6 +8876,13 @@ function StockEditForm({
           disabled={!canManageCatalog}
           clearZeroOnFocus
           onChange={(value) => patchDraft({ defaultPrice: value })}
+        />
+        <FieldNumber
+          label="ต้นทุน/หน่วย (โรงเรียนนี้)"
+          value={draft.costPerUnit}
+          disabled={isSaving}
+          clearZeroOnFocus
+          onChange={(value) => patchDraft({ costPerUnit: value })}
         />
       </div>
 

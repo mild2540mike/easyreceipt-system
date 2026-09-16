@@ -4001,8 +4001,9 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
               }
             : undefined,
           inventory: {
-            onHand: Math.max(input.onHand, 0),
+            onHand: input.onHand,
             reorderPoint: Math.max(input.reorderPoint, 0),
+            costPerUnit: Math.max(input.costPerUnit, 0),
           },
         },
       })
