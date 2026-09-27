@@ -4678,6 +4678,11 @@ export function useEasyReceiptStore(routeActiveView?: ViewId) {
       activeWorkspace.usageFormDraftSavedSignature ===
         usageFormDraftSignature(activeWorkspace),
     usageMovements,
+    refreshUsageMovements: async () => {
+      const result = await usageMovementsQuery.refetch({ throwOnError: true })
+      if (!result.data) throw new Error("ไม่สามารถโหลดรายการของใช้ไปล่าสุดได้")
+      return result.data
+    },
     usageReasons,
     setUsageDate,
     saveFormDraft,

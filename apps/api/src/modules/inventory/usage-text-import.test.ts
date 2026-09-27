@@ -48,6 +48,26 @@ describe("usage text line parser", () => {
 })
 
 describe("usage text inventory reconciliation", () => {
+  it("keeps 120 litres of water out of the 10.5 litre oil total", async () => {
+    const oil = { id: "oil", name: "ทับทิม น้ำมันปาล์ม", unit: "ลิตร", defaultPrice: 50 }
+    const text = "น้ำ 120 ลิตร\nน้ำมันปาล์ม 2.5 ลิตร\nน้ำมันปาล์ม 8 ลิตร"
+    const result = await importUsageText({
+      text, mode: "inventory", memberId: "member-1", ingredients: [oil],
+    })
+    assert.equal(result.items[0].ingredientId, null)
+    assert.equal(result.items[0].quantity, 120)
+    assert.ok(result.items[0].warnings.includes("ยังไม่จับคู่กับวัตถุดิบในคลัง"))
+    assert.equal(result.items.filter(item => item.ingredientId === "oil")
+      .reduce((sum, item) => sum + item.quantity, 0), 10.5)
+
+    const withWater = await importUsageText({
+      text, mode: "inventory", memberId: "member-1",
+      ingredients: [oil, { id: "water", name: "น้ำ", unit: "ลิตร", defaultPrice: 0 }],
+    })
+    assert.equal(withWater.items[0].ingredientId, "water")
+    assert.equal(withWater.items[0].quantity, 120)
+  })
+
   it("auto-selects exact and unique contains matches", () => {
     const result = reconcileUsageTextImport(
       {

@@ -6075,11 +6075,20 @@ function UsageView({ store }: { store: Store }) {
     setIsExportingUsageImage(true)
 
     try {
+      const selectedIds = new Set(selectedUsageExportGroups.map((group) => group.id))
+      const latestMovements = await store.refreshUsageMovements()
+      const exportGroups = groupUsageMovementsByBatch(
+        latestMovements,
+        store.ingredientById
+      ).filter((group) => selectedIds.has(group.id))
+      if (exportGroups.length !== selectedIds.size) {
+        throw new Error("รายการมีการเปลี่ยนแปลง กรุณาเลือกรอบแล้วบันทึกเป็นรูปอีกครั้ง")
+      }
       await saveDailySummaryImages({
         type: "usage",
         branchName: store.activeBranch?.name ?? "-",
         date: store.usageDate,
-        groups: selectedUsageExportGroups.map((group) => ({
+        groups: exportGroups.map((group) => ({
           title: group.name,
           subtitle: group.movements[0]?.reason
             ? `เหตุผล: ${group.movements[0].reason}`

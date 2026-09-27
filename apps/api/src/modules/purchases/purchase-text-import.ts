@@ -220,9 +220,10 @@ function candidateScore(rawName: string, ingredientName: string) {
     const shorter = nameContainsQuery ? query : name
     const start = longer.indexOf(shorter)
     const end = start + shorter.length
+    // Both edges must bound the whole name: น้ำ must not match น้ำมันปาล์ม.
     const hasWordBoundary =
-      (start > 0 && /\s/u.test(longer[start - 1])) ||
-      (end < longer.length && /\s/u.test(longer[end]))
+      (start === 0 || /\s/u.test(longer[start - 1])) &&
+      (end === longer.length || /\s/u.test(longer[end]))
 
     if (hasWordBoundary) {
       return {

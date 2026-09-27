@@ -49,6 +49,27 @@ describe("purchase text line parser", () => {
 })
 
 describe("purchase text inventory matching", () => {
+  it("requires both boundaries for a partial name in either direction", () => {
+    for (const [query, name] of [
+      ["น้ำ", "ทับทิม น้ำมันปาล์ม"],
+      ["น้ำ", "น้ำปลา ตราทิพรส"],
+      ["ทับทิม น้ำมันปาล์ม", "น้ำ"],
+      ["น้ำปลา ตราทิพรส", "น้ำ"],
+    ]) {
+      const result = matchPurchaseTextIngredient(query, "ลิตร", [
+        { id: "candidate", name, unit: "ลิตร", defaultPrice: 50 },
+      ])
+      assert.equal(result.ingredient, null, `${query} must not select ${name}`)
+    }
+  })
+
+  it("still matches a complete ingredient name following a brand", () => {
+    const result = matchPurchaseTextIngredient("น้ำมันปาล์ม", "ลิตร", [
+      { id: "oil", name: "ทับทิม น้ำมันปาล์ม", unit: "ลิตร", defaultPrice: 50 },
+    ])
+    assert.equal(result.ingredient?.id, "oil")
+  })
+
   it("auto-selects an exact name with an equivalent unit", () => {
     const result = matchPurchaseTextIngredient("หมู", "กิโลกรัม", ingredients)
     assert.equal(result.ingredient?.id, "pork")
