@@ -13,6 +13,7 @@ import {
 } from "./docs/swagger"
 import { requireAuth } from "./middleware/auth"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler"
+import { requestLogger } from "./middleware/request-logger"
 import { authRouter } from "./modules/auth/auth.routes"
 import { branchesRouter } from "./modules/branches/branches.routes"
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes"
@@ -28,6 +29,8 @@ import { reportsRouter } from "./modules/reports/reports.routes"
 export function createApp() {
   const app = express()
   const uploadsDirectory = path.join(process.cwd(), "public", "uploads")
+
+  app.use(requestLogger)
 
   app.get("/api/v1/openapi.json", openApiJsonHandler)
   app.use("/api/v1/docs", swaggerUiServe, swaggerUiHandler)

@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken"
 import { z } from "zod"
 
 import { env } from "../../config/env"
+import { sessionCookieOptions } from "../../config/session-cookie"
 import { prisma } from "../../db/prisma"
 import {
   getAuthMember,
@@ -42,11 +43,8 @@ async function verifyPassword(password: string, passwordHash: string) {
 
 function setSessionCookie(res: Response, token: string) {
   res.cookie(env.SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: env.NODE_ENV === "production",
+    ...sessionCookieOptions,
     maxAge: 8 * 60 * 60 * 1000,
-    path: "/",
   })
 }
 
@@ -123,7 +121,7 @@ authRouter.post(
     }
 
     res.clearCookie(env.SESSION_COOKIE_NAME, {
-      path: "/",
+      ...sessionCookieOptions,
     })
     res.status(204).send()
   })

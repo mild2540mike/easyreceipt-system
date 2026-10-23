@@ -8,7 +8,7 @@ export const notFoundHandler: RequestHandler = (req, _res, next) => {
   next(new HttpError(404, `Route ${req.method} ${req.path} not found.`))
 }
 
-export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   void _next
 
   if (error instanceof HttpError) {
@@ -32,6 +32,11 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    req.log.error(
+      { err: error, prismaCode: error.code },
+      "Database request failed"
+    )
+
     if (error.code === "P2034") {
       res.status(409).json({ error: { message: "มีการแก้ไขข้อมูลพร้อมกัน กรุณาโหลดข้อมูลล่าสุดแล้วลองอีกครั้ง" } })
       return
@@ -45,7 +50,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     return
   }
 
-  console.error(error)
+  req.log.error({ err: error }, "Unhandled API error")
   res.status(500).json({
     error: {
       message: "Internal server error.",
