@@ -2348,14 +2348,22 @@ function BranchSwitcher({ store }: { store: Store }) {
           </span>
           <span className="sr-only">เลือกโรงเรียนหรือสาขา</span>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] p-2">
-          <div className="border-b border-border px-2 pb-2">
+        <PopoverContent
+          align="end"
+          className="max-h-[min(32rem,var(--available-height,calc(100dvh-1rem)))] w-[min(24rem,calc(100vw-1rem))] overflow-hidden p-2"
+        >
+          <div className="shrink-0 border-b border-border px-2 pb-2">
             <p className="font-semibold">เลือกโรงเรียน/สาขา</p>
             <p className="text-xs text-muted-foreground">
               แสดงเฉพาะสาขาที่บัญชีนี้มีสิทธิ์
             </p>
           </div>
-          <div className="mt-2 space-y-1">
+          <div
+            className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-1"
+            role="region"
+            aria-label="รายการโรงเรียนและสาขา"
+            tabIndex={0}
+          >
             {store.accessibleBranches.map((branch) => {
               const isActive = branch.id === store.activeBranchId
 
