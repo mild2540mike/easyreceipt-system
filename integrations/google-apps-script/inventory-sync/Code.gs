@@ -288,18 +288,27 @@ function validateBranchInventory_(branch, branchIndex) {
     var onHand = Number(item && item.onHand);
     var latestPrice = Number(item && item.latestPrice);
 
-    if (
-      !item ||
-      typeof item.ingredientName !== "string" ||
-      !item.ingredientName.trim() ||
-      typeof item.unit !== "string" ||
-      !item.unit.trim() ||
-      !isFinite(onHand) ||
-      !isFinite(latestPrice) ||
-      onHand < 0 ||
-      latestPrice < 0
-    ) {
-      throw new Error("ข้อมูลวัตถุดิบลำดับที่ " + (index + 1) + " ไม่ถูกต้อง");
+    var errors = [];
+    if (!item || typeof item.ingredientName !== "string" || !item.ingredientName.trim()) {
+      errors.push("ingredientName ต้องเป็นชื่อวัตถุดิบ");
+    }
+    if (!item || typeof item.unit !== "string" || !item.unit.trim()) {
+      errors.push("unit ต้องเป็นหน่วยวัตถุดิบ");
+    }
+    // Stock usage can legitimately leave a negative balance.
+    if (!isFinite(onHand)) {
+      errors.push("onHand ต้องเป็นตัวเลข");
+    }
+    if (!isFinite(latestPrice) || latestPrice < 0) {
+      errors.push("latestPrice ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป");
+    }
+    if (errors.length > 0) {
+      throw new Error(
+        "ข้อมูลวัตถุดิบลำดับที่ " + (index + 1) + " ไม่ถูกต้อง" +
+        " | สาขา: " + branch.code + " (" + branch.name + ")" +
+        " | วัตถุดิบ: " + (item && item.ingredientName || "ไม่ระบุ") +
+        " | " + errors.join(", ")
+      );
     }
 
     return {

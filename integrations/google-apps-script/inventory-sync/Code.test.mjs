@@ -650,3 +650,24 @@ describe("Google Apps Script inventory sync", () => {
     )
   })
 })
+
+describe("inventory validation balances", () => {
+  const branch = (item) => ({
+    id: "b1", code: "BKK", name: "Bangkok",
+    inventory: [{ ingredientName: "Rice", unit: "kg", onHand: -2.5, latestPrice: 10, ...item }],
+  })
+
+  it("preserves negative stock balances", () => {
+    const result = loadScript().validateBranchInventory_(branch({}), 0)
+    assert.equal(result.inventory[0].onHand, -2.5)
+  })
+
+  it("identifies branch, ingredient and invalid field", () => {
+    for (const [field, value] of [["latestPrice", -1], ["onHand", "invalid"], ["unit", ""]]) {
+      assert.throws(
+        () => loadScript().validateBranchInventory_(branch({ [field]: value }), 0),
+        (error) => ["BKK", "Rice", field].every((text) => error.message.includes(text))
+      )
+    }
+  })
+})
